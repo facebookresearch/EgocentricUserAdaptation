@@ -30,7 +30,7 @@ class VideoTask(LightningModule):
             cfg.EPIC_KITCHEN.STRIDE_TYPE = "constant"
 
         self.cfg = cfg
-        self.save_hyperparameters()
+        self.save_hyperparameters() # Save cfg to '
         self.model = build_model(cfg)
         self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")
 
