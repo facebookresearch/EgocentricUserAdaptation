@@ -13,9 +13,11 @@ See [forecasting](forecasting) for our experimental codebase.
 - Pre-trained Ego4D models (Kinetics + ego4d pretraining): 
   - /home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation
 
+
 ### How to define our own splits?
 If we want to keep the Ego4d setup, we can define a per-user split by splitting the dataset as in,
-with the videos in each json ordered chronologically.
+with the videos in each json ordered chronologically (not necessarily in the json, can be done ad-hoc).
+Ideally we have some summary statistics generated for our split.
 
     Custom-split-dataset
       - train
@@ -47,8 +49,8 @@ The 'clip' terminology can hence refer to 2 things!
 defines transforms, extraction of labels form the Pytorch Dataset entries, and defines (Distr) Sampler for the Pytorch dataset.
 
 **Pytorch Dataset:**
-`ptv_dataset_helper.py:clip_forecasting_dataset()` creates the actual Pytorch dataset.
-It directly loads the annotation file (`fho_lta_{mode_}.json`), and groups annotations per (5 minute) video-clip (by `clip_uid`).
+`ptv_dataset_helper.py:clip_forecasting_dataset()` creates the actual Pytorch `LabeledVideoDataset`, and therefore directly loads the annotation file (`fho_lta_{mode_}.json`), and groups annotations per (5 minute) video-clip (by `clip_uid`).
+`LabeledVideoDataset` assumes a list of videos (`clip_uid.mp4`) and retrieves the next (sub)clip in one of the videos, based on the clip sampler strategy.
 
 LabeledVideoDataset requires the data to be list of tuples with format: 
 `(video_path, annotation_dict)`. For forecasting, the `video_path=f'{clip_uid}.mp4'`, and the `annotation_dict` contains 
@@ -56,6 +58,8 @@ LabeledVideoDataset requires the data to be list of tuples with format:
 - any observed clip annotations within those boundaries `(verb_label, noun_label)`
 - a list of `num_future_actions` clip annotations (including labels and boundaries), these are extracted directly from the annotations in the 5-min video-clip based on order of `action_idx`.
 
+
+OPEN QUESTION: HOW GO FROM ONE VIDEO TO NEXT? (So how are the videos sampled, not the clips within the vids?)
 
 ## Experiment scripts
 See [exps](exps) for scripts per experiment, each attached with specific config file.
