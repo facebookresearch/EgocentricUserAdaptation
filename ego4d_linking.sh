@@ -19,11 +19,15 @@
 
 # link data to the current project directory
 EGO4D_LOCAL_DIR="./forecasting" # Local
-local_annotations_path="${EGO4D_LOCAL_DIR}/data/long_term_anticipation/"
-remote_annotations_path="/fb-agios-acai-efs/Ego4D/ego4d_data/v1/annotations/"
+local_LTA_data_path="${EGO4D_LOCAL_DIR}/data/long_term_anticipation/"
+mkdir -p ${local_LTA_data_path}
 
-mkdir -p ${local_annotations_path}
-ln -s "${remote_annotations_path}" "${local_annotations_path}"
+remote_annotations_path="/fb-agios-acai-efs/Ego4D/ego4d_data/v1/annotations/"
+remote_clips_path="/fb-agios-acai-efs/Ego4D/lta_video_clips/v1/" # subdirs: clips, resized_clips,...
+
+
+ln -s "${remote_annotations_path}" "${local_LTA_data_path}"
+ln -s "${remote_clips_path}" "${local_LTA_data_path}/clips_root"
 #ln -s ${EGO4D_DIR}/v1/clips/* data/long_term_anticipation/clips_hq/
 #
 ## link model files to current project directory
