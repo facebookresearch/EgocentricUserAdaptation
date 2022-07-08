@@ -29,7 +29,7 @@ export PYTHONPATH=$PYTHONPATH:$ego4d_code_root
 #-----------------------------------------------------------------------------------------------#
 # Add any arguments here
 JOB_NAME="slowfast_trf" #
-ARGS="NUM_GPUS 2 TRAIN.BATCH_SIZE 8 TEST.BATCH_SIZE 32" # DEBUG
+ARGS="NUM_GPUS 2 TRAIN.BATCH_SIZE 8 TEST.BATCH_SIZE 32 CHECKPOINT_step_freq 300" # DEBUG
 CONFIG="$ego4d_code_root/configs/Ego4dLTA/MULTISLOWFAST_8x8_R101.yaml"
 BACKBONE_WTS="/home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation/ego4d_slowfast8x8.ckpt"
 #$PWD/pretrained_models/long_term_anticipation/ego4d_slowfast8x8.ckpt # SlowFast-Transformer

@@ -36,8 +36,11 @@ run_lta.py: trainer.fit(task: LongTermAnticipationTask)
 import os
 import pickle
 import pprint
-
 import sys
+import copy
+import pathlib
+import shutil
+import submitit
 
 from ego4d.utils import logging
 import numpy as np
@@ -51,47 +54,9 @@ from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.plugins import DDPPlugin
 
-import copy
+from scripts.slurm import copy_and_run_with_config, init_and_run
 
 logger = logging.get_logger(__name__)
-
-import os
-import pathlib
-import shutil
-import submitit
-
-
-# Not sure why I can't import scripts.slurm?
-# from scripts.slurm import copy_and_run_with_config
-def init_and_run(run_fn, run_config):
-    os.environ["RANK"] = os.environ["SLURM_LOCALID"]
-    os.environ["LOCAL_RANK"] = os.environ["SLURM_LOCALID"]
-    os.environ["NODE_RANK"] = os.environ["SLURM_LOCALID"]
-    os.environ["WORLD_SIZE"] = os.environ["SLURM_NTASKS"]
-    run_fn(run_config)
-
-
-def copy_and_run_with_config(run_fn, run_config, directory, **cluster_config):
-    working_directory = pathlib.Path(directory) / cluster_config["job_name"]
-    copy_blacklist = [
-        "data",
-        "lightning_logs",
-        "slurm",
-        "logs",
-        "pretrained_models",
-        "checkpoints",
-        "experimental",
-        ".git",
-        "output",
-    ]
-    shutil.copytree(".", working_directory, ignore=lambda x, y: copy_blacklist)
-    os.chdir(working_directory)
-    print(f"Running at {working_directory}")
-
-    executor = submitit.SlurmExecutor(folder=working_directory)
-    executor.update_parameters(**cluster_config)
-    job = executor.submit(init_and_run, run_fn, run_config)
-    print(f"job_id: {job}")
 
 
 def load_caffe_checkpoint(cfg, ckp_path, task):
@@ -202,6 +167,25 @@ def load_slowfast_checkpoint(cfg, task):
         logger.info(f"Could not load {key} weights")
 
 
+def load_any_checkpoint(cfg, ckp_path, task, TaskType):
+    # Get pretrained model
+    pretrained = TaskType.load_from_checkpoint(ckp_path)
+    state_dict_for_child_module = {
+        child_name: child_state_dict.state_dict()
+        for child_name, child_state_dict in pretrained.model.named_children()
+    }
+
+    # Iterate current task model and load pretrained
+    for child_name, child_module in task.model.named_children():
+        if not cfg.CHECKPOINT_LOAD_MODEL_HEAD and "head" in child_name:
+            continue
+
+        logger.info(f"Loading in {child_name}")
+        state_dict = state_dict_for_child_module[child_name]
+        missing_keys, unexpected_keys = child_module.load_state_dict(state_dict)
+        assert len(missing_keys) + len(unexpected_keys) == 0
+
+
 def load_checkpoint(cfg, ckp_path, task, TaskType):
     if cfg.CHECKPOINT_VERSION == "caffe2":
         load_caffe_checkpoint(cfg, ckp_path, task)
@@ -213,23 +197,7 @@ def load_checkpoint(cfg, ckp_path, task, TaskType):
         load_slowfast_checkpoint(cfg, ckp_path)
 
     else:  # Load all child modules except for "head" if CHECKPOINT_LOAD_MODEL_HEAD is False.
-
-        # Get pretrained model
-        pretrained = TaskType.load_from_checkpoint(ckp_path)
-        state_dict_for_child_module = {
-            child_name: child_state_dict.state_dict()
-            for child_name, child_state_dict in pretrained.model.named_children()
-        }
-
-        # Iterate current task model and load pretrained
-        for child_name, child_module in task.model.named_children():
-            if not cfg.CHECKPOINT_LOAD_MODEL_HEAD and "head" in child_name:
-                continue
-
-            logger.info(f"Loading in {child_name}")
-            state_dict = state_dict_for_child_module[child_name]
-            missing_keys, unexpected_keys = child_module.load_state_dict(state_dict)
-            assert len(missing_keys) + len(unexpected_keys) == 0
+        load_any_checkpoint(cfg, ckp_path, task, TaskType)
 
 
 def main(cfg):
@@ -240,27 +208,24 @@ def main(cfg):
     logger.info(pprint.pformat(cfg))
 
     # Choose task type based on config.
-    # TODO: change this to TASK_REGISTRY.get(cfg.cfg.DATA.TASK)(cfg)
-    if cfg.DATA.TASK == "detection":
-        TaskType = DetectionTask
-    elif cfg.DATA.TASK == "classification":
-        TaskType = MultiTaskClassificationTask
-    elif cfg.DATA.TASK == "long_term_anticipation":
-        TaskType = LongTermAnticipationTask
-    elif cfg.DATA.TASK == "short_term_anticipation":
-        TaskType = ShortTermAnticipationTask
-
+    assert cfg.DATA.TASK == "long_term_anticipation", "Only LTA supported"
+    TaskType = LongTermAnticipationTask
     task = TaskType(cfg)
 
     # Load model from checkpoint if checkpoint file path is given.
-    ckp_path = cfg.CHECKPOINT_FILE_PATH
+    ckp_path = cfg.CHECKPOINT_FILE_PATH # Resume from last.ckpt
+    assert 'last.ckpt' in ckp_path, f'ckp_path is not last save (should be last.ckpt): {ckp_path}'
     if len(ckp_path) > 0 or cfg.DATA.CHECKPOINT_MODULE_FILE_PATH != "":
-        load_checkpoint()
+        load_checkpoint(cfg, ckp_path, task, TaskType)
 
-    # TODO Make metric-agnostic checkpoints every N steps?
+    # Save every N global training steps + save on the end of training (end of epoch)
+    # Save_last will save an overwriting copy that we can easily resume from again
     checkpoint_callback = ModelCheckpoint(
-        monitor=task.checkpoint_metric, mode="min", save_last=True, save_top_k=1
+        every_n_train_steps=cfg.CHECKPOINT_step_freq, save_on_train_epoch_end=True, save_last=True, save_top_k=1
     )
+
+    # Additional callbacks/logging on top of the default Tensorboard logger
+    # TB logger is passed by default, stdout 'logger' in this script is a handler from the main Py-Lightning logger
     if cfg.ENABLE_LOGGING:
         args = {"callbacks": [LearningRateMonitor(), checkpoint_callback]}
     else:
@@ -274,9 +239,9 @@ def main(cfg):
         num_sanity_val_steps=3,  # Sanity check before starting actual training to make sure validation works
         benchmark=True,
         log_gpu_memory="min_max",
-        replace_sampler_ddp=False, # Disable to use own custom sampler
-        fast_dev_run=cfg.FAST_DEV_RUN, # Debug: Run defined batches (int) for train/val/test
-        default_root_dir=cfg.OUTPUT_DIR, # Default path for logs and weights when no logger/ckpt_callback passed
+        replace_sampler_ddp=False,  # Disable to use own custom sampler
+        fast_dev_run=cfg.FAST_DEV_RUN,  # Debug: Run defined batches (int) for train/val/test
+        default_root_dir=cfg.OUTPUT_DIR,  # Default path for logs and weights when no logger/ckpt_callback passed
         plugins=DDPPlugin(find_unused_parameters=False),
         **args,
     )

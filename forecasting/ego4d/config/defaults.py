@@ -449,7 +449,7 @@ _C.SOLVER.STEPS = []
 _C.SOLVER.LRS = []
 
 # Maximal number of epochs.
-_C.SOLVER.MAX_EPOCH = 300
+_C.SOLVER.MAX_EPOCH = 1
 
 # Momentum.
 _C.SOLVER.MOMENTUM = 0.9
@@ -528,6 +528,8 @@ _C.CHECKPOINT_LOAD_MODEL_HEAD = False
 # Whether or not to run on fblearner
 _C.FBLEARNER = False
 
+# Make checkpoint every N iterations
+_C.CHECKPOINT_step_freq = 300
 
 # ---------------------------------------------------------------------------- #
 # Common train/test data loader options

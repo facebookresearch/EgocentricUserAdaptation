@@ -36,3 +36,10 @@ Please refer to the following README files for the benchmark specific code/instr
  * [Short-Term Object Interaction Anticipation](SHORT_TERM_ANTICIPATION.md)
  * [Long-Term Action Anticipation](LONG_TERM_ANTICIPATION.md)
  * [Future Hand Prediction](Ego4D-Future-Hand-Prediction/README.md)
+
+
+# download annotation jsons, clips and models for the FHO tasks
+python -m ego4d.cli.cli \
+    --output_directory=. \
+    --datasets lta_models \
+    --benchmarks FHO
