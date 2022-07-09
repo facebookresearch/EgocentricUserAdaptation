@@ -62,8 +62,8 @@ OVERWRITE_CFG_ARGS+=" DATA.PATH_PREFIX ${EGO4D_VIDEOS}"
 OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
-#screenname="MATT_${run_id}"
-#screen -dmS ${screenname} \
+screenname="MATT_${run_id}"
+screen -dmS "${screenname}" \
 python -m scripts.run_lta \
       --job_name $JOB_NAME \
       --working_directory "${CHECKPOINT_DIR}" \

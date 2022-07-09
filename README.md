@@ -20,14 +20,19 @@ with the videos in each json ordered chronologically (not necessarily in the jso
 Ideally we have some summary statistics generated for our split.
 
     Custom-split-dataset
-      - train
-        - user1.json
-        - user2.json
+      - train_usersplit.json:
+        {
+        - user1: { annotation entries }
+        - user2: { annotation entries }
         - ...
-      - test
-        - user6.json
-        - user7.json
+        }
+
+      - test_usersplit.json (MUTUALLY EXCLUSIVE):
+        {
+        - user7: { annotation entries }
+        - user8: { annotation entries }
         - ...
+        }
 
 
 Then we can pass through the config (`cfg`) to the `Ego4dLongTermAnticipation` class,
@@ -61,6 +66,45 @@ LabeledVideoDataset requires the data to be list of tuples with format:
 
 OPEN QUESTION: HOW GO FROM ONE VIDEO TO NEXT? (So how are the videos sampled, not the clips within the vids?)
 
+### How to implement sequential dataloaders?
+`long_term_anticipation.py:Ego4dLongTermAnticipation` determines the order, both based on
+`clip_sampler` within the video, and between videos with `video_sampler`.
+
+
+For now the by default
+- `video_sampler` is by default `DistributedSampler`, but we should make it a `SequentialDistributedSampler`.
+  - Does this sequential nature limit us to using 1 GPU? No we can still benefit from distributed, by instead of online 1-by-1 learning, 
+  we can observe the next batch in the buffer (e.g. the next N samples). But this batch-size is limited anyway.
+  - Should we instead have 1 user running independently per GPU and scheduling users over GPUs?
+- `clip_sampler` "uniform" if mode == "test" else "random" from [0,T]. We should make it [T-delta,T], so 
+not all of the past can be observed.
+
+**Video sampler:**
+We can use the Pytorch [Sequential Sampler](https://pytorch.org/docs/master/data.html#torch.utils.data.SequentialSampler).
+Note that this is NOT distributed! Multiple devices will be used independently, using multi-threading.
+
+Solution 1: Zero effort
+- Run all users sequentially, as we only do 1 epoch might be feasible
+
+Solution 2: (Manual scheduling bottleneck) Run 1 job for each user. We could only do this in slurm cluster... 
+On single instance, would need manual running per user (not feasible as #Users> 100?).
+
+Solution3:  (GIL bottleneck!) single-machine multi-threading scheduler
+- List available devices and assign single user to all of them
+- Whenever devices becomes available, schedule next user.
+- In the end aggregate all results
+
+**Clip sampler:**
+Can we also just use the Pytorch [Sequential Sampler](https://pytorch.org/docs/master/data.html#torch.utils.data.SequentialSampler).
+in combination with the sequential video sampler?
+
+
+
+### How to implement Experience Replay?
+Write custom video sampler that can only sample from subsets of ranges in prev video.
+(Or store video features and replay those instead).
+
+
 ## Experiment scripts
 See [exps](exps) for scripts per experiment, each attached with specific config file.
 Scripts may overwrite configs for gridsearches, this is implemented through the ego4D arg parser.
@@ -79,3 +123,10 @@ For Ego4D analysis notebooks see [notebooks](notebooks) directory and README.md 
   
   
     pip install setuptools==59.5.0
+
+
+# Docs
+- PytorchVideo:
+  - https://pytorchvideo.readthedocs.io/en/latest/index.html
+- Pytorch Lightning:
+  - p

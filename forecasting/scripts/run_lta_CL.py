@@ -213,7 +213,7 @@ def main(cfg):
     task = TaskType(cfg)
 
     # Load model from checkpoint if checkpoint file path is given.
-    ckp_path = cfg.CHECKPOINT_FILE_PATH # Resume from last.ckpt
+    ckp_path = cfg.CHECKPOINT_FILE_PATH  # Resume from last.ckpt
     assert 'last.ckpt' in ckp_path, f'ckp_path is not last save (should be last.ckpt): {ckp_path}'
     if len(ckp_path) > 0 or cfg.DATA.CHECKPOINT_MODULE_FILE_PATH != "":
         load_checkpoint(cfg, ckp_path, task, TaskType)
@@ -246,18 +246,18 @@ def main(cfg):
         **args,
     )
 
-    if cfg.TRAIN.ENABLE and cfg.TEST.ENABLE:
-        trainer.fit(task)
+    assert not (cfg.TRAIN.ENABLE and cfg.TEST.ENABLE), \
+        "Choose either TRAIN or TEST mode, TRAIN is the user-subset for hyperparam tuning, TEST is held-out final eval"
 
-        # Calling test without the lightning module arg automatically selects the best
-        # model during training.
-        return trainer.test()
+    # TODO make user splits for train/test
+    if cfg.TRAIN.ENABLE:
+        pass  # Use TRAIN user-split + Train on this split
 
-    elif cfg.TRAIN.ENABLE:
-        return trainer.fit(task)
+    if cfg.TEST.ENABLE:
+        pass  # Use TEST user-split + Train on this split
 
-    elif cfg.TEST.ENABLE:
-        return trainer.test(task)
+    # TODO For now TRAIN, but see above to change split!
+    trainer.fit(task)
 
 
 if __name__ == "__main__":
