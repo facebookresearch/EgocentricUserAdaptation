@@ -18,8 +18,8 @@ echo "RUN-ID=${run_id}"
 # PATHS
 #-----------------------------------------------------------------------------------------------#
 JOB_NAME="slowfast_trf" #
-BACKBONE_WTS="/home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation/ego4d_slowfast8x8.ckpt"
-CONFIG="$ego4d_code_root/configs/Ego4dLTA/MULTISLOWFAST_8x8_R101.yaml"
+BACKBONE_WTS="/home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation/k400_slowfast8x8.ckpt"
+CONFIG="$ego4d_code_root/configs/Ego4dRecognition/MULTISLOWFAST_8x8_R101.yaml"
 
 # Logging (stdout/tensorboard) output path
 OUTPUT_DIR="./logs/${run_id}"
@@ -45,16 +45,17 @@ echo "CHECKPOINT_DIR=${CHECKPOINT_DIR}"
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS="NUM_GPUS 2 TRAIN.BATCH_SIZE 8 TEST.BATCH_SIZE 32 CHECKPOINT_step_freq 300" # DEBUG
-OVERWRITE_CFG_ARGS+=" FORECASTING.NUM_INPUT_CLIPS 4"
+#OVERWRITE_CFG_ARGS+=" FORECASTING.NUM_INPUT_CLIPS 4"
 
-# Archtiecture
-OVERWRITE_CFG_ARGS+=" FORECASTING.AGGREGATOR TransformerAggregator"
-OVERWRITE_CFG_ARGS+=" FORECASTING.DECODER MultiHeadDecoder"
+# Architecture: aggregator/decoder only for LTA, SlowFast model directly performs Action Classification
+#OVERWRITE_CFG_ARGS+=" FORECASTING.AGGREGATOR TransformerAggregator"
+#OVERWRITE_CFG_ARGS+=" FORECASTING.DECODER MultiHeadDecoder"
 
 # Checkpoint loading
-OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}"
+#OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
+OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD False"
-OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE True"
+OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE False"
 
 # Paths
 OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_DIR ${EGO4D_ANNOTS}"

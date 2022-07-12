@@ -581,8 +581,8 @@ _C.FORECASTING.NUM_ACTIONS_TO_PREDICT = 1
 # The number of future action sequences to predict.
 _C.FORECASTING.NUM_SEQUENCES_TO_PREDICT = 5
 
-# Number of input clips before the chosen action (only supported by forecasting)
-_C.FORECASTING.NUM_INPUT_CLIPS = 1
+# Number of (~2s) input clips before the chosen action (only supported by forecasting)
+_C.FORECASTING.NUM_INPUT_CLIPS = 1 # Standard 2 in Ego4D
 
 
 # -----------------------------------------------------------------------------
