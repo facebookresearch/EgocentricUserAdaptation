@@ -1,14 +1,14 @@
 import torch
 from fvcore.nn.precise_bn import get_bn_modules
 
-from ..evaluation import lta_metrics as metrics
-from ..utils import misc
-from ..models import losses
-from ..optimizers import lr_scheduler
-from ..utils import distributed as du
-from ..utils import logging
-from ..datasets import loader
-from ..models import build_model
+from ego4d.evaluation import lta_metrics as metrics
+from ego4d.utils import misc
+from ego4d.models import losses
+from ego4d.optimizers import lr_scheduler
+from ego4d.utils import distributed as du
+from ego4d.utils import logging
+from ego4d.datasets import loader
+from ego4d.models import build_model
 from pytorch_lightning.core import LightningModule
 
 logger = logging.get_logger(__name__)

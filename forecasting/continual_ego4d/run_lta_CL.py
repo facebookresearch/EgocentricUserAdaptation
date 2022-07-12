@@ -46,7 +46,7 @@ from ego4d.utils import logging
 import numpy as np
 import pytorch_lightning
 import torch
-from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask, LongTermAnticipationTask
+from ego4d.tasks.long_term_anticipation import ContinualMultiTaskClassificationTask
 from ego4d.utils.c2_model_loading import get_name_convert_func
 from ego4d.utils.misc import gpu_mem_usage
 from ego4d.utils.parser import load_config, parse_args
@@ -208,8 +208,8 @@ def main(cfg):
     logger.info(pprint.pformat(cfg))
 
     # Choose task type based on config.
-    assert cfg.DATA.TASK == "long_term_anticipation", "Only LTA supported"
-    TaskType = LongTermAnticipationTask
+    assert cfg.DATA.TASK == "classification", "Only action recognition supported, no LTA"
+    TaskType = ContinualMultiTaskClassificationTask
     task = TaskType(cfg)
 
     # Load model from checkpoint if checkpoint file path is given.
@@ -229,35 +229,53 @@ def main(cfg):
     if cfg.ENABLE_LOGGING:
         args = {"callbacks": [LearningRateMonitor(), checkpoint_callback]}
     else:
-        args = {"logger": False, "callbacks": checkpoint_callback}
+        args = {"logger": False, "callbacks": [checkpoint_callback]}
 
+    # TODO add trainingstep validation callback: on_before_optimizer_step
+    args["callbacks"].append()
+
+    # enable train mode
+    self.model.train()
+    torch.set_grad_enabled(True)
+
+    # There are no validation/testing phases!
     trainer = Trainer(
-        gpus=cfg.NUM_GPUS,
-        num_nodes=cfg.NUM_SHARDS,
-        accelerator=cfg.SOLVER.ACCELERATOR,
-        max_epochs=cfg.SOLVER.MAX_EPOCH,
-        num_sanity_val_steps=3,  # Sanity check before starting actual training to make sure validation works
+        gpus=1,  # cfg.NUM_GPUS
+        num_nodes=1,  # cfg.NUM_SHARDS
+        accelerator="gpu",  # cfg.SOLVER.ACCELERATOR, only single device for now
+        max_epochs=1,  # cfg.SOLVER.MAX_EPOCH
+        num_sanity_val_steps=0,  # Sanity check before starting actual training to make sure validation works
         benchmark=True,
         log_gpu_memory="min_max",
         replace_sampler_ddp=False,  # Disable to use own custom sampler
         fast_dev_run=cfg.FAST_DEV_RUN,  # Debug: Run defined batches (int) for train/val/test
         default_root_dir=cfg.OUTPUT_DIR,  # Default path for logs and weights when no logger/ckpt_callback passed
-        plugins=DDPPlugin(find_unused_parameters=False),
+        # plugins=DDPPlugin(find_unused_parameters=False),
         **args,
     )
+
+    trainer.train_loop
 
     assert not (cfg.TRAIN.ENABLE and cfg.TEST.ENABLE), \
         "Choose either TRAIN or TEST mode, TRAIN is the user-subset for hyperparam tuning, TEST is held-out final eval"
 
+    # Load user-based dataset already, and retrieve users
+
     # TODO make user splits for train/test
     if cfg.TRAIN.ENABLE:
+        # TODO iterate users
+        users = task.
         pass  # Use TRAIN user-split + Train on this split
 
     if cfg.TEST.ENABLE:
         pass  # Use TEST user-split + Train on this split
 
     # TODO For now TRAIN, but see above to change split!
-    trainer.fit(task)
+    trainer.fit(task, val_dataloaders=None) # Skip validation
+
+
+def online_adaptation_single_user():
+    task
 
 
 if __name__ == "__main__":
