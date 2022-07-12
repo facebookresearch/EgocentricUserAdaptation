@@ -389,57 +389,6 @@ def clip_recognition_dataset(
     )
     return dataset
 
-def clip_user_recognition_dataset(
-        user_id: str, # Ego4d 'fb_participant_id'
-        data_path: str,
-        clip_sampler: ClipSampler,
-        video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
-        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-        video_path_prefix: str = "",
-        decode_audio: bool = True,
-        decoder: str = "pyav",
-):
-    assert os.path.exists(data_path), 'Please run data/parse_ego4d_json.py first. Will change this later'
-
-    if g_pathmgr.isfile(data_path):
-        try:
-            with g_pathmgr.open(data_path, "r") as f:
-                annotations = json.load(f)
-        except Exception:
-            raise FileNotFoundError(f"{data_path} must be json for Ego4D dataset")
-
-        user_annotations = annotations['users'][user_id]
-
-        # LabeledVideoDataset requires the data to be list of tuples with format:
-        # (video_paths, annotation_dict). For recognition, the annotation_dict contains
-        # the verb and noun label, and the annotation boundaries.
-        untrimmed_clip_annotations = []
-        for entry in user_annotations:
-            untrimmed_clip_annotations.append(
-                (
-                    os.path.join(video_path_prefix, f'{entry["clip_uid"]}.mp4'),
-                    {
-                        "clip_start_sec": entry['action_clip_start_sec'],
-                        "clip_end_sec": entry['action_clip_end_sec'],
-                        "noun_label": entry['noun_label'],
-                        "verb_label": entry['verb_label'],
-                        "action_idx": entry['action_idx'],
-                    },
-                )
-            )
-    else:
-        raise FileNotFoundError(f"{data_path} not found.")
-
-    dataset = LabeledVideoDataset(
-        untrimmed_clip_annotations,
-        UntrimmedClipSampler(clip_sampler),
-        video_sampler,
-        transform,
-        decode_audio=decode_audio,
-        decoder=decoder,
-    )
-    return dataset
-
 
 def clip_forecasting_dataset(
         data_path: str,

@@ -482,6 +482,9 @@ _C.SOLVER.ACCELERATOR = "ddp"
 # Misc options
 # ---------------------------------------------------------------------------- #
 
+# Path to the checkpoint to load the initial weight.
+_C.CHECKPOINT_USER_ID = ""
+
 # Number of GPUs to use (applies to both training and testing).
 _C.NUM_GPUS = 1
 

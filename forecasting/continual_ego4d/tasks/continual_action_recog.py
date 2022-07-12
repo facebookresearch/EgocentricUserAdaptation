@@ -66,8 +66,8 @@ class ContinualVideoTask(LightningModule):
             du.init_distributed_groups(self.cfg)
 
         self.train_loader = loader.construct_loader(self.cfg, "train")
-        self.val_loader = None
-        self.test_loader = None
+        # self.val_loader = None
+        # self.test_loader = None
 
     def configure_optimizers(self):
         steps_in_epoch = len(self.train_loader)
@@ -79,10 +79,10 @@ class ContinualVideoTask(LightningModule):
         return self.train_loader
 
     def val_dataloader(self):
-        return self.val_loader
+        return None
 
     def test_dataloader(self):
-        return self.test_loader
+        return None
 
     def on_after_backward(self):
         if (self.cfg.LOG_GRADIENT_PERIOD >= 0 and
@@ -100,10 +100,9 @@ class ContinualVideoTask(LightningModule):
 
 
 class ContinualMultiTaskClassificationTask(ContinualVideoTask):
-    checkpoint_metric = "val_top1_noun_err"
 
     def training_step(self, batch, batch_idx):
-        """Before update.
+        """Before update: Forward and define loss.
         """
 
         # PREDICTIONS + LOSS
@@ -115,7 +114,9 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
 
         step_result = {
             "loss": loss,
-            "train_loss": loss.item()
+            "train_loss": loss.item(),
+            "verb_loss": loss1.item(),
+            "noun_loss": loss2.item(),
         }
 
         # CURRENT BATCH METRICS
@@ -129,7 +130,8 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
 
         return step_result
 
-    def get_current_batch_metrics(self, preds, labels):
+    @torch.no_grad()
+    def get_current_batch_metrics(self, preds, labels, prefix='online'):
         """ Use current data observed training data in mini-batch."""
         top1_err_verb, top5_err_verb = metrics.distributed_topk_errors(
             preds[0], labels[:, 0], (1, 5)
@@ -138,18 +140,22 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
             preds[1], labels[:, 1], (1, 5)
         )
 
+        # TODO get total action error (merge the two)
+
         return {
-            "train_top1_verb_err": top1_err_verb.item(),
-            "train_top5_verb_err": top5_err_verb.item(),
-            "train_top1_noun_err": top1_err_noun.item(),
-            "train_top5_noun_err": top5_err_noun.item(),
+            f"{prefix}_top1_verb_err": top1_err_verb.item(),
+            f"{prefix}_top5_verb_err": top5_err_verb.item(),
+            f"{prefix}_top1_noun_err": top1_err_noun.item(),
+            f"{prefix}_top5_noun_err": top5_err_noun.item(),
         }
 
+    @torch.no_grad()
     def get_observed_data_metrics(self, preds, labels):
         """ Stability measure of previous data. """
         # Create new dataloader
         pass
 
+    @torch.no_grad()
     def get_unseen_data_metrics(self, preds, labels):
         """ Zero-shot and generalization performance of future data (including current just-observed mini-batch."""
         # Create new dataloaders
@@ -157,7 +163,7 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
 
     def training_epoch_end(self, outputs):
         """ End of stream."""
-        raise NotImplementedError()  # TODO
+        raise NotImplementedError()  # TODO make results/logs dump
 
         if self.cfg.BN.USE_PRECISE_STATS and len(get_bn_modules(self.model)) > 0:
             misc.calculate_and_update_precise_bn(

@@ -1,3 +1,5 @@
+CHECKPOINT_USER_ID: ""
+CHECKPOINT_FILE_PATH: ""
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition

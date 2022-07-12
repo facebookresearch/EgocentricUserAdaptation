@@ -46,13 +46,15 @@ from ego4d.utils import logging
 import numpy as np
 import pytorch_lightning
 import torch
-from ego4d.tasks.long_term_anticipation import ContinualMultiTaskClassificationTask
+from continual_ego4d.tasks.continual_action_recog import ContinualMultiTaskClassificationTask
 from ego4d.utils.c2_model_loading import get_name_convert_func
 from ego4d.utils.misc import gpu_mem_usage
 from ego4d.utils.parser import load_config, parse_args
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.plugins import DDPPlugin
+
+from continual_ego4d.datasets.continual_action_recog_dataset import get_user_to_dataset_dict
 
 from scripts.slurm import copy_and_run_with_config, init_and_run
 
@@ -167,9 +169,9 @@ def load_slowfast_checkpoint(cfg, task):
         logger.info(f"Could not load {key} weights")
 
 
-def load_any_checkpoint(cfg, ckp_path, task, TaskType):
+def load_any_checkpoint(cfg, ckp_path, task):
     # Get pretrained model
-    pretrained = TaskType.load_from_checkpoint(ckp_path)
+    pretrained = task.load_from_checkpoint(ckp_path)
     state_dict_for_child_module = {
         child_name: child_state_dict.state_dict()
         for child_name, child_state_dict in pretrained.model.named_children()
@@ -186,7 +188,7 @@ def load_any_checkpoint(cfg, ckp_path, task, TaskType):
         assert len(missing_keys) + len(unexpected_keys) == 0
 
 
-def load_checkpoint(cfg, ckp_path, task, TaskType):
+def load_checkpoint(cfg, ckp_path, task):
     if cfg.CHECKPOINT_VERSION == "caffe2":
         load_caffe_checkpoint(cfg, ckp_path, task)
 
@@ -197,10 +199,35 @@ def load_checkpoint(cfg, ckp_path, task, TaskType):
         load_slowfast_checkpoint(cfg, ckp_path)
 
     else:  # Load all child modules except for "head" if CHECKPOINT_LOAD_MODEL_HEAD is False.
-        load_any_checkpoint(cfg, ckp_path, task, TaskType)
+        load_any_checkpoint(cfg, ckp_path, task)
 
 
 def main(cfg):
+    """ Iterate users and aggregate. """
+    # Select user-split file based on config: Either train or test:
+    assert cfg.DATA.USER_SUBSET in ['train', 'test'], \
+        "Choose either 'train' or 'test' mode, TRAIN is the user-subset for hyperparam tuning, TEST is held-out final eval"
+    usersplit_annotations = get_user_to_dataset_dict(cfg.DATA.PATH_TO_DATA_DIR, cfg.DATA.USER_SUBSET)
+
+    # Checkpoint resume vars and checks
+    if len(cfg.CHECKPOINT_USER_ID) > 0:  # Skip until first user ckp encountered (if defined)
+        assert len(cfg.CHECKPOINT_FILE_PATH) > 0, "Must defined ckp_path "
+        assert 'last.ckpt' in cfg.CHECKPOINT_FILE_PATH, \
+            f'ckp_path is not last save (should be last.ckpt): {cfg.CHECKPOINT_FILE_PATH}'  # TODO last_userid_ckpt or in user_id dir
+    cfg.LOADED_USER_CHECKPOINT = False
+
+    # Iterate user datasets
+    user_ids_s = sorted([u for u in usersplit_annotations.keys()])  # Deterministic user order
+    for user_id in user_ids_s:
+        cfg.DATA.USER_ID = user_id
+        cfg.DATA.USER_DS_ENTRIES = usersplit_annotations[user_id]
+        online_adaptation_single_user(cfg, user_id)
+
+    # TODO aggregate metrics over user dumps
+
+
+def online_adaptation_single_user(cfg, user_id):
+    """ Run single user sequentially. """
     seed_everything(cfg.RNG_SEED)
 
     logging.setup_logging(cfg.OUTPUT_DIR)
@@ -209,14 +236,17 @@ def main(cfg):
 
     # Choose task type based on config.
     assert cfg.DATA.TASK == "classification", "Only action recognition supported, no LTA"
-    TaskType = ContinualMultiTaskClassificationTask
-    task = TaskType(cfg)
+    task = ContinualMultiTaskClassificationTask(cfg)
 
-    # Load model from checkpoint if checkpoint file path is given.
-    ckp_path = cfg.CHECKPOINT_FILE_PATH  # Resume from last.ckpt
-    assert 'last.ckpt' in ckp_path, f'ckp_path is not last save (should be last.ckpt): {ckp_path}'
-    if len(ckp_path) > 0 or cfg.DATA.CHECKPOINT_MODULE_FILE_PATH != "":
-        load_checkpoint(cfg, ckp_path, task, TaskType)
+    # User-based Checkpointing
+    if len(cfg.CHECKPOINT_USER_ID) > 0 and not cfg.LOADED_USER_CHECKPOINT:
+        if user_id != cfg.CHECKPOINT_USER_ID:
+            logger.info(f"Skipping user {user_id}, until found checkpoint-resuming user: {cfg.CHECKPOINT_USER_ID}")
+            return
+        else:  # Load model from checkpoint if checkpoint file path is given.
+            logger.info(f"Loading ckpt for user: {user_id}")
+            load_checkpoint(cfg, cfg.CHECKPOINT_FILE_PATH, task)
+            cfg.LOADED_USER_CHECKPOINT = True  # Set state as resumed from this user
 
     # Save every N global training steps + save on the end of training (end of epoch)
     # Save_last will save an overwriting copy that we can easily resume from again
@@ -230,13 +260,6 @@ def main(cfg):
         args = {"callbacks": [LearningRateMonitor(), checkpoint_callback]}
     else:
         args = {"logger": False, "callbacks": [checkpoint_callback]}
-
-    # TODO add trainingstep validation callback: on_before_optimizer_step
-    args["callbacks"].append()
-
-    # enable train mode
-    self.model.train()
-    torch.set_grad_enabled(True)
 
     # There are no validation/testing phases!
     trainer = Trainer(
@@ -254,28 +277,7 @@ def main(cfg):
         **args,
     )
 
-    trainer.train_loop
-
-    assert not (cfg.TRAIN.ENABLE and cfg.TEST.ENABLE), \
-        "Choose either TRAIN or TEST mode, TRAIN is the user-subset for hyperparam tuning, TEST is held-out final eval"
-
-    # Load user-based dataset already, and retrieve users
-
-    # TODO make user splits for train/test
-    if cfg.TRAIN.ENABLE:
-        # TODO iterate users
-        users = task.
-        pass  # Use TRAIN user-split + Train on this split
-
-    if cfg.TEST.ENABLE:
-        pass  # Use TEST user-split + Train on this split
-
-    # TODO For now TRAIN, but see above to change split!
-    trainer.fit(task, val_dataloaders=None) # Skip validation
-
-
-def online_adaptation_single_user():
-    task
+    trainer.fit(task, val_dataloaders=None)  # Skip validation
 
 
 if __name__ == "__main__":
