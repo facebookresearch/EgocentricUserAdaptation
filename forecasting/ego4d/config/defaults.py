@@ -9,7 +9,6 @@ from fvcore.common.config import CfgNode
 # -----------------------------------------------------------------------------
 _C = CfgNode()
 
-
 # ---------------------------------------------------------------------------- #
 # Batch norm options
 # ---------------------------------------------------------------------------- #
@@ -41,7 +40,6 @@ _C.BN.NUM_SPLITS = 1
 # devices will be synchronized.
 _C.BN.NUM_SYNC_DEVICES = 1
 
-
 # ---------------------------------------------------------------------------- #
 # Training options.
 # ---------------------------------------------------------------------------- #
@@ -55,7 +53,6 @@ _C.TRAIN.DATASET = "Kinetics"
 
 # Total mini-batch size.
 _C.TRAIN.BATCH_SIZE = 64
-
 
 # ---------------------------------------------------------------------------- #
 # Testing options
@@ -83,7 +80,6 @@ _C.TEST.NUM_SPATIAL_CROPS = 3
 _C.TEST.NO_ACT = True
 
 _C.TEST.EVAL_VAL = False
-
 
 # -----------------------------------------------------------------------------
 # ResNet options
@@ -121,7 +117,6 @@ _C.RESNET.SPATIAL_STRIDES = [[1], [2], [2], [2]]
 # Size of dilation on different res stages.
 _C.RESNET.SPATIAL_DILATIONS = [[1], [1], [1], [1]]
 
-
 # -----------------------------------------------------------------------------
 # Nonlocal options
 # -----------------------------------------------------------------------------
@@ -136,7 +131,6 @@ _C.NONLOCAL.GROUP = [[1], [1], [1], [1]]
 # Instatiation to use for non-local layer.
 _C.NONLOCAL.INSTANTIATION = "dot_product"
 
-
 # Size of pooling layers used in Non-Local.
 _C.NONLOCAL.POOL = [
     # Res2
@@ -148,7 +142,6 @@ _C.NONLOCAL.POOL = [
     # Res5
     [1, 2, 2],
 ]
-
 
 # -----------------------------------------------------------------------------
 # Model options
@@ -364,6 +357,11 @@ _C.MVIT.POOL_FIRST = False
 # -----------------------------------------------------------------------------
 _C.DATA = CfgNode()
 
+# CL: Stride for next observed frame in sequential data stream (in a single sequential clip-video)
+_C.DATA.SEQ_OBSERVED_FRAME_STRIDE = 1
+# TODO constrain to BATCH SIZE to avoid overlap:
+#  If batch size > STRIDE, then next step will contain seen samples (Although shifted)
+
 # The path to the data directory.
 _C.DATA.PATH_TO_DATA_DIR = ""
 
@@ -423,7 +421,6 @@ _C.DATA.ENSEMBLE_METHOD = "sum"
 
 # If True, revert the default input channel (RBG <-> BGR).
 _C.DATA.REVERSE_INPUT_CHANNEL = False
-
 
 # ---------------------------------------------------------------------------- #
 # Optimizer options
@@ -545,7 +542,6 @@ _C.DATA_LOADER.PIN_MEMORY = True
 # Enable multi thread decoding.
 _C.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE = False
 
-
 # ---------------------------------------------------------------------------- #
 # Detection options.
 # ---------------------------------------------------------------------------- #
@@ -559,7 +555,6 @@ _C.DETECTION.SPATIAL_SCALE_FACTOR = 16
 
 # RoI tranformation resolution.
 _C.DETECTION.ROI_XFORM_RESOLUTION = 7
-
 
 # -----------------------------------------------------------------------------
 # Forecasting options (LTA + STA)
@@ -582,8 +577,7 @@ _C.FORECASTING.NUM_ACTIONS_TO_PREDICT = 1
 _C.FORECASTING.NUM_SEQUENCES_TO_PREDICT = 5
 
 # Number of (~2s) input clips before the chosen action (only supported by forecasting)
-_C.FORECASTING.NUM_INPUT_CLIPS = 1 # Standard 2 in Ego4D
-
+_C.FORECASTING.NUM_INPUT_CLIPS = 1  # Standard 2 in Ego4D
 
 # -----------------------------------------------------------------------------
 # AVA Dataset options
@@ -659,7 +653,6 @@ _C.AVA.GROUNDTRUTH_FILE = "ava_val_v2.2.csv"
 
 # Backend to process image, includes `pytorch` and `cv2`.
 _C.AVA.IMG_PROC_BACKEND = "cv2"
-
 
 # -----------------------------------------------------------------------------
 # Epic Kitchen dataset options
@@ -851,7 +844,9 @@ _C.EGO4D_STA.TEST_FORCE_FLIP = False
 # IOU threshold to deem if a detection is a next active object or not
 _C.EGO4D_STA.NAO_IOU_THRESH = 0.5
 
-_C.EGO4D_STA.VIDEO_LOAD_BACKEND = "lmdb" #lmdb, pytorchvideo, decord, pyav
+_C.EGO4D_STA.VIDEO_LOAD_BACKEND = "lmdb"  # lmdb, pytorchvideo, decord, pyav
+
+
 # TODO: STA: _C.EGO4D_STA.VIDEO_LOAD_BACKEND = "pytorchvideo" #lmdb, pytorchvideo, decord
 
 def _assert_and_infer_cfg(cfg):

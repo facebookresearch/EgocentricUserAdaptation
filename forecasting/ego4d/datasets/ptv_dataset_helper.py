@@ -30,13 +30,13 @@ class LabeledVideoDataset(torch.utils.data.IterableDataset):
     _MAX_CONSECUTIVE_FAILURES = 10
 
     def __init__(
-        self,
-        labeled_video_paths: List[Tuple[str, Optional[dict]]],
-        clip_sampler: ClipSampler,
-        video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
-        transform: Optional[Callable[[dict], Any]] = None,
-        decode_audio: bool = True,
-        decoder: str = "pyav",
+            self,
+            labeled_video_paths: List[Tuple[str, Optional[dict]]],
+            clip_sampler: ClipSampler,
+            video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
+            transform: Optional[Callable[[dict], Any]] = None,
+            decode_audio: bool = True,
+            decoder: str = "pyav",
     ) -> None:
         """
         Args:
@@ -177,7 +177,6 @@ class LabeledVideoDataset(torch.utils.data.IterableDataset):
                     )
                     continue
 
-
             if len(decoded_clips) == 1:
                 frames = decoded_clips[0]["video"]
                 audio_samples = decoded_clips[0]["audio"]
@@ -227,13 +226,13 @@ class LabeledVideoDataset(torch.utils.data.IterableDataset):
 
 
 def labeled_video_dataset(
-    data_path: str,
-    clip_sampler: ClipSampler,
-    video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
-    transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-    video_path_prefix: str = "",
-    decode_audio: bool = True,
-    decoder: str = "pyav",
+        data_path: str,
+        clip_sampler: ClipSampler,
+        video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
+        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        video_path_prefix: str = "",
+        decode_audio: bool = True,
+        decoder: str = "pyav",
 ) -> LabeledVideoDataset:
     """
     A helper function to create ``LabeledVideoDataset`` object for Ucf101 and Kinetics datasets.
@@ -281,7 +280,6 @@ def labeled_video_dataset(
     return dataset
 
 
-
 class UntrimmedClipSampler:
     """
     A wrapper for adapting untrimmed annotated clips from the json_dataset to the
@@ -299,7 +297,7 @@ class UntrimmedClipSampler:
         self._trimmed_clip_sampler = clip_sampler
 
     def __call__(
-        self, last_clip_time: float, video_duration: float, clip_info: Dict[str, Any]
+            self, last_clip_time: float, video_duration: float, clip_info: Dict[str, Any]
     ) -> ClipInfo:
         clip_start_boundary = clip_info["clip_start_sec"]
         clip_end_boundary = clip_info["clip_end_sec"]
@@ -321,7 +319,7 @@ class ForecastingClipSampler:
         self._trimmed_clip_sampler = clip_sampler
 
     def __call__(
-        self, last_clip_time: float, video_duration: float, clip_info: Dict[str, Any]
+            self, last_clip_time: float, video_duration: float, clip_info: Dict[str, Any]
     ) -> List[ClipInfo]:
         clip_infos = []
         for input_clip in clip_info["input_clips"]:
@@ -344,15 +342,14 @@ class ForecastingClipSampler:
 
 
 def clip_recognition_dataset(
-    data_path: str,
-    clip_sampler: ClipSampler,
-    video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
-    transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-    video_path_prefix: str = "",
-    decode_audio: bool = True,
-    decoder: str = "pyav",
+        data_path: str,
+        clip_sampler: ClipSampler,
+        video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
+        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        video_path_prefix: str = "",
+        decode_audio: bool = True,
+        decoder: str = "pyav",
 ):
-    
     assert os.path.exists(data_path), 'Please run data/parse_ego4d_json.py first. Will change this later'
 
     if g_pathmgr.isfile(data_path):
@@ -392,16 +389,68 @@ def clip_recognition_dataset(
     )
     return dataset
 
+def clip_user_recognition_dataset(
+        user_id: str, # Ego4d 'fb_participant_id'
+        data_path: str,
+        clip_sampler: ClipSampler,
+        video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
+        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        video_path_prefix: str = "",
+        decode_audio: bool = True,
+        decoder: str = "pyav",
+):
+    assert os.path.exists(data_path), 'Please run data/parse_ego4d_json.py first. Will change this later'
+
+    if g_pathmgr.isfile(data_path):
+        try:
+            with g_pathmgr.open(data_path, "r") as f:
+                annotations = json.load(f)
+        except Exception:
+            raise FileNotFoundError(f"{data_path} must be json for Ego4D dataset")
+
+        user_annotations = annotations['users'][user_id]
+
+        # LabeledVideoDataset requires the data to be list of tuples with format:
+        # (video_paths, annotation_dict). For recognition, the annotation_dict contains
+        # the verb and noun label, and the annotation boundaries.
+        untrimmed_clip_annotations = []
+        for entry in user_annotations:
+            untrimmed_clip_annotations.append(
+                (
+                    os.path.join(video_path_prefix, f'{entry["clip_uid"]}.mp4'),
+                    {
+                        "clip_start_sec": entry['action_clip_start_sec'],
+                        "clip_end_sec": entry['action_clip_end_sec'],
+                        "noun_label": entry['noun_label'],
+                        "verb_label": entry['verb_label'],
+                        "action_idx": entry['action_idx'],
+                    },
+                )
+            )
+    else:
+        raise FileNotFoundError(f"{data_path} not found.")
+
+    dataset = LabeledVideoDataset(
+        untrimmed_clip_annotations,
+        UntrimmedClipSampler(clip_sampler),
+        video_sampler,
+        transform,
+        decode_audio=decode_audio,
+        decoder=decoder,
+    )
+    return dataset
+
+
 def clip_forecasting_dataset(
-    data_path: str,
-    clip_sampler: ClipSampler,
-    num_input_actions: int,
-    num_future_actions: int,
-    video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
-    transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-    video_path_prefix: str = "",
-    decode_audio: bool = True,
-    decoder: str = "pyav",
+        data_path: str,
+        clip_sampler: ClipSampler,
+        num_input_actions: int,
+        num_future_actions: int,
+        video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
+        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        video_path_prefix: str = "",
+        decode_audio: bool = True,
+        decoder: str = "pyav",
 ):
     if g_pathmgr.isfile(data_path):
         try:
@@ -422,13 +471,13 @@ def clip_forecasting_dataset(
                 'clip_end_sec': entry.pop('action_clip_end_sec'),
             })
 
-
-        # group annotations by clip_uid
+        # group annotations by clip_uid (5min video splits in ego4d)
         annotations = collections.defaultdict(list)
         for entry in entries:
             annotations[entry['clip_uid']].append(entry)
 
         # Sort windows by their PNR frame (windows can overlap, but PNR is distinct)
+        # Sort all actions (annotations) associated to each clip
         annotations = {
             clip_uid: sorted(annotations[clip_uid], key=lambda x: x['action_idx'])
             for clip_uid in annotations
@@ -439,23 +488,27 @@ def clip_forecasting_dataset(
         # the input boundaries to be decoded, any observed clip annotations within
         # those boundaries, and a list of num_future_actions clip annotations (including
         # labels and boundaries).
+
+        # clip_uid= id for the 5min annotated video file  (clip_uid.mp4)
+        # video_clips=annotation entries chronologically happening in the 5min video clip (clip_uid.mp4)
+        # Untrimmed: annotations contain boundaries (see renaming for Pytorch above) in untrimmed clip.
+        # These are use by Pytorch to create the trimmed clip: No no-action frames are considered.
         untrimmed_clip_annotations = []
-        for clip_uid, video_clips in annotations.items():
-            video_path = os.path.join(video_path_prefix, f'{clip_uid}.mp4')
-            if len(video_clips) <= 0:
+        for clip_uid, short_action_clips in annotations.items():
+            video_path = os.path.join(video_path_prefix, f'{clip_uid}.mp4')  # CONVERT clip_id TO VIDEO PATH
+            if len(short_action_clips) <= 0:  # No annotations
                 continue
 
             # Extract forecasting annotations from video clips.
+            # Length of 1 sample = num_future_actions + num_input_actions
             for i in range(
-                len(video_clips) - num_future_actions - num_input_actions
+                    len(short_action_clips) - num_future_actions - num_input_actions
             ):
-                input_clips = copy.deepcopy(video_clips[i : i + num_input_actions])
+                input_clips = copy.deepcopy(short_action_clips[i: i + num_input_actions])
                 forecast_clips = copy.deepcopy(
-                    video_clips[
-                        i
-                        + num_input_actions : i
-                        + num_input_actions
-                        + num_future_actions
+                    short_action_clips[
+                    i + num_input_actions:
+                    i + num_input_actions + num_future_actions
                     ]
                 )
                 untrimmed_clip_annotations.append(
@@ -469,7 +522,7 @@ def clip_forecasting_dataset(
                 )
     else:
         raise FileNotFoundError(f"{data_path} not found.")
-    
+
     dataset = LabeledVideoDataset(
         untrimmed_clip_annotations,
         ForecastingClipSampler(clip_sampler),
@@ -479,6 +532,3 @@ def clip_forecasting_dataset(
         decoder=decoder,
     )
     return dataset
-
-
-

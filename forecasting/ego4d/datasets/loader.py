@@ -63,10 +63,18 @@ def construct_loader(cfg, split):
         split (str): the split of the data loader. Options include `train`,
             `val`, and `test`.
     """
-    assert split in ["train", "val", "test"]
-    if split in ["train"]:
+    assert split in ["train", "val", "test", "continual"]
+    if split in ["continual"]:
         dataset_name = cfg.TRAIN.DATASET
-        if cfg.SOLVER.ACCELERATOR != "dp":
+        if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
+            batch_size = int(cfg.TRAIN.BATCH_SIZE / cfg.NUM_GPUS)
+        else:
+            batch_size = cfg.TRAIN.BATCH_SIZE
+        shuffle = False
+        drop_last = False
+    elif split in ["train"]:
+        dataset_name = cfg.TRAIN.DATASET
+        if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
             batch_size = int(cfg.TRAIN.BATCH_SIZE / cfg.NUM_GPUS)
         else:
             batch_size = cfg.TRAIN.BATCH_SIZE
@@ -74,7 +82,7 @@ def construct_loader(cfg, split):
         drop_last = True
     elif split in ["val"]:
         dataset_name = cfg.TRAIN.DATASET
-        if cfg.SOLVER.ACCELERATOR != "dp":
+        if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
             batch_size = int(cfg.TRAIN.BATCH_SIZE / cfg.NUM_GPUS)
         else:
             batch_size = cfg.TRAIN.BATCH_SIZE
@@ -82,7 +90,7 @@ def construct_loader(cfg, split):
         drop_last = False
     elif split in ["test"]:
         dataset_name = cfg.TEST.DATASET
-        if cfg.SOLVER.ACCELERATOR != "dp":
+        if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
             batch_size = int(cfg.TEST.BATCH_SIZE / cfg.NUM_GPUS)
         else:
             batch_size = cfg.TEST.BATCH_SIZE
@@ -106,7 +114,7 @@ def construct_loader(cfg, split):
         # Create a sampler for multi-process training
         if hasattr(dataset, "sampler"):
             sampler = dataset.sampler
-        elif cfg.SOLVER.ACCELERATOR != "dp" and cfg.NUM_GPUS > 1:
+        elif cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"] and cfg.NUM_GPUS > 1:
             sampler = DistributedSampler(dataset)
 
     loader = torch.utils.data.DataLoader(

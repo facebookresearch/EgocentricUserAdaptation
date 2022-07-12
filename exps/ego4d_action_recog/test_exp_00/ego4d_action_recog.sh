@@ -75,21 +75,10 @@ python -m scripts.run_lta \
 #-----------------------------------------------------------------------------------------------#
 #                                    OTHER OPTIONS                                              #
 #-----------------------------------------------------------------------------------------------#
-
-# # SlowFast-Concat
-# BACKBONE_WTS=$PWD/pretrained_models/long_term_anticipation/ego4d_slowfast8x8.ckpt
-# run slowfast_concat \
-#     configs/Ego4dLTA/MULTISLOWFAST_8x8_R101.yaml \
-#     FORECASTING.AGGREGATOR ConcatAggregator \
-#     FORECASTING.DECODER MultiHeadDecoder \
-#     DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}
-
-# # MViT-Concat
-# BACKBONE_WTS=$PWD/pretrained_models/long_term_anticipation/ego4d_mvit16x4.ckpt
-# run mvit_concat \
-#     configs/Ego4dLTA/MULTIMVIT_16x4.yaml \
-#     FORECASTING.AGGREGATOR ConcatAggregator \
-#     FORECASTING.DECODER MultiHeadDecoder \
+# # MViT
+# BACKBONE_WTS=$PWD/pretrained_models/long_term_anticipation/kinetics_mvit16x4.ckpt
+# run mvit \
+#     configs/Ego4dRecognition/MULTIMVIT_16x4.yaml \
 #     DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}
 
 # # Debug locally using a smaller batch size / fewer GPUs

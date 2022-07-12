@@ -154,7 +154,7 @@ class LongTermAnticipationTask(VideoTask):
 
     def __init__(self, cfg):
         super().__init__(cfg)
-        self.checkpoint_metric = f"val_0_ED_{cfg.FORECASTING.NUM_ACTIONS_TO_PREDICT-1}"
+        self.checkpoint_metric = f"val_0_ED_{cfg.FORECASTING.NUM_ACTIONS_TO_PREDICT - 1}"
 
     def forward(self, inputs, tgts):
         return self.model(inputs, tgts=tgts)
@@ -175,7 +175,6 @@ class LongTermAnticipationTask(VideoTask):
         step_result = {}
         for head_idx, pred_head in enumerate(preds):
             for seq_idx in range(pred_head.shape[1]):
-
                 loss += self.loss_fun(
                     pred_head[:, seq_idx], labels[:, seq_idx, head_idx]
                 )
@@ -230,7 +229,7 @@ class LongTermAnticipationTask(VideoTask):
             pred = pred.permute(bi, zi, ki)
             pred, forecast_labels = pred.cpu(), forecast_labels.cpu()
 
-            label = forecast_labels[:, :, head_idx : head_idx + 1]
+            label = forecast_labels[:, :, head_idx: head_idx + 1]
             auedit = metrics.distributed_AUED(pred, label)
             results = {
                 f"val_{head_idx}_" + k: v for k, v in auedit.items()
@@ -257,7 +256,7 @@ class LongTermAnticipationTask(VideoTask):
         # - Z is number of future predictions,
         # The list is for each label type (e.g. [<verb_tensor>, <noun_tensor>])
         preds = self.model.generate(input, k=k)  # [(B, K, Z)]
-        
+
         return {
             'last_clip_ids': last_clip_ids,
             'verb_preds': preds[0],
@@ -283,7 +282,6 @@ class LongTermAnticipationTask(VideoTask):
                 pred_dict[test_outputs['last_clip_ids'][idx]] = {
                     'verb': test_outputs['verb_preds'][idx].cpu().tolist(),
                     'noun': test_outputs['noun_preds'][idx].cpu().tolist(),
-                }       
+                }
             json.dump(pred_dict, open('outputs.json', 'w'))
-
 

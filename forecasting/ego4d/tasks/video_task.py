@@ -38,7 +38,7 @@ class VideoTask(LightningModule):
         raise NotImplementedError
 
     def training_step_end(self, training_step_outputs):
-        if self.cfg.SOLVER.ACCELERATOR == "dp":
+        if self.cfg.SOLVER.ACCELERATOR in ["dp", "gpu"]:
             training_step_outputs["loss"] = training_step_outputs["loss"].mean()
         return training_step_outputs
 
@@ -59,7 +59,7 @@ class VideoTask(LightningModule):
         # registered. We can now setup the distributed process groups for each machine
         # and create the distributed data loaders.
         # if not self.cfg.FBLEARNER:
-        if self.cfg.SOLVER.ACCELERATOR != "dp":
+        if self.cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
             du.init_distributed_groups(self.cfg)
 
         self.train_loader = loader.construct_loader(self.cfg, "train")

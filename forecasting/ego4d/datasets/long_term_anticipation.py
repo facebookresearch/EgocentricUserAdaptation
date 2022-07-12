@@ -3,13 +3,13 @@ import os
 
 import torch
 import torch.utils.data
-from pytorchvideo.data import make_clip_sampler
+from pytorchvideo.data import make_clip_sampler, UniformClipSampler
 from pytorchvideo.transforms import (
     ApplyTransformToKey,
     Normalize,
     UniformTemporalSubsample,
 )
-from torch.utils.data import RandomSampler
+from torch.utils.data import RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from torchvision.transforms import (
     Compose,
@@ -34,18 +34,18 @@ class Ego4dRecognition(torch.utils.data.Dataset):
         ], "Split '{}' not supported for Ego4d ".format(mode)
 
         sampler = RandomSampler
-        if cfg.SOLVER.ACCELERATOR != "dp" and cfg.NUM_GPUS > 1:
+        if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"] and cfg.NUM_GPUS > 1:
             sampler = DistributedSampler
 
         clip_sampler_type = "uniform" if mode == "test" else "random"
         clip_duration = (
-            self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE
-        ) / self.cfg.DATA.TARGET_FPS
+                                self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE
+                        ) / self.cfg.DATA.TARGET_FPS
         clip_sampler = make_clip_sampler(clip_sampler_type, clip_duration)
 
-        mode_ = 'test_unannotated' if mode=='test' else mode
-        data_path = os.path.join(self.cfg.DATA.PATH_TO_DATA_DIR, f'fho_lta_{mode_}.json')
-        
+        mode_ = 'test_unannotated' if mode == 'test' else mode
+        data_path = os.path.join(self.cfg.DATA.PATH_TO_DATA_DIR, f'fho_lta_{mode_}.json')  # TODO datapath here!
+
         self.dataset = ptv_dataset_helper.clip_recognition_dataset(
             data_path=data_path,
             clip_sampler=clip_sampler,
@@ -70,7 +70,7 @@ class Ego4dRecognition(torch.utils.data.Dataset):
                     transform=Compose(
                         [
                             UniformTemporalSubsample(cfg.DATA.NUM_FRAMES),
-                            Lambda(lambda x: x/255.0),
+                            Lambda(lambda x: x / 255.0),
                             Normalize(cfg.DATA.MEAN, cfg.DATA.STD),
                         ]
                         + video_transformer.random_scale_crop_flip(mode, cfg)
@@ -107,16 +107,16 @@ class Ego4dLongTermAnticipation(torch.utils.data.Dataset):
         ], "Split '{}' not supported for Ego4d ".format(mode)
 
         sampler = RandomSampler
-        if cfg.SOLVER.ACCELERATOR != "dp" and cfg.NUM_GPUS > 1:
-            sampler = DistributedSampler
+        if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"] and cfg.NUM_GPUS > 1:
+            sampler = DistributedSampler  # TODO NOT JUST DISTRIBUTED, BUT ALSO SEQUENTIAL?
 
         clip_sampler_type = "uniform" if mode == "test" else "random"
         clip_duration = (
-            self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE
-        ) / self.cfg.DATA.TARGET_FPS
+                                self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE
+                        ) / self.cfg.DATA.TARGET_FPS  # Slowfast8x8:32*2, MVIT16x4: 16 FRAMES * S-RATE 4, TARGET_FPS always 30
         clip_sampler = make_clip_sampler(clip_sampler_type, clip_duration)
 
-        mode_ = 'test_unannotated' if mode=='test' else mode
+        mode_ = 'test_unannotated' if mode == 'test' else mode
         # [!!]
         if mode == 'test' and cfg.TEST.EVAL_VAL:
             mode_ = 'val'
@@ -132,6 +132,8 @@ class Ego4dLongTermAnticipation(torch.utils.data.Dataset):
             transform=self._make_transform(mode, cfg),
             video_path_prefix=self.cfg.DATA.PATH_PREFIX,
         )
+
+        # Gets iterator for dataset, and iterator on possible iterators
         self._dataset_iter = itertools.chain.from_iterable(
             itertools.repeat(iter(self.dataset), 2)
         )
@@ -200,7 +202,7 @@ class Ego4dLongTermAnticipation(torch.utils.data.Dataset):
                             ReduceExpandInputClips(
                                 Compose(
                                     [
-                                        Lambda(lambda x: x/255.0),
+                                        Lambda(lambda x: x / 255.0),
                                         Normalize(cfg.DATA.MEAN, cfg.DATA.STD)
                                     ]
                                     + video_transformer.random_scale_crop_flip(
@@ -231,3 +233,78 @@ class Ego4dLongTermAnticipation(torch.utils.data.Dataset):
     def __len__(self):
         return self.dataset.num_videos
 
+
+@DATASET_REGISTRY.register()
+class Ego4dContinualRecognition(torch.utils.data.Dataset):
+    def __init__(self, cfg, mode):
+        self.cfg = cfg
+        assert mode in ["continual"], \
+            "Split '{}' not supported for Continual Ego4d ".format(mode)
+
+        # Video sampling
+        assert cfg.SOLVER.ACCELERATOR == "gpu", "Online per-sample processing only allows single-device training"
+        video_sampler = SequentialSampler
+        if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"] and cfg.NUM_GPUS > 1:
+            video_sampler = DistributedSampler
+
+        # Clip sampling
+        clip_duration = (self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE) / self.cfg.DATA.TARGET_FPS
+        clip_stride_seconds = self.cfg.DATA.SEQ_OBSERVED_FRAME_STRIDE / self.cfg.DATA.TARGET_FPS # Seconds
+        clip_sampler = UniformClipSampler(
+            clip_duration=clip_duration,
+            stride=clip_stride_seconds,
+        )
+
+        data_path = os.path.join(self.cfg.DATA.PATH_TO_DATA_DIR, f'fho_lta_{mode}.json')  # TODO datapath here!
+
+        self.dataset = ptv_dataset_helper.clip_user_recognition_dataset(
+            user_id = cfg.USER_ID,
+            data_path=data_path,
+            clip_sampler=clip_sampler,
+            video_sampler=video_sampler,
+            decode_audio=False,
+            transform=self._make_transform(mode, cfg),
+            video_path_prefix=self.cfg.DATA.PATH_PREFIX,
+        )
+
+        # Make iterable dataset
+        self._dataset_iter = itertools.chain.from_iterable(
+            itertools.repeat(iter(self.dataset), 2)
+        )
+
+    @property
+    def sampler(self):
+        return self.dataset.video_sampler
+
+    def _make_transform(self, mode: str, cfg):
+        return Compose(
+            [
+                ApplyTransformToKey(
+                    key="video",
+                    transform=Compose(
+                        [
+                            UniformTemporalSubsample(cfg.DATA.NUM_FRAMES),
+                            Lambda(lambda x: x / 255.0),
+                            Normalize(cfg.DATA.MEAN, cfg.DATA.STD),
+                        ]
+                        + video_transformer.random_scale_crop_flip(mode, cfg)
+                        + [video_transformer.uniform_temporal_subsample_repeated(cfg)]
+                    ),
+                ),
+                Lambda(
+                    lambda x: (
+                        x["video"],
+                        torch.tensor([x["verb_label"], x["noun_label"]]),
+                        str(x["video_name"]) + "_" + str(x["video_index"]),
+                        {},
+                    )
+                ),
+            ]
+        )
+
+    def __getitem__(self, index):
+        value = next(self._dataset_iter)
+        return value
+
+    def __len__(self):
+        return self.dataset.num_videos
