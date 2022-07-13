@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch.utils.data
 
 import json
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch.utils.data
 from iopath.common.file_io import g_pathmgr
 
@@ -169,3 +169,40 @@ def clip_user_recognition_dataset(
         decoder=decoder,
     )
     return dataset
+
+
+def construct_seq_loader(
+        cfg,
+        dataset_name,
+        usersplit,
+        batch_size,
+        subset_indices: Union[List, Tuple] = None):
+    """
+    Constructs the data loader for the given dataset.
+    Args:
+        cfg (CfgNode): configs. Details can be found in
+            ego4d/config/defaults.py
+        split (str): the split of the data loader. Options include `train`,
+            `val`, and `test`.
+    """
+
+    # Construct the dataset
+    dataset = build_dataset(dataset_name, cfg, usersplit)  # TODO import
+
+    # TODO make subset
+    if subset_indices is not None:
+        dataset = torch.utils.data.Subset(dataset, indices=subset_indices)
+
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        sampler=dataset.sampler,
+        num_workers=cfg.DATA_LOADER.NUM_WORKERS,
+        pin_memory=cfg.DATA_LOADER.PIN_MEMORY,
+        drop_last=False,
+        collate_fn=None,
+    )
+    return loader
+
+

@@ -1,6 +1,8 @@
 import torch
 from fvcore.nn.precise_bn import get_bn_modules
 
+from collections import defaultdict
+
 from ego4d.evaluation import lta_metrics as metrics
 from ego4d.utils import misc
 from ego4d.models import losses
@@ -10,6 +12,9 @@ from ego4d.utils import logging
 from ego4d.datasets import loader
 from ego4d.models import build_model
 from pytorch_lightning.core import LightningModule
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+
+from continual_ego4d.datasets.continual_action_recog_dataset import construct_seq_loader
 
 logger = logging.get_logger(__name__)
 
@@ -65,7 +70,7 @@ class ContinualVideoTask(LightningModule):
         if self.cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
             du.init_distributed_groups(self.cfg)
 
-        self.train_loader = loader.construct_loader(self.cfg, "train")
+        self.train_loader = loader.construct_loader(self.cfg, "continual")
         # self.val_loader = None
         # self.test_loader = None
 
@@ -102,8 +107,7 @@ class ContinualVideoTask(LightningModule):
 class ContinualMultiTaskClassificationTask(ContinualVideoTask):
 
     def training_step(self, batch, batch_idx):
-        """Before update: Forward and define loss.
-        """
+        """ Before update: Forward and define loss. """
 
         # PREDICTIONS + LOSS
         inputs, labels, _, _ = batch
@@ -119,20 +123,45 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
             "noun_loss": loss2.item(),
         }
 
-        # CURRENT BATCH METRICS
-        step_result = {**step_result, **self.get_current_batch_metrics(preds, labels)}
-
-        # PAST METRICS
-        step_result = {**step_result, **self.get_observed_data_metrics(preds, labels)}
-
-        # FUTURE METRICS
-        step_result = {**step_result, **self.get_unseen_data_metrics(preds, labels)}
+        step_result = self.eval_current_batch(step_result, preds, labels, batch_idx)
 
         return step_result
 
+    def eval_current_batch(self, step_result, preds, labels, batch_idx):
+        # SET TO EVAL MODE
+        self.model.train(False)
+        torch.set_grad_enabled(False)
+
+        #############################################
+        # METRICS
+
+        # CURRENT BATCH METRICS
+        step_result = {**step_result,
+                       **self.add_prefix_to_keys(prefix='online',
+                                                 source_dict=self._get_metric_results(preds, labels))}
+        # PAST METRICS
+        step_result = {**step_result,
+                       **self.add_prefix_to_keys(prefix='seen',
+                                                 source_dict=self._get_observed_data_metrics(batch_idx))}
+
+        # FUTURE METRICS
+        step_result = {**step_result,
+                       **self.add_prefix_to_keys(prefix='unseen',
+                                                 source_dict=self._get_unseen_data_metrics(batch_idx))}
+        #############################################
+
+        # SET BACK TO TRAIN MODE
+        self.model.train()
+        torch.set_grad_enabled(True)
+
+        return step_result
+
+    def add_prefix_to_keys(self, prefix: str, source_dict: dict, ):
+        return {f"{prefix}_{k}" for k, v in source_dict.items()}
+
     @torch.no_grad()
-    def get_current_batch_metrics(self, preds, labels, prefix='online'):
-        """ Use current data observed training data in mini-batch."""
+    def _get_metric_results(self, preds, labels):
+        """ Get metrics for predictions and labels."""
         top1_err_verb, top5_err_verb = metrics.distributed_topk_errors(
             preds[0], labels[:, 0], (1, 5)
         )
@@ -143,23 +172,80 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
         # TODO get total action error (merge the two)
 
         return {
-            f"{prefix}_top1_verb_err": top1_err_verb.item(),
-            f"{prefix}_top5_verb_err": top5_err_verb.item(),
-            f"{prefix}_top1_noun_err": top1_err_noun.item(),
-            f"{prefix}_top5_noun_err": top5_err_noun.item(),
+            f"top1_verb_err": top1_err_verb.item(),
+            f"top5_verb_err": top5_err_verb.item(),
+            f"top1_noun_err": top1_err_noun.item(),
+            f"top5_noun_err": top5_err_noun.item(),
         }
 
     @torch.no_grad()
-    def get_observed_data_metrics(self, preds, labels):
+    def _get_observed_data_metrics(self, batch_idx):
         """ Stability measure of previous data. """
-        # Create new dataloader
-        pass
+
+        obs_dataloader = self._get_train_dataloader_subset(
+            self.train_loader,
+            batch_size=self.cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE,
+            subset_indices=list(range(batch_idx)),  # Previous data, not including current
+        )
+
+        result_dict = self._get_average_metrics_for_dataloader(obs_dataloader)
+        return result_dict
 
     @torch.no_grad()
-    def get_unseen_data_metrics(self, preds, labels):
+    def _get_unseen_data_metrics(self, batch_idx):
         """ Zero-shot and generalization performance of future data (including current just-observed mini-batch."""
-        # Create new dataloaders
-        pass
+
+        # Create new dataloader
+        future_dataloader = self._get_train_dataloader_subset(
+            self.train_loader,
+            batch_size=self.cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE,
+            subset_indices=list(range(batch_idx, len(self.train_loader))),  # Future data, including current
+        )
+
+        result_dict = self._get_average_metrics_for_dataloader(future_dataloader)
+        return result_dict
+
+    def _get_train_dataloader_subset(self, train_dataloader: torch.utils.data.DataLoader,
+                                     subset_indices: Union[List, Tuple],
+                                     batch_size: int = None):
+        """ Get a subset of the training dataloader's dataset. """
+        dataset = train_dataloader.dataset
+
+        if subset_indices is not None:
+            dataset = torch.utils.data.Subset(dataset, indices=subset_indices)
+
+        if batch_size is None:
+            batch_size = train_dataloader.batch_size
+
+        loader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            drop_last=False,
+            sampler=dataset.sampler,
+            num_workers=self.cfg.DATA_LOADER.NUM_WORKERS,
+            pin_memory=self.cfg.DATA_LOADER.PIN_MEMORY,
+            collate_fn=None,
+        )
+        return loader
+
+    @torch.no_grad()
+    def _get_average_metrics_for_dataloader(self, dataloader):
+        from continual_ego4d.utils import AverageMeter
+
+        avg_metric_result_dict = defaultdict(AverageMeter)
+        for batch_idx, (inputs, labels, _, _) in enumerate(dataloader):
+            bs = inputs.shape[0]
+            preds = self.forward(inputs)
+
+            metric_result_dict = self._get_metric_results(preds, labels)
+            for k, v in metric_result_dict.items():
+                avg_metric_result_dict[k].update(v, weight=bs)
+
+        # Avg per metric
+        for metric_name, avg_meter in avg_metric_result_dict.items():
+            avg_metric_result_dict[metric_name] = avg_meter.avg
+        return avg_metric_result_dict
 
     def training_epoch_end(self, outputs):
         """ End of stream."""

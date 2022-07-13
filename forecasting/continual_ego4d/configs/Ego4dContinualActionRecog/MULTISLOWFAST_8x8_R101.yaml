@@ -3,7 +3,8 @@ CHECKPOINT_FILE_PATH: ""
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition
-  BATCH_SIZE: 64
+  BATCH_SIZE: 1 # Process 1 new video-subsequence a time (Online)
+  CONTINUAL_EVAL_BATCH_SIZE: 64
 DATA:
   USER_SUBSET: 'train'
   SEQ_OBSERVED_FRAME_STRIDE: 1 # TODO constrain to BATCH SIZE to avoid overlap (Stride for next observed frame in stream
