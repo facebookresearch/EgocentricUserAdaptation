@@ -42,7 +42,8 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             "Split '{}' not supported for Continual Ego4d ".format(mode)
 
         # Video sampling
-        assert cfg.SOLVER.ACCELERATOR == "gpu", "Online per-sample processing only allows single-device training"
+        assert cfg.SOLVER.ACCELERATOR == "gpu", \
+            f"Online per-sample processing only allows single-device training, not '{cfg.SOLVER.ACCELERATOR}'"
         video_sampler = SequentialSampler
         if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"] and cfg.NUM_GPUS > 1:
             video_sampler = DistributedSampler
@@ -123,7 +124,7 @@ def get_user_to_dataset_dict(data_path):
             raise FileNotFoundError(f"{data_path} must be json for Ego4D dataset")
 
     usersplit_annotations = dict_holder['users']
-
+    logger.debug(f"Got usersplit with users: {list(usersplit_annotations.keys())}")
     return usersplit_annotations
 
 
@@ -200,5 +201,3 @@ def construct_seq_loader(
         collate_fn=None,
     )
     return loader
-
-

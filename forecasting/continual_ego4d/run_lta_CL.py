@@ -53,7 +53,13 @@ logger = logging.get_logger(__name__)
 
 def main(cfg):
     """ Iterate users and aggregate. """
+    logging.setup_logging(cfg.OUTPUT_DIR)
     logger.info("Starting main script")
+
+    # CFG overwrites and setup
+    overwrite_config_continual_learning(cfg)
+    logger.info("Run with config:")
+    logger.info(pprint.pformat(cfg))
 
     # Select user-split file based on config: Either train or test:
     assert cfg.DATA.USER_SUBSET in ['train', 'test'], \
@@ -83,21 +89,29 @@ def main(cfg):
 
     # TODO aggregate metrics over user dumps
 
+
 def overwrite_config_continual_learning(cfg):
-    cfg.SOLVER.ACCELERATOR = "gpu"
-    cfg.NUM_GPUS = 1
-    cfg.NUM_SHARDS = 1
-    cfg.SOLVER.MAX_EPOCH = 1
+    overwrite_dict = {
+        "SOLVER.ACCELERATOR": "gpu",
+        "NUM_GPUS": 1,
+        "NUM_SHARDS": 1,
+        "SOLVER.MAX_EPOCH": 1,
+    }
+
+    for hierarchy_k, v in overwrite_dict.items():
+        keys = hierarchy_k.split('.')
+        target_obj = cfg
+        for idx, key in enumerate(keys): # If using dots, set in hierarchy of objects, not as single dotted-key
+            if idx == len(keys) - 1:  # is last
+                setattr(target_obj, key, v)
+            else:
+                target_obj = getattr(target_obj, key)
+    logger.debug(f"OVERWRITING CFG attributes for continual learning:\n{pprint.pformat(overwrite_dict)}")
+
 
 def online_adaptation_single_user(cfg, user_id):
     """ Run single user sequentially. """
     seed_everything(cfg.RNG_SEED)
-    logging.setup_logging(cfg.OUTPUT_DIR)
-
-    # CFG overwrites and setup
-    overwrite_config_continual_learning(cfg)
-    logger.info("Run with config:")
-    logger.info(pprint.pformat(cfg))
 
     # Choose task type based on config.
     logger.info("Starting init Task")
