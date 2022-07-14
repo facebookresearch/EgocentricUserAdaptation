@@ -32,36 +32,29 @@ run_lta.py: trainer.fit(task: LongTermAnticipationTask)
 
 
 """
+from continual_ego4d.utils.checkpoint_loading import load_checkpoint
 
-import pickle
 import pprint
-import sys
-import copy
-import pathlib
-import shutil
-import submitit
 
-from ego4d.utils import logging
-import numpy as np
-import pytorch_lightning
-import torch
-from continual_ego4d.tasks.continual_action_recog import ContinualMultiTaskClassificationTask
-from ego4d.utils.c2_model_loading import get_name_convert_func
-from ego4d.utils.misc import gpu_mem_usage
-from ego4d.utils.parser import load_config, parse_args
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.plugins import DDPPlugin
 
+from ego4d.utils import logging
+from ego4d.utils.parser import load_config, parse_args
+
+from continual_ego4d.tasks.continual_action_recog import ContinualMultiTaskClassificationTask
 from continual_ego4d.datasets.continual_action_recog_dataset import get_user_to_dataset_dict
-from continual_ego4d.checkpoint_loading import load_checkpoint
-from scripts.slurm import copy_and_run_with_config, init_and_run
+
+from scripts.slurm import copy_and_run_with_config
 
 logger = logging.get_logger(__name__)
 
 
 def main(cfg):
     """ Iterate users and aggregate. """
+    logger.info("Starting main script")
+
     # Select user-split file based on config: Either train or test:
     assert cfg.DATA.USER_SUBSET in ['train', 'test'], \
         "Choose either 'train' or 'test' mode, TRAIN is the user-subset for hyperparam tuning, TEST is held-out final eval"
@@ -90,16 +83,24 @@ def main(cfg):
 
     # TODO aggregate metrics over user dumps
 
+def overwrite_config_continual_learning(cfg):
+    cfg.SOLVER.ACCELERATOR = "gpu"
+    cfg.NUM_GPUS = 1
+    cfg.NUM_SHARDS = 1
+    cfg.SOLVER.MAX_EPOCH = 1
 
 def online_adaptation_single_user(cfg, user_id):
     """ Run single user sequentially. """
     seed_everything(cfg.RNG_SEED)
-
     logging.setup_logging(cfg.OUTPUT_DIR)
+
+    # CFG overwrites and setup
+    overwrite_config_continual_learning(cfg)
     logger.info("Run with config:")
     logger.info(pprint.pformat(cfg))
 
     # Choose task type based on config.
+    logger.info("Starting init Task")
     assert cfg.DATA.TASK == "classification", "Only action recognition supported, no LTA"
     task = ContinualMultiTaskClassificationTask(cfg)
 
@@ -127,21 +128,25 @@ def online_adaptation_single_user(cfg, user_id):
         args = {"logger": False, "callbacks": [checkpoint_callback]}
 
     # There are no validation/testing phases!
+    logger.info("Initializing Trainer")
     trainer = Trainer(
-        gpus=1,  # cfg.NUM_GPUS
-        num_nodes=1,  # cfg.NUM_SHARDS
-        accelerator="gpu",  # cfg.SOLVER.ACCELERATOR, only single device for now
-        max_epochs=1,  # cfg.SOLVER.MAX_EPOCH
+        accelerator=cfg.SOLVER.ACCELERATOR,  # cfg.SOLVER.ACCELERATOR, only single device for now
+        max_epochs=cfg.SOLVER.MAX_EPOCH,
         num_sanity_val_steps=0,  # Sanity check before starting actual training to make sure validation works
         benchmark=True,
         log_gpu_memory="min_max",
         replace_sampler_ddp=False,  # Disable to use own custom sampler
         fast_dev_run=cfg.FAST_DEV_RUN,  # Debug: Run defined batches (int) for train/val/test
         default_root_dir=cfg.OUTPUT_DIR,  # Default path for logs and weights when no logger/ckpt_callback passed
+
+        # DDP specific
         # plugins=DDPPlugin(find_unused_parameters=False),
+        gpus=cfg.NUM_GPUS,
+        num_nodes=cfg.NUM_SHARDS,
         **args,
     )
 
+    logger.info("Starting Trainer fitting")
     trainer.fit(task, val_dataloaders=None)  # Skip validation
 
 

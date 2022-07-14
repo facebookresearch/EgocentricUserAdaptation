@@ -201,14 +201,13 @@ def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_fi
     train_json = df_to_formatted_json(train_df, user_ids, split, user_id_col)  # Convert to json
     with open(json_filepath, 'w', encoding='utf-8') as f:
         json.dump(train_json, f, ensure_ascii=False, indent=4)
-        print(f"Saved JSON: {json_filepath}")
+        print(f"Saved JSON: {osp.abspath(json_filepath)}")
 
     # Test if we can read them in again
     with open(json_filepath, 'r') as f:
         json_obj = json.load(f)
     df = pd.json_normalize(json_obj['users'])
-    # import pdb; pdb.set_trace()
-    print(f"Loaded json, head=\n{df.head(n=10)}")
+    print(f"Loaded json, head=\n{df.head(n=10)}\n")
 
 
 def print_summary(user_sort_values, nb_users_subset, nb_total_users, title: str):

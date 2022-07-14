@@ -7,6 +7,10 @@ __pycache__
 *.pt
 doc_html/*
 
+*.json
+*.pdf
+*.eps
+
 */tb_data/
 avalanche/benchmarks/datasets/*/data
 results/

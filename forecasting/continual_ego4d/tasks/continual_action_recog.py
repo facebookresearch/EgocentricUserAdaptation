@@ -11,16 +11,16 @@ from ego4d.utils import distributed as du
 from ego4d.utils import logging
 from ego4d.datasets import loader
 from ego4d.models import build_model
-from pytorch_lightning.core import LightningModule
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
-from continual_ego4d.datasets.continual_action_recog_dataset import construct_seq_loader
+from pytorch_lightning.core import LightningModule
+from typing import List, Tuple, Union
 
 logger = logging.get_logger(__name__)
 
 
 class ContinualVideoTask(LightningModule):
     def __init__(self, cfg):
+        logger.debug('Starting init ContinualVideoTask')
         super().__init__()
 
         # Backwards compatibility.
@@ -41,6 +41,7 @@ class ContinualVideoTask(LightningModule):
         self.save_hyperparameters()  # Save cfg to '
         self.model = build_model(cfg)
         self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")
+        logger.debug('Initialized ContinualVideoTask')
 
     def training_step(self, batch, batch_idx):
         raise NotImplementedError
@@ -128,6 +129,8 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
         return step_result
 
     def eval_current_batch(self, step_result, preds, labels, batch_idx):
+        logger.debug(f"Starting evaluation on current iteration: batch_idx={batch_idx}")
+
         # SET TO EVAL MODE
         self.model.train(False)
         torch.set_grad_enabled(False)
@@ -136,15 +139,18 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
         # METRICS
 
         # CURRENT BATCH METRICS
+        logger.debug(f"Gathering online results")
         step_result = {**step_result,
                        **self.add_prefix_to_keys(prefix='online',
                                                  source_dict=self._get_metric_results(preds, labels))}
         # PAST METRICS
+        logger.debug(f"Gathering results on past data")
         step_result = {**step_result,
                        **self.add_prefix_to_keys(prefix='seen',
                                                  source_dict=self._get_observed_data_metrics(batch_idx))}
 
         # FUTURE METRICS
+        logger.debug(f"Gathering results on future data")
         step_result = {**step_result,
                        **self.add_prefix_to_keys(prefix='unseen',
                                                  source_dict=self._get_unseen_data_metrics(batch_idx))}

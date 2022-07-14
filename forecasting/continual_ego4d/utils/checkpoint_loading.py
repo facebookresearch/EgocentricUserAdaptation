@@ -1,7 +1,8 @@
 import pickle
-from ego4d.utils import logging
 import numpy as np
 import torch
+
+from ego4d.utils import logging
 from ego4d.utils.c2_model_loading import get_name_convert_func
 
 logger = logging.get_logger(__name__)
