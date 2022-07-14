@@ -108,15 +108,11 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         return self.dataset.num_videos
 
 
-def get_user_to_dataset_dict(data_dir, user_subset):
+def get_user_to_dataset_dict(data_path):
     """
-    :param data_dir:
-    :param user_subset: train or test
     :return: Dictionary that holds the annotation entries in a list per user. <User,Dataset-entry-list>
     """
     # Set json path for dataloader
-    data_path = os.path.join(data_dir, f'fho_lta_{user_subset}_usersplit.json')
-    logger.info(f'Running USER SPLIT "{user_subset}" in path: {data_dir}')
     assert os.path.exists(data_path), f'Please run user datasplit script first to create: {data_path}'
 
     if g_pathmgr.isfile(data_path):

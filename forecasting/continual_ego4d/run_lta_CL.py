@@ -65,7 +65,14 @@ def main(cfg):
     # Select user-split file based on config: Either train or test:
     assert cfg.DATA.USER_SUBSET in ['train', 'test'], \
         "Choose either 'train' or 'test' mode, TRAIN is the user-subset for hyperparam tuning, TEST is held-out final eval"
-    usersplit_annotations = get_user_to_dataset_dict(cfg.DATA.PATH_TO_DATA_DIR, cfg.DATA.USER_SUBSET)
+    data_paths = {
+        'train': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT,
+        'test': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT
+    }
+    data_path = data_paths[cfg.DATA.USER_SUBSET]
+
+    usersplit_annotations = get_user_to_dataset_dict(data_path)
+    logger.info(f'Running JSON USER SPLIT "{cfg.DATA.USER_SUBSET}" in path: {data_path}')
 
     # Checkpoint resume vars and checks
     if len(cfg.CHECKPOINT_USER_ID) > 0:  # Skip until first user ckp encountered (if defined)
