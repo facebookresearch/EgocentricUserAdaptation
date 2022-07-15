@@ -140,7 +140,12 @@ Solution3:  (GIL bottleneck!) single-machine multi-threading scheduler
 Can we also just use the Pytorch [Sequential Sampler](https://pytorch.org/docs/master/data.html#torch.utils.data.SequentialSampler).
 in combination with the sequential video sampler?
 
-
+**UntrimmedClipSampler BUG**:
+FIXME THE ERROR IS THE CLIP_DURATION PASSED, WHICH IS UNTRIMMED, RATHER THAN THE TRIMMED ONE!!
+`UniformClipSampler` is wrapped in the `UntrimmedClipSampler`, which calls for the `__call__` in `UniformClipSampler`.
+It passes directly the last end-clip time. which is UNTRIMMED, while in `UniformClipSampler` it works with TRIMMED VERSION.
+Therefore when a second clip is sampled with this one, it is completely out of range. (e.g. when first sample 
+has (start=40,end=42s), Instead of 2s in the untrimmed clip, 42s is passed, which can result in completely out of bounds new clip).
 
 ### How to implement Experience Replay?
 Write custom video sampler that can only sample from subsets of ranges in prev video.

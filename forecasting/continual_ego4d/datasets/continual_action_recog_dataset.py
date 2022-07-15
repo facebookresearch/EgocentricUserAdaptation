@@ -36,12 +36,12 @@ import torch
 import torch.utils.data
 from iopath.common.file_io import g_pathmgr
 
-from pytorchvideo.data.clip_sampling import ClipSampler
+from pytorchvideo.data.clip_sampling import ClipSampler, ClipInfo
 from pytorchvideo.data.video import VideoPathHandler
 from pytorchvideo.transforms.functional import uniform_temporal_subsample
 from pytorchvideo.data.utils import MultiProcessSampler
 
-from ego4d.datasets.ptv_dataset_helper import UntrimmedClipSampler
+from ego4d.datasets.ptv_dataset_helper import UntrimmedClipSampler  # TODO MAKE SURE NOT USING THIS ONE!
 
 logger = logging.get_logger(__name__)
 
@@ -250,7 +250,8 @@ def clip_user_recognition_dataset(
 
     dataset = ContinualLabeledVideoDataset(
         untrimmed_clip_annotations,
-        UntrimmedClipSampler(clip_sampler),
+        # clip_sampler,
+        EnhancedUntrimmedClipSampler(clip_sampler),
         video_sampler,
         transform,
         decode_audio=decode_audio,
@@ -408,7 +409,7 @@ class ContinualLabeledVideoDataset(torch.utils.data.IterableDataset):
                     decode_audio=self._decode_audio,
                     decoder=self._decoder,
                 )
-                # logger.debug(f'video_path={video_path}, video={video}')
+                # logger.debug(f'video={os.path.basename(video_path)}, info={info_dict}')
             except Exception as e:
                 logger.debug(
                     "Failed to load video with error: {}; trial {}".format(e, i_try)
@@ -431,11 +432,16 @@ class ContinualLabeledVideoDataset(torch.utils.data.IterableDataset):
                     break
                 decoded_clips.append(clip)
 
-            self._next_clip_start_time = clip_end  # Next is entirely new observed batch of input samples
+            # Next is entirely new observed batch of input samples
+            self._next_clip_start_time = clip_end
+            # BE CAREFUL, this will be the UNTRIMMED TIME. WHEN PASSING TO THE SAMPLER ON NEXT ITERATION, SHOULD
+            # SUBTRACT THE START TIME!
 
             logger.debug(
-                f"nb_clips={len(clips)}, is_last_clip={is_last_clip},clip_start={clip_start},clip_end={clip_end}, video_len={video.duration} "
-                f" video_idx={self._last_video_index}, self._next_clip_start_time={self._next_clip_start_time}")  # Always 1 clip exactly
+                f"2s-CLIP: video={os.path.basename(video_path)},video_idx={self._last_video_index}, nb_clips={len(clips)}, is_last_clip={is_last_clip}, clip_start={clip_start},clip_end={clip_end}, video_len={video.duration} "
+                f"  self._next_clip_start_time={self._next_clip_start_time}")  # Always 1 clip exactly
+            logger.debug(
+                f"5min-CLIP: video={os.path.basename(video_path)}, video_idx={self._last_video_index},clip_info_dict={info_dict}")
 
             if is_last_clip or video_is_null:
                 # Close the loaded encoded video and reset the last sampled clip time ready
@@ -452,9 +458,6 @@ class ContinualLabeledVideoDataset(torch.utils.data.IterableDataset):
                         "Failed to load clip {}; trial {}".format(video.name, i_try)
                     )
                     continue
-
-                if is_last_clip:  # This video ran out, sample next
-                    self._last_video_index = next(self._video_sampler_iter)
 
             if len(decoded_clips) == 1:
                 frames = decoded_clips[0]["video"]
@@ -483,6 +486,10 @@ class ContinualLabeledVideoDataset(torch.utils.data.IterableDataset):
             if self._transform is not None:
                 sample_dict = self._transform(sample_dict)
 
+            if is_last_clip:  # This video ran out, sample next
+                self._last_video_index = next(self._video_sampler_iter)
+                logger.debug(f"NEW VIDEO INDEX: {self._last_video_index}")
+
             return sample_dict
         else:
             raise RuntimeError(
@@ -502,3 +509,40 @@ class ContinualLabeledVideoDataset(torch.utils.data.IterableDataset):
             self._video_random_generator.manual_seed(base_seed)
 
         return self
+
+
+class EnhancedUntrimmedClipSampler:
+    """
+    A wrapper for adapting untrimmed annotated clips from the json_dataset to the
+    standard `pytorchvideo.data.ClipSampler` expected format. Specifically, for each
+    clip it uses the provided `clip_sampler` to sample between "clip_start_sec" and
+    "clip_end_sec" from the json_dataset clip annotation.
+    """
+
+    def __init__(self, clip_sampler: ClipSampler) -> None:
+        """
+        Args:
+            clip_sampler (`pytorchvideo.data.ClipSampler`): Strategy used for sampling
+                between the untrimmed clip boundary.
+        """
+        self._trimmed_clip_sampler = clip_sampler
+
+    def __call__(
+            self, untrim_last_clip_time: float, video_duration: float, clip_info: Dict[str, Any]
+    ) -> ClipInfo:
+        clip_start_boundary = clip_info["clip_start_sec"]
+        clip_end_boundary = clip_info["clip_end_sec"]
+        duration = clip_end_boundary - clip_start_boundary
+
+        # Important to avoid out-of-bounds when sampling multiple times (when untrim_last_clip_time>0)
+        trim_last_clip_time = untrim_last_clip_time - clip_start_boundary
+
+        # Sample between 0 and duration of untrimmed clip, then add back start boundary.
+        clip_info = self._trimmed_clip_sampler(trim_last_clip_time, duration, clip_info)
+        return ClipInfo(
+            clip_info.clip_start_sec + clip_start_boundary,
+            clip_info.clip_end_sec + clip_start_boundary,
+            clip_info.clip_index,
+            clip_info.aug_index,
+            clip_info.is_last_clip,
+        )
