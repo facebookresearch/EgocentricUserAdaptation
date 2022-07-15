@@ -2,19 +2,15 @@ from __future__ import annotations
 
 import torch.utils.data
 
-import json
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch.utils.data
-from iopath.common.file_io import g_pathmgr
-
-from pytorchvideo.data.clip_sampling import ClipSampler
 
 import itertools
-import os
+import pandas as pd
 
-import torch
+from fractions import Fraction
 import torch.utils.data
-from pytorchvideo.data import make_clip_sampler, UniformClipSampler
+from pytorchvideo.data import UniformClipSampler
 from pytorchvideo.transforms import (
     ApplyTransformToKey,
     Normalize,
@@ -29,13 +25,66 @@ from torchvision.transforms import (
 
 from ego4d.datasets.build import DATASET_REGISTRY
 from ego4d.utils import logging, video_transformer
-from ego4d.datasets.ptv_dataset_helper import LabeledVideoDataset, UntrimmedClipSampler
+from ego4d.datasets.build import build_dataset
+
+import gc
+
+import json
+import os
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+import torch
+import torch.utils.data
+from iopath.common.file_io import g_pathmgr
+
+from pytorchvideo.data.clip_sampling import ClipSampler
+from pytorchvideo.data.video import VideoPathHandler
+from pytorchvideo.transforms.functional import uniform_temporal_subsample
+from pytorchvideo.data.utils import MultiProcessSampler
+
+from ego4d.datasets.ptv_dataset_helper import UntrimmedClipSampler
 
 logger = logging.get_logger(__name__)
 
 
+def construct_seq_loader(
+        cfg,
+        dataset_name,
+        usersplit,
+        batch_size,
+        subset_indices: Union[List, Tuple] = None):
+    """
+    Constructs the data loader for the given dataset.
+    Args:
+        cfg (CfgNode): configs. Details can be found in
+            ego4d/config/defaults.py
+        split (str): the split of the data loader. Options include `train`,
+            `val`, and `test`.
+    """
+
+    # Construct the dataset
+    dataset = build_dataset(dataset_name, cfg, usersplit)  # TODO import
+
+    # TODO make subset
+    if subset_indices is not None:
+        dataset = torch.utils.data.Subset(dataset, indices=subset_indices)
+
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        sampler=dataset.sampler,
+        num_workers=cfg.DATA_LOADER.NUM_WORKERS,
+        pin_memory=cfg.DATA_LOADER.PIN_MEMORY,
+        drop_last=False,
+        collate_fn=None,
+    )
+    return loader
+
+
 @DATASET_REGISTRY.register()
 class Ego4dContinualRecognition(torch.utils.data.Dataset):
+    """Torch compatible Wrapper dataset with video transforms."""
+
     def __init__(self, cfg, mode):
         self.cfg = cfg
         assert mode in ["continual"], \
@@ -49,8 +98,9 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             video_sampler = DistributedSampler
 
         # Clip sampling
-        clip_duration = (self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE) / self.cfg.DATA.TARGET_FPS
-        clip_stride_seconds = self.cfg.DATA.SEQ_OBSERVED_FRAME_STRIDE / self.cfg.DATA.TARGET_FPS  # Seconds
+        clip_duration = Fraction((self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE), self.cfg.DATA.TARGET_FPS)
+        clip_stride_seconds = Fraction(self.cfg.DATA.SEQ_OBSERVED_FRAME_STRIDE, self.cfg.DATA.TARGET_FPS)  # Seconds
+        logger.debug(f"CLIP SAMPLER: Clip duration={clip_duration}, clip_stride_seconds={clip_stride_seconds}")
         clip_sampler = UniformClipSampler(
             clip_duration=clip_duration,
             stride=clip_stride_seconds,
@@ -132,32 +182,73 @@ def clip_user_recognition_dataset(
         user_id: str,  # Ego4d 'fb_participant_id'
         user_annotations: List,
         clip_sampler: ClipSampler,
-        video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
+        video_sampler: Type[torch.utils.data.Sampler],
         transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
         video_path_prefix: str = "",
         decode_audio: bool = True,
         decoder: str = "pyav",
 ):
+    # Sort clips to match sequence
+    # Per video (>>5miin): origin_video_id (user collected by same collector-instance, with possibly time-like video id)
+    # Per 5min clip in video: 'clip_parent_start_sec'
+    # Per action annotation in 5min clip: action_idx
+    user_df = pd.DataFrame(user_annotations)
+    seq_user_df = user_df.sort_values(
+        ['origin_video_id', 'clip_parent_start_sec', 'action_idx'],
+        ascending=True
+    )
+    seq_user_df = seq_user_df.reset_index(drop=True)
+
     # LabeledVideoDataset requires the data to be list of tuples with format:
     # (video_paths, annotation_dict). For recognition, the annotation_dict contains
     # the verb and noun label, and the annotation boundaries.
-    untrimmed_clip_annotations = []
-    for entry in user_annotations:
-        untrimmed_clip_annotations.append(
-            (
-                os.path.join(video_path_prefix, f'{entry["clip_uid"]}.mp4'),
-                {
-                    "clip_start_sec": entry['action_clip_start_sec'],
-                    "clip_end_sec": entry['action_clip_end_sec'],
-                    "noun_label": entry['noun_label'],
-                    "verb_label": entry['verb_label'],
-                    "action_idx": entry['action_idx'],
-                    "user_id": user_id,  # Grouped by user
-                },
-            )
-        )
 
-    dataset = LabeledVideoDataset(
+    # Keep final time, if start_time of new fragment < end_time, readjust start_time.
+    # If the new_time >= end_time, just cut the fragment.
+    # If subclip is < min_clip_len, disregard
+    untrimmed_clip_annotations = []
+    last_clip_uid = None
+    last_clip_action_time = 0
+    num_skipped_entries = 0
+    num_trimmed_entries = 0
+    for entry_idx in range(seq_user_df.shape[0]):
+        row = seq_user_df.iloc[entry_idx]
+
+        # Action in new clip: reset
+        if row['clip_uid'] != last_clip_uid:
+            last_clip_uid = row['clip_uid']
+            last_clip_action_time = 0
+
+        # Clip info
+        clip_start_sec = row['action_clip_start_sec']
+        clip_end_sec = row['action_clip_end_sec']
+        clip_old_len_sec = clip_end_sec - clip_start_sec
+        clip_new_len_sec = clip_end_sec - last_clip_action_time
+
+        # No problem, take full clip
+        if clip_start_sec >= last_clip_action_time:
+            last_clip_action_time = clip_end_sec
+            ret_entry = get_formatted_entry(row, video_path_prefix, user_id)
+
+        # The current one is entirely behind current timestep, or is too short to be sampled
+        elif clip_end_sec <= last_clip_action_time \
+                or clip_new_len_sec < clip_sampler._clip_duration:
+            num_skipped_entries += 1
+            continue
+
+        else:  # Trim current one
+            num_trimmed_entries += 1
+            ret_entry = get_formatted_entry(row, video_path_prefix, user_id)
+            ret_entry[1]['clip_start_sec'] = last_clip_action_time  # Overwrite the start time
+            last_clip_action_time = clip_end_sec
+
+        # Add entry
+        untrimmed_clip_annotations.append(ret_entry)
+
+    logger.info(f"In FIFO single-action-policy for the dataset, "
+                f"entries DROPPED={num_skipped_entries}, TRIMMED={num_trimmed_entries}")
+
+    dataset = ContinualLabeledVideoDataset(
         untrimmed_clip_annotations,
         UntrimmedClipSampler(clip_sampler),
         video_sampler,
@@ -168,36 +259,246 @@ def clip_user_recognition_dataset(
     return dataset
 
 
-def construct_seq_loader(
-        cfg,
-        dataset_name,
-        usersplit,
-        batch_size,
-        subset_indices: Union[List, Tuple] = None):
-    """
-    Constructs the data loader for the given dataset.
-    Args:
-        cfg (CfgNode): configs. Details can be found in
-            ego4d/config/defaults.py
-        split (str): the split of the data loader. Options include `train`,
-            `val`, and `test`.
-    """
-
-    # Construct the dataset
-    dataset = build_dataset(dataset_name, cfg, usersplit)  # TODO import
-
-    # TODO make subset
-    if subset_indices is not None:
-        dataset = torch.utils.data.Subset(dataset, indices=subset_indices)
-
-    loader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        sampler=dataset.sampler,
-        num_workers=cfg.DATA_LOADER.NUM_WORKERS,
-        pin_memory=cfg.DATA_LOADER.PIN_MEMORY,
-        drop_last=False,
-        collate_fn=None,
+def get_formatted_entry(entry, video_path_prefix, user_id):
+    """Return (video_path, annotation_info) format."""
+    return (
+        os.path.join(video_path_prefix, f'{entry["clip_uid"]}.mp4'),
+        {
+            "clip_start_sec": entry['action_clip_start_sec'],
+            "clip_end_sec": entry['action_clip_end_sec'],
+            "noun_label": entry['noun_label'],
+            "verb_label": entry['verb_label'],
+            "action_idx": entry['action_idx'],
+            "parent_video_scenarios": entry['parent_video_scenarios'],
+            "user_id": user_id,  # Grouped by user
+        }
     )
-    return loader
+
+
+class ContinualLabeledVideoDataset(torch.utils.data.IterableDataset):
+    """
+    Continual part makes sure each video is observed until finished all clips.
+
+    LabeledVideoDataset handles the storage, loading, decoding and clip sampling for a
+    video dataset. It assumes each video is stored as either an encoded video
+    (e.g. mp4, avi) or a frame video (e.g. a folder of jpg, or png)
+    """
+
+    _MAX_CONSECUTIVE_FAILURES = 10
+
+    def __init__(
+            self,
+            labeled_video_paths: List[Tuple[str, Optional[dict]]],
+            clip_sampler: ClipSampler,
+            video_sampler: Type[torch.utils.data.Sampler] = torch.utils.data.RandomSampler,
+            transform: Optional[Callable[[dict], Any]] = None,
+            decode_audio: bool = True,
+            decoder: str = "pyav",
+    ) -> None:
+        """
+        Args:
+            labeled_video_paths (List[Tuple[str, Optional[dict]]]): List containing
+                    video file paths and associated labels. If video paths are a folder
+                    it's interpreted as a frame video, otherwise it must be an encoded
+                    video.
+
+            clip_sampler (ClipSampler): Defines how clips should be sampled from each
+                video. See the clip sampling documentation for more information.
+
+            video_sampler (Type[torch.utils.data.Sampler]): Sampler for the internal
+                video container. This defines the order videos are decoded and,
+                if necessary, the distributed split.
+
+            transform (Callable): This callable is evaluated on the clip output before
+                the clip is returned. It can be used for user defined preprocessing and
+                augmentations on the clips. The clip output format is described in __next__().
+
+            decode_audio (bool): If True, also decode audio from video.
+
+            decoder (str): Defines what type of decoder used to decode a video. Not used for
+                frame videos.
+        """
+        self._decode_audio = decode_audio
+        self._transform = transform
+        self._clip_sampler = clip_sampler
+        self._labeled_videos = labeled_video_paths
+        self._decoder = decoder
+        self.path_handler = VideoPathHandler()
+
+        # If a RandomSampler is used we need to pass in a custom random generator that
+        # ensures all PyTorch multiprocess workers have the same random seed.
+        self._video_random_generator = None
+        if video_sampler == torch.utils.data.RandomSampler:
+            self._video_random_generator = torch.Generator()
+            self._video_sampler = video_sampler(
+                self._labeled_videos, generator=self._video_random_generator
+            )
+        else:
+            self._video_sampler = video_sampler(self._labeled_videos)
+
+        self._video_sampler_iter = None  # Initialized on first call to self.__next__()
+
+        # Depending on the clip sampler type, we may want to sample multiple clips
+        # from one video. In that case, we keep the store video, label and previous sampled
+        # clip time in these variables.
+        self._loaded_video_label = None
+        self._loaded_clips = None
+        self._next_clip_start_time = 0.0
+
+        # CONTINUAL LEARNING STATES
+        self._last_video_index = None
+
+    @property
+    def video_sampler(self):
+        """
+        Returns:
+            The video sampler that defines video sample order. Note that you'll need to
+            use this property to set the epoch for a torch.utils.data.DistributedSampler.
+        """
+        return self._video_sampler
+
+    @property
+    def num_videos(self):
+        """
+        Returns:
+            Number of videos in dataset.
+        """
+        return len(self.video_sampler)
+
+    def __next__(self) -> dict:
+        """
+        Keep sampling the
+
+        Retrieves the next clip based on the clip sampling strategy and video sampler.
+
+        video_sampler: The next video-level entry may be the same video, but with other annotation entry (other action).
+        The boundaries within the same video hence may progress, or it may be another video_path instead.
+
+
+        clip_sampler: within the action_boundaries in a video, sample a subvideo (a clip).
+        The single annotation video bounary should be processed entirely in shifting window style.
+        One iteration only considers a single clip of these boundaries. The next timestep the start time is shifted.
+
+        Returns:
+            A dictionary with the following format.
+
+            .. code-block:: text
+
+                {
+                    'video': <video_tensor>,
+                    'label': <index_label>,
+                    'video_label': <index_label>
+                    'video_index': <video_index>,
+                    'clip_index': <clip_index>,
+                    'aug_index': <aug_index>,
+                }
+        """
+        if not self._video_sampler_iter:
+            # Setup MultiProcessSampler here - after PyTorch DataLoader workers are spawned.
+            self._video_sampler_iter = iter(MultiProcessSampler(self._video_sampler))
+
+        if self._last_video_index is None:  # Load first video
+            self._last_video_index = next(self._video_sampler_iter)
+
+        for i_try in range(self._MAX_CONSECUTIVE_FAILURES):
+            try:
+                video_path, info_dict = self._labeled_videos[self._last_video_index]
+                video = self.path_handler.video_from_path(
+                    video_path,
+                    decode_audio=self._decode_audio,
+                    decoder=self._decoder,
+                )
+                # logger.debug(f'video_path={video_path}, video={video}')
+            except Exception as e:
+                logger.debug(
+                    "Failed to load video with error: {}; trial {}".format(e, i_try)
+                )
+                continue
+
+            clips = self._clip_sampler(
+                self._next_clip_start_time, video.duration, info_dict
+            )
+
+            if not isinstance(clips, list):
+                clips = [clips]
+
+            decoded_clips = []
+            video_is_null = False
+            for clip_start, clip_end, clip_index, aug_index, is_last_clip in clips:
+                clip = video.get_clip(clip_start, clip_end)
+                video_is_null = clip is None or clip["video"] is None
+                if video_is_null:
+                    break
+                decoded_clips.append(clip)
+
+            self._next_clip_start_time = clip_end  # Next is entirely new observed batch of input samples
+
+            logger.debug(
+                f"nb_clips={len(clips)}, is_last_clip={is_last_clip},clip_start={clip_start},clip_end={clip_end}, video_len={video.duration} "
+                f" video_idx={self._last_video_index}, self._next_clip_start_time={self._next_clip_start_time}")  # Always 1 clip exactly
+
+            if is_last_clip or video_is_null:
+                # Close the loaded encoded video and reset the last sampled clip time ready
+                # to sample a new video on the next iteration.
+                video.close()
+                self._next_clip_start_time = 0.0
+
+                # Force garbage collection to release video container immediately
+                # otherwise memory can spike.
+                gc.collect()
+
+                if video_is_null:
+                    logger.debug(
+                        "Failed to load clip {}; trial {}".format(video.name, i_try)
+                    )
+                    continue
+
+                if is_last_clip:  # This video ran out, sample next
+                    self._last_video_index = next(self._video_sampler_iter)
+
+            if len(decoded_clips) == 1:
+                frames = decoded_clips[0]["video"]
+                audio_samples = decoded_clips[0]["audio"]
+            else:
+                clip_frames = [
+                    uniform_temporal_subsample(x["video"], num_samples=64)
+                    for x in decoded_clips
+                ]
+                frames = torch.stack(clip_frames, dim=0)
+
+                clip_audio = [x["audio"] for x in decoded_clips]
+                audio_samples = None
+                if None not in clip_audio:
+                    audio_samples = torch.stack(clip_audio, dim=0)
+
+            sample_dict = {
+                "video": frames,
+                "video_name": video.name,
+                "video_index": self._last_video_index,
+                "clip_index": clip_index,
+                "aug_index": aug_index,
+                **info_dict,
+                **({"audio": audio_samples} if audio_samples is not None else {}),
+            }
+            if self._transform is not None:
+                sample_dict = self._transform(sample_dict)
+
+            return sample_dict
+        else:
+            raise RuntimeError(
+                f"Failed to load video after {self._MAX_CONSECUTIVE_FAILURES} retries."
+            )
+
+    def __iter__(self):
+        self._video_sampler_iter = None  # Reset video sampler
+
+        # If we're in a PyTorch DataLoader multiprocessing context, we need to use the
+        # same seed for each worker's RandomSampler generator. The workers at each
+        # __iter__ call are created from the unique value: worker_info.seed - worker_info.id,
+        # which we can use for this seed.
+        worker_info = torch.utils.data.get_worker_info()
+        if self._video_random_generator is not None and worker_info is not None:
+            base_seed = worker_info.seed - worker_info.id
+            self._video_random_generator.manual_seed(base_seed)
+
+        return self

@@ -98,13 +98,23 @@ only the range for the action within this 5-min video changes.
 
 OPEN QUESTION: HOW GO FROM ONE VIDEO TO NEXT? (So how are the videos sampled, not the clips within the vids?)
 
-### How to implement sequential dataloaders?
+### How to implement a sequential stream?
 `long_term_anticipation.py:Ego4dLongTermAnticipation` determines the order, both based on
 `clip_sampler` within the video, and between videos with `video_sampler`.
 
+We have to sort annotated entries on 3 levels:
+
+    # Per video (>>5miin): video_metadata.video_start_sec
+    # Per 5min clip in video: 'clip_parent_start_sec'
+    # Per action annotation in 5min clip: action_idx
+
+Then, we apply a policy for overlapping annotation entries
+1. Ignore-policy: We can go back in time if action-annotations overlap, we go back to the starting point of the next action.
+2. First Single-action policy: If actions overlap, progress from end point of a1, and only visit the remaining time for a2.
+3. Multi-action policy: If actions overlap, break down the periods in multi-class classification samples.
 
 For now the by default
-- `video_sampler` is by default `DistributedSampler`, but we should make it a `SequentialDistributedSampler`.
+- `video_sampler` is by default `DistributedSampler`, but we should make it a `SequentialSampler`.
   - Does this sequential nature limit us to using 1 GPU? No we can still benefit from distributed, by instead of online 1-by-1 learning, 
   we can observe the next batch in the buffer (e.g. the next N samples). But this batch-size is limited anyway.
   - Should we instead have 1 user running independently per GPU and scheduling users over GPUs?
