@@ -185,6 +185,7 @@ def generate_usersplit_from_trainval(
     json_col_names = list(train_clips_df) + [
         'fb_participant_id',
         'scenarios',
+        'origin_video_id' # Used for sorting
     ]
 
     # TRAIN JSON
