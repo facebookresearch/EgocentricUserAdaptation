@@ -84,6 +84,12 @@ def generate_usersplit_from_trainval(
     val_clips_df = pd.json_normalize(val_clips)
     print(f"trainshape={train_clips_df.shape}, valshape={val_clips_df.shape}")
 
+    # Show overlapping
+    print(f"Meta colnames={list(meta_df)}")
+    print(f"Annotation colnames={list(train_clips_df)}")
+    overlapping_colnames = [x for x in list(meta_df) if x in list(train_clips_df)]
+    print(f"Overlapping colnames={overlapping_colnames}")
+
     # MERGE dataframes on video_uid (Right join: keep annotation entries, but add video_uid info)
     train_joined_df = pd.merge(meta_df, train_clips_df,
                                on="video_uid", validate="one_to_many", how="right")
