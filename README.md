@@ -1,5 +1,9 @@
 # Matthias Continual Learning Benchmark Project
 
+TODO: Dataloadign problem is in eval past? Maybe to do with Seq sampler
+TODO: copy final jsons to another outputdir
+TODO: restore previous layout
+
 ## Ego4d codebase
 See [forecasting](forecasting) for our experimental codebase.
 
@@ -14,7 +18,7 @@ See [forecasting](forecasting) for our experimental codebase.
   - /home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation
 
 
-### How to define our own splits?
+### How to define our own splits? (TODO DEPRECATED)
 If we want to keep the Ego4d setup, we can define a per-user split by splitting the dataset as in,
 with the videos in each json ordered chronologically (not necessarily in the json, can be done ad-hoc).
 Ideally we have some summary statistics generated for our split.
@@ -53,7 +57,8 @@ The 'clip' terminology can hence refer to 2 things!
 `long_term_anticipation.py:Ego4dLongTermAnticipation` is train/val/test dataset wrapper, 
 defines transforms, extraction of labels form the Pytorch Dataset entries, and defines (Distr) Sampler for the Pytorch dataset.
 
-**Pytorch Dataset:**
+
+**Pytorch Dataset and video-level entries**
 `ptv_dataset_helper.py:clip_forecasting_dataset()` creates the actual Pytorch `LabeledVideoDataset`, and therefore directly loads the annotation file (`fho_lta_{mode_}.json`), and groups annotations per (5 minute) video-clip (by `clip_uid`).
 `LabeledVideoDataset` assumes a list of videos (`clip_uid.mp4`) and retrieves the next (sub)clip in one of the videos, based on the clip sampler strategy.
 
@@ -62,6 +67,33 @@ LabeledVideoDataset requires the data to be list of tuples with format:
 - the input boundaries to be decoded in the video-clip `(clip_start_sec, clip_end_sec)`
 - any observed clip annotations within those boundaries `(verb_label, noun_label)`
 - a list of `num_future_actions` clip annotations (including labels and boundaries), these are extracted directly from the annotations in the 5-min video-clip based on order of `action_idx`.
+
+
+`ptv_dataset_helper.py:clip_recognition_dataset`
+The videos (5min clips) are collected in a list per annotation entry.
+So even if we iterate sequentially over the video entries of the dataset (video sampler),
+this will only iterate the videos based on action_idx. It might happen that for a video
+we actually go back in time at the end.
+
+Possible solutions:
+- First-in, first labeled. Meaning that if multiple actions overlap,
+the end-time of the first one will be the final end-time. Whatever is left for the next action in line,
+the remaining time is allocated to that one (if end-time of Action2 > end-time Action1).
+
+- Multi-label classification:
+In run-time: as long as subsequent action_idxs overlap,
+make new video-entries for the overlap zones with both labels!
+Pre and post are also added as separate video-entries.
+
+
+**Video sampling**
+To go from one video entry to the next, the list of video-entries with their annotations are 
+iterated in the `LabeledVideoDataset`. A single 5-min video (based on clip_uid) typically has multiple entries,
+1 for each action happening in the 5-min video. Each such action has a start and end time,
+the `clip_sampler` samples the clips in between these action-boundaries within the 5-min clip.
+The `video_sampler` iterates over the annotation entries (ordered on action_idx per video). 
+Subsequent annotation entries hence may have the same associated video and video_path, 
+only the range for the action within this 5-min video changes.
 
 
 OPEN QUESTION: HOW GO FROM ONE VIDEO TO NEXT? (So how are the videos sampled, not the clips within the vids?)
