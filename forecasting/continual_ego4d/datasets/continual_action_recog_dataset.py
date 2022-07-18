@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 import torch.utils.data
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
@@ -166,12 +168,23 @@ def clip_user_recognition_dataset(
     )
     seq_user_df = seq_user_df.reset_index(drop=True)
 
+    # Collect sorted annotation entries. And applies a policy for overlapping annotation entries in the same clip.
+    # e.g. FIFO uses the end-time of the earliest action, as a new start time for subsequent overlapping actions.
+    untrimmed_video_annotation_list = get_seq_annotations_by_policy(
+        seq_user_df, clip_sampler, video_path_prefix, user_id,
+        policy='fifo'
+    )
+
+    # Convert the annotation-level entries to actual visited 2-s input clips
+    # This allows to make a Dataset instead of an IterableDataset, which is required for efficient slicing
+    # For this, we will apply the ClipSampler and VideoSampler in pre-processing.
+    # The result will give an index-able list of input-level entries with according annotation.
+    get_preprocessed_clips(untrimmed_video_annotation_list, video_sampler)
+
+    # TODO make dataset that just iterates the samples (and doesn't reload videos?)
     # LabeledVideoDataset requires the data to be list of tuples with format:
     # (video_paths, annotation_dict). For recognition, the annotation_dict contains
     # the verb and noun label, and the annotation boundaries.
-    untrimmed_clip_annotations = get_seq_annotations_by_policy(
-        seq_user_df, clip_sampler, video_path_prefix, user_id, policy='fifo')
-
     dataset = ContinualLabeledVideoDataset(
         untrimmed_clip_annotations,
         # clip_sampler,
@@ -239,6 +252,77 @@ def annotation_fifo_policy(seq_user_df, clip_sampler, video_path_prefix, user_id
                 f"entries DROPPED={num_skipped_entries}, TRIMMED={num_trimmed_entries}")
 
     return untrimmed_clip_annotations
+
+
+def get_preprocessed_clips(video_annotation_list, video_sampler, clip_sampler: ClipSampler, decoder: str = "pyav"):
+    """
+
+    Videos are only decoded when using video.get_clip(). Loading the videos without decoding calls,
+    we can access just the meta-data, such as duration.
+
+    :param video_annotation_list: list of annotation-level entries, full annotation range for the video.
+    The annotation info dicts are formatted entries, see function 'get_formatted_entry'.
+    Video paths are not unique as multiple annotations may refer to the same video, e.g.:
+            [(video_path, annotation1_info_dict),
+            (video_path, annotation2_info_dict),...]
+    :param video_sampler: sample over the video_annotation_list
+    :param clip_sampler: sample clips within 1 entry
+    :return: List of miniclip level clips, e.g.:
+                [(video_path, annotation1_sampledclip1_info_dict),
+                (video_path, annotation1_sampledclip2_info_dict),
+                ...,
+                (video_path, annotation2_sampledclip1_info_dict),
+                (video_path, annotation2_sampledclip2_info_dict),
+                ... ]
+    """
+
+    miniclip_annotation_list = []
+    next_clip_start_time = 0.0
+    path_handler = VideoPathHandler()
+
+    annotation_sampler = video_sampler(video_annotation_list)
+    assert isinstance(annotation_sampler, SequentialSampler), \
+        f"Preprocessing only supports a sequential (deterministic) annotation sampler, not {annotation_sampler}"
+    annotation_index = next(annotation_sampler)
+
+    # Iterate all annotations
+    while annotation_index < len(video_annotation_list):
+
+        video_path, info_dict = video_annotation_list[annotation_index]
+        assert os.path.isfile(video_path), f"Non-existing video: {video_path}"
+        logger.debug(f'video={os.path.basename(video_path)}, info={info_dict}')
+
+        # Meta-data holder object (not decoded yet)
+        video = path_handler.video_from_path(
+            video_path,
+            decode_audio=False,
+            decoder=decoder,
+        )
+        clip: ClipInfo = clip_sampler(
+            next_clip_start_time, video.duration, info_dict
+        )
+        assert not isinstance(clip, list), f"No multi-clip sampling supported"
+
+        # Untrimmed refers to the 5-min clip, with the clip start-time possibly != 0
+        untrimmed_clip_start_time = clip.clip_start_sec
+        untrimmed_clip_end_time = clip.clip_end_sec
+
+        # BE CAREFUL, this will be the UNTRIMMED TIME. WHEN PASSING TO THE SAMPLER ON NEXT ITERATION, SHOULD
+        # SUBTRACT THE START TIME!
+        next_clip_start_time = untrimmed_clip_end_time
+
+        # Add annotation entry with adapted times
+        new_cliplevel_entry = copy.deepcopy(video_annotation_list[annotation_index])
+        new_cliplevel_entry[1]['clip_start_sec'] = untrimmed_clip_start_time
+        new_cliplevel_entry[1]['clip_end_sec'] = untrimmed_clip_end_time
+        miniclip_annotation_list.append(new_cliplevel_entry)
+
+        if clip.is_last_clip:  # This annotation ran out, sample next
+            next_clip_start_time = 0.0
+            annotation_index = next(annotation_sampler)
+            logger.debug(f"NEW ANNOTATION INDEX: {annotation_index}")
+
+    return miniclip_annotation_list
 
 
 def get_formatted_entry(entry, video_path_prefix, user_id):
@@ -345,67 +429,6 @@ class ContinualLabeledVideoDataset(torch.utils.data.IterableDataset):
         Returns:
             Number of videos in dataset.
         """
-        return len(self.video_sampler)
-
-    def num_clips(self):
-        """
-        Returns:
-            Number of videos in dataset.
-        """
-
-        # TODO for each video try out
-        self._last_video_index = next(self._video_sampler_iter)
-
-        try:
-            video_path, info_dict = self._labeled_videos[self._last_video_index]
-            video = self.path_handler.video_from_path(
-                video_path,
-                decode_audio=self._decode_audio,
-                decoder=self._decoder,
-            )
-            # logger.debug(f'video={os.path.basename(video_path)}, info={info_dict}')
-        except Exception as e:
-            logger.debug(
-                "Failed to load video with error: {}; trial {}".format(e, i_try)
-            )
-            continue
-
-        clips = self._clip_sampler(
-            self._next_clip_start_time, video.duration, info_dict
-        )
-
-        if not isinstance(clips, list):
-            clips = [clips]
-
-        decoded_clips = []
-        video_is_null = False
-        for clip_start, clip_end, clip_index, aug_index, is_last_clip in clips:
-            clip = video.get_clip(clip_start, clip_end)
-            video_is_null = clip is None or clip["video"] is None
-            if video_is_null:
-                break
-            decoded_clips.append(clip)
-
-        # Next is entirely new observed batch of input samples
-        self._next_clip_start_time = clip_end
-        # BE CAREFUL, this will be the UNTRIMMED TIME. WHEN PASSING TO THE SAMPLER ON NEXT ITERATION, SHOULD
-        # SUBTRACT THE START TIME!
-
-        logger.debug(
-            f"2s-CLIP: video={os.path.basename(video_path)},video_idx={self._last_video_index}, nb_clips={len(clips)}, is_last_clip={is_last_clip}, clip_start={clip_start},clip_end={clip_end}, video_len={video.duration} "
-            f"  self._next_clip_start_time={self._next_clip_start_time}")  # Always 1 clip exactly
-        logger.debug(
-            f"5min-CLIP: video={os.path.basename(video_path)}, video_idx={self._last_video_index},clip_info_dict={info_dict}")
-
-        if is_last_clip or video_is_null:
-            self._next_clip_start_time = 0.0
-            if video_is_null:
-                continue
-
-        if is_last_clip:  # This video ran out, sample next
-            self._last_video_index = next(self._video_sampler_iter)
-            logger.debug(f"NEW VIDEO INDEX: {self._last_video_index}")
-
         return len(self.video_sampler)
 
     def __next__(self) -> dict:
