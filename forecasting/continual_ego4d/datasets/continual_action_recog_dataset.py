@@ -46,41 +46,6 @@ from ego4d.datasets.ptv_dataset_helper import UntrimmedClipSampler  # TODO MAKE 
 logger = logging.get_logger(__name__)
 
 
-def construct_seq_loader(
-        cfg,
-        dataset_name,
-        usersplit,
-        batch_size,
-        subset_indices: Union[List, Tuple] = None):
-    """
-    Constructs the data loader for the given dataset.
-    Args:
-        cfg (CfgNode): configs. Details can be found in
-            ego4d/config/defaults.py
-        split (str): the split of the data loader. Options include `train`,
-            `val`, and `test`.
-    """
-
-    # Construct the dataset
-    dataset = build_dataset(dataset_name, cfg, usersplit)  # TODO import
-
-    # TODO make subset
-    if subset_indices is not None:
-        dataset = torch.utils.data.Subset(dataset, indices=subset_indices)
-
-    loader = torch.utils.data.DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        sampler=dataset.sampler,
-        num_workers=cfg.DATA_LOADER.NUM_WORKERS,
-        pin_memory=cfg.DATA_LOADER.PIN_MEMORY,
-        drop_last=False,
-        collate_fn=None,
-    )
-    return loader
-
-
 @DATASET_REGISTRY.register()
 class Ego4dContinualRecognition(torch.utils.data.Dataset):
     """Torch compatible Wrapper dataset with video transforms."""
@@ -100,6 +65,8 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         # Clip sampling
         clip_duration = Fraction((self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE), self.cfg.DATA.TARGET_FPS)
         clip_stride_seconds = Fraction(self.cfg.DATA.SEQ_OBSERVED_FRAME_STRIDE, self.cfg.DATA.TARGET_FPS)  # Seconds
+        clip_stride_seconds = None
+
         logger.debug(f"CLIP SAMPLER: Clip duration={clip_duration}, clip_stride_seconds={clip_stride_seconds}")
         clip_sampler = UniformClipSampler(
             clip_duration=clip_duration,
@@ -123,7 +90,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
     @property
     def sampler(self):
-        return self.dataset.video_sampler
+        return self.dataset.video_sampler  # TODO get a sequential sampler of the mini-clip level entries
 
     def _make_transform(self, mode: str, cfg):
         return Compose(
@@ -151,12 +118,12 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             ]
         )
 
-    def __getitem__(self, index):
+    def __getitem__(self, index):  # TODO Take actual index
         value = next(self._dataset_iter)
         return value
 
     def __len__(self):
-        return self.dataset.num_videos
+        return self.dataset.num_videos  # TODO make per-clip samples!
 
 
 def get_user_to_dataset_dict(data_path):
@@ -195,14 +162,37 @@ def clip_user_recognition_dataset(
     user_df = pd.DataFrame(user_annotations)
     seq_user_df = user_df.sort_values(
         ['origin_video_id', 'clip_parent_start_sec', 'action_idx'],
-        ascending=True
+        ascending=[True, True, True]
     )
     seq_user_df = seq_user_df.reset_index(drop=True)
 
     # LabeledVideoDataset requires the data to be list of tuples with format:
     # (video_paths, annotation_dict). For recognition, the annotation_dict contains
     # the verb and noun label, and the annotation boundaries.
+    untrimmed_clip_annotations = get_seq_annotations_by_policy(
+        seq_user_df, clip_sampler, video_path_prefix, user_id, policy='fifo')
 
+    dataset = ContinualLabeledVideoDataset(
+        untrimmed_clip_annotations,
+        # clip_sampler,
+        EnhancedUntrimmedClipSampler(clip_sampler),
+        video_sampler,
+        transform,
+        decode_audio=decode_audio,
+        decoder=decoder,
+    )
+    return dataset
+
+
+def get_seq_annotations_by_policy(seq_user_df, clip_sampler, video_path_prefix, user_id, policy='fifo'):
+    """Take the user data frame, and return the annotations as a list of (video_path, annotation_info_dict) entries."""
+    if policy == 'fifo':
+        return annotation_fifo_policy(seq_user_df, clip_sampler, video_path_prefix, user_id)
+    else:
+        raise NotImplementedError(f"Policy '{policy}' is unkown")
+
+
+def annotation_fifo_policy(seq_user_df, clip_sampler, video_path_prefix, user_id):
     # Keep final time, if start_time of new fragment < end_time, readjust start_time.
     # If the new_time >= end_time, just cut the fragment.
     # If subclip is < min_clip_len, disregard
@@ -248,16 +238,7 @@ def clip_user_recognition_dataset(
     logger.info(f"In FIFO single-action-policy for the dataset, "
                 f"entries DROPPED={num_skipped_entries}, TRIMMED={num_trimmed_entries}")
 
-    dataset = ContinualLabeledVideoDataset(
-        untrimmed_clip_annotations,
-        # clip_sampler,
-        EnhancedUntrimmedClipSampler(clip_sampler),
-        video_sampler,
-        transform,
-        decode_audio=decode_audio,
-        decoder=decoder,
-    )
-    return dataset
+    return untrimmed_clip_annotations
 
 
 def get_formatted_entry(entry, video_path_prefix, user_id):
@@ -364,6 +345,67 @@ class ContinualLabeledVideoDataset(torch.utils.data.IterableDataset):
         Returns:
             Number of videos in dataset.
         """
+        return len(self.video_sampler)
+
+    def num_clips(self):
+        """
+        Returns:
+            Number of videos in dataset.
+        """
+
+        # TODO for each video try out
+        self._last_video_index = next(self._video_sampler_iter)
+
+        try:
+            video_path, info_dict = self._labeled_videos[self._last_video_index]
+            video = self.path_handler.video_from_path(
+                video_path,
+                decode_audio=self._decode_audio,
+                decoder=self._decoder,
+            )
+            # logger.debug(f'video={os.path.basename(video_path)}, info={info_dict}')
+        except Exception as e:
+            logger.debug(
+                "Failed to load video with error: {}; trial {}".format(e, i_try)
+            )
+            continue
+
+        clips = self._clip_sampler(
+            self._next_clip_start_time, video.duration, info_dict
+        )
+
+        if not isinstance(clips, list):
+            clips = [clips]
+
+        decoded_clips = []
+        video_is_null = False
+        for clip_start, clip_end, clip_index, aug_index, is_last_clip in clips:
+            clip = video.get_clip(clip_start, clip_end)
+            video_is_null = clip is None or clip["video"] is None
+            if video_is_null:
+                break
+            decoded_clips.append(clip)
+
+        # Next is entirely new observed batch of input samples
+        self._next_clip_start_time = clip_end
+        # BE CAREFUL, this will be the UNTRIMMED TIME. WHEN PASSING TO THE SAMPLER ON NEXT ITERATION, SHOULD
+        # SUBTRACT THE START TIME!
+
+        logger.debug(
+            f"2s-CLIP: video={os.path.basename(video_path)},video_idx={self._last_video_index}, nb_clips={len(clips)}, is_last_clip={is_last_clip}, clip_start={clip_start},clip_end={clip_end}, video_len={video.duration} "
+            f"  self._next_clip_start_time={self._next_clip_start_time}")  # Always 1 clip exactly
+        logger.debug(
+            f"5min-CLIP: video={os.path.basename(video_path)}, video_idx={self._last_video_index},clip_info_dict={info_dict}")
+
+        if is_last_clip or video_is_null:
+            self._next_clip_start_time = 0.0
+            if video_is_null:
+                continue
+
+        if is_last_clip:  # This video ran out, sample next
+            self._last_video_index = next(self._video_sampler_iter)
+            logger.debug(f"NEW VIDEO INDEX: {self._last_video_index}")
+
         return len(self.video_sampler)
 
     def __next__(self) -> dict:
