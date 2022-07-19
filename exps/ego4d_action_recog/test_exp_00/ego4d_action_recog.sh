@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Provide checkpoint path as argument if you want to resume
 
-
 #-----------------------------------------------------------------------------------------------#
 # Add ego4d code modules to pythonpath
 this_script_path=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) # Change location to current script
-root_path=${this_script_path}/../../../ # One dir up
+root_path=${this_script_path}/../../../                                    # One dir up
 ego4d_code_root="$root_path/forecasting"
 export PYTHONPATH=$PYTHONPATH:$ego4d_code_root
 
@@ -31,9 +30,9 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/resized_cli
 
 # Checkpoint path (Make unique)
 if [ $# -eq 0 ]; then # Default checkpoint path is based on 2 parent dirs + Unique id
-    parent_parent_dir="$(basename "$(dirname "$this_script_path")")"
-    parent_dir="$(basename "$this_script_path")"
-    CHECKPOINT_DIR="${root_path}/checkpoints/${parent_parent_dir}/${parent_dir}/${run_id}"
+  parent_parent_dir="$(basename "$(dirname "$this_script_path")")"
+  parent_dir="$(basename "$this_script_path")"
+  CHECKPOINT_DIR="${root_path}/checkpoints/${parent_parent_dir}/${parent_dir}/${run_id}"
 else # When RESUMING
   CHECKPOINT_DIR=$1
 fi
@@ -43,8 +42,8 @@ echo "CHECKPOINT_DIR=${CHECKPOINT_DIR}"
 #-----------------------------------------------------------------------------------------------#
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
-OVERWRITE_CFG_ARGS="NUM_GPUS 2 TRAIN.BATCH_SIZE 8 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 32 CHECKPOINT_step_freq 300" # DEBUG
-#OVERWRITE_CFG_ARGS+=" FORECASTING.NUM_INPUT_CLIPS 4"
+OVERWRITE_CFG_ARGS="CHECKPOINT_step_freq 300" # DEBUG
+#OVERWRITE_CFG_ARGS="NUM_GPUS 1 TRAIN.BATCH_SIZE 1 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 32 CHECKPOINT_step_freq 300" # DEBUG
 
 # Architecture: aggregator/decoder only for LTA, SlowFast model directly performs Action Classification
 #OVERWRITE_CFG_ARGS+=" FORECASTING.AGGREGATOR TransformerAggregator"
@@ -64,17 +63,16 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 # DEBUG
 OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True"
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0"
-OVERWRITE_CFG_ARGS+=" GPU_IDS 7"
+OVERWRITE_CFG_ARGS+=" GPU_IDS 5"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="MATT_${run_id}"
 #screen -dmS "${screenname}" \
 python -m continual_ego4d.run_lta_CL \
-      --job_name "$screenname" \
-      --working_directory "${CHECKPOINT_DIR}" \
-      --cfg "${CONFIG}" \
-      ${OVERWRITE_CFG_ARGS}
-
+  --job_name "$screenname" \
+  --working_directory "${CHECKPOINT_DIR}" \
+  --cfg "${CONFIG}" \
+  ${OVERWRITE_CFG_ARGS}
 
 #-----------------------------------------------------------------------------------------------#
 #                                    OTHER OPTIONS                                              #
@@ -87,4 +85,3 @@ python -m continual_ego4d.run_lta_CL \
 
 # # Debug locally using a smaller batch size / fewer GPUs
 # CLUSTER_ARGS="NUM_GPUS 2 TRAIN.BATCH_SIZE 8 TEST.BATCH_SIZE 32"
-

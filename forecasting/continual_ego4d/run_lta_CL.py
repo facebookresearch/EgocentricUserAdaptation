@@ -101,7 +101,7 @@ def overwrite_config_continual_learning(cfg):
     for hierarchy_k, v in overwrite_dict.items():
         keys = hierarchy_k.split('.')
         target_obj = cfg
-        for idx, key in enumerate(keys): # If using dots, set in hierarchy of objects, not as single dotted-key
+        for idx, key in enumerate(keys):  # If using dots, set in hierarchy of objects, not as single dotted-key
             if idx == len(keys) - 1:  # is last
                 setattr(target_obj, key, v)
             else:
@@ -141,6 +141,18 @@ def online_adaptation_single_user(cfg, user_id):
     else:
         args = {"logger": False, "callbacks": [checkpoint_callback]}
 
+    # GPU DEVICE
+    # Make sure it's an array so it defines the GPU-ids. A single int indicates the number of GPUs instead.
+    if cfg.GPU_IDS is not None:
+        cfg.NUM_GPUS = None  # Need to disable
+        # [07/19 14:09:10][INFO] __main__:  152: Initializing Trainer
+        # /accelerator_connector.py:266: UserWarning: The flag `devices=[7]` will be ignored, as you have set `gpus=1`
+
+        if isinstance(cfg.GPU_IDS, int):
+            cfg.GPU_IDS = [cfg.GPU_IDS]
+        elif isinstance(cfg.GPU_IDS, str):
+            cfg.GPU_IDS = cfg.GPU_IDS.split(',')
+
     # There are no validation/testing phases!
     logger.info("Initializing Trainer")
     trainer = Trainer(
@@ -153,10 +165,12 @@ def online_adaptation_single_user(cfg, user_id):
         fast_dev_run=cfg.FAST_DEV_RUN,  # Debug: Run defined batches (int) for train/val/test
         default_root_dir=cfg.OUTPUT_DIR,  # Default path for logs and weights when no logger/ckpt_callback passed
 
-        # DDP specific
-        # plugins=DDPPlugin(find_unused_parameters=False),
+        # Devices/distributed
+        devices=cfg.GPU_IDS,
         gpus=cfg.NUM_GPUS,
-        num_nodes=cfg.NUM_SHARDS,
+        # auto_select_gpus=True,
+        # plugins=DDPPlugin(find_unused_parameters=False), # DDP specific
+        num_nodes=cfg.NUM_SHARDS,  # DDP specific
         **args,
     )
 

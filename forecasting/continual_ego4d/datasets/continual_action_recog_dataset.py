@@ -115,7 +115,6 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                     'aug_index': <aug_index>,
                 }
         """
-
         for i_try in range(self._MAX_CONSECUTIVE_FAILURES):
             try:
                 video_path, miniclip_info_dict = self.seq_input_list[index]
@@ -154,7 +153,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
             frames = decoded_clip["video"]
             audio_samples = decoded_clip["audio"]
-            logger.info(f"decoded miniclip: {miniclip_info_dict}")
+            logger.debug(f"decoded miniclip: {miniclip_info_dict}")
 
             sample_dict = {
                 **miniclip_info_dict,
@@ -164,6 +163,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                 "video_index": index,
                 "clip_index": clip_index,
                 "aug_index": aug_index,
+                "sample_index": index,  # Identifier for
             }
             if self._transform is not None:
                 sample_dict = self._transform(sample_dict)
@@ -197,7 +197,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                         x["video"],
                         torch.tensor([x["verb_label"], x["noun_label"]]),
                         str(x["video_name"]) + "_" + str(x["video_index"]),
-                        {},
+                        x['sample_index'],
                     )
                 ),
             ]
