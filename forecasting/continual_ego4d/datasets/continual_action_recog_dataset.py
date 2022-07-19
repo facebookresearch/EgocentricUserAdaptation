@@ -59,6 +59,12 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         assert mode in ["continual"], \
             "Split '{}' not supported for Continual Ego4d ".format(mode)
 
+        self._decode_audio = False
+        self._transform = self._make_transform('test',
+                                               cfg)  # Only single time viewed in sequence + revisiting for eval should be same
+        self._decoder = "pyav"
+        self.path_handler = VideoPathHandler()
+
         # Video sampling
         assert cfg.SOLVER.ACCELERATOR == "gpu", \
             f"Online per-sample processing only allows single-device training, not '{cfg.SOLVER.ACCELERATOR}'"
@@ -72,14 +78,10 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         clip_stride_seconds = None
 
         logger.debug(f"CLIP SAMPLER: Clip duration={clip_duration}, clip_stride_seconds={clip_stride_seconds}")
-        clip_sampler = EnhancedUntrimmedClipSampler(
-            UniformClipSampler(
-                clip_duration=clip_duration,
-                stride=clip_stride_seconds,
-            )
-        )
-
-        self.miniclip_sampler = SequentialSampler  # Visit all miniclips (with annotation) sequentially
+        clip_sampler = EnhancedUntrimmedClipSampler(UniformClipSampler(
+            clip_duration=clip_duration,
+            stride=clip_stride_seconds,
+        ))
 
         self.seq_input_list = get_seq_annotated_clip_input_list(
             user_id=cfg.DATA.USER_ID,
@@ -87,42 +89,20 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             clip_sampler=clip_sampler,
             video_sampler=video_sampler,
             video_path_prefix=self.cfg.DATA.PATH_PREFIX,
+            decoder=self._decoder
         )
+
+        # Visit all miniclips (with annotation) sequentially
+        self.miniclip_sampler = SequentialSampler(self.seq_input_list)
 
     @property
     def sampler(self):
         return self.miniclip_sampler
 
-    def _make_transform(self, mode: str, cfg):
-        return Compose(
-            [
-                ApplyTransformToKey(
-                    key="video",
-                    transform=Compose(
-                        [
-                            UniformTemporalSubsample(cfg.DATA.NUM_FRAMES),
-                            Lambda(lambda x: x / 255.0),
-                            Normalize(cfg.DATA.MEAN, cfg.DATA.STD),
-                        ]
-                        + video_transformer.random_scale_crop_flip(mode, cfg)
-                        + [video_transformer.uniform_temporal_subsample_repeated(cfg)]
-                    ),
-                ),
-                Lambda(
-                    lambda x: (
-                        x["video"],
-                        torch.tensor([x["verb_label"], x["noun_label"]]),
-                        str(x["video_name"]) + "_" + str(x["video_index"]),
-                        {},
-                    )
-                ),
-            ]
-        )
-
     def __getitem__(self, index):
         """
         Returns:
-            A dictionary with the following format.
+            A dictionary with the following format. And applies transformation.
 
             .. code-block:: text
 
@@ -172,8 +152,8 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                 logger.debug("Failed to load clip {}; trial {}".format(video.name, i_try))
                 continue
 
-            frames = decoded_clip[0]["video"]
-            audio_samples = decoded_clip[0]["audio"]
+            frames = decoded_clip["video"]
+            audio_samples = decoded_clip["audio"]
             logger.info(f"decoded miniclip: {miniclip_info_dict}")
 
             sample_dict = {
@@ -181,7 +161,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                 **({"audio": audio_samples} if audio_samples is not None else {}),
                 "video": frames,
                 "video_name": video.name,
-                "video_index": self._last_video_index,
+                "video_index": index,
                 "clip_index": clip_index,
                 "aug_index": aug_index,
             }
@@ -196,6 +176,32 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.seq_input_list)
+
+    def _make_transform(self, mode: str, cfg):
+        return Compose(
+            [
+                ApplyTransformToKey(
+                    key="video",
+                    transform=Compose(
+                        [
+                            UniformTemporalSubsample(cfg.DATA.NUM_FRAMES),
+                            Lambda(lambda x: x / 255.0),
+                            Normalize(cfg.DATA.MEAN, cfg.DATA.STD),
+                        ]
+                        + video_transformer.random_scale_crop_flip(mode, cfg)
+                        + [video_transformer.uniform_temporal_subsample_repeated(cfg)]
+                    ),
+                ),
+                Lambda(
+                    lambda x: (
+                        x["video"],
+                        torch.tensor([x["verb_label"], x["noun_label"]]),
+                        str(x["video_name"]) + "_" + str(x["video_index"]),
+                        {},
+                    )
+                ),
+            ]
+        )
 
 
 def get_user_to_dataset_dict(data_path):
@@ -220,7 +226,7 @@ def get_user_to_dataset_dict(data_path):
 def get_seq_annotated_clip_input_list(
         user_id: str,  # Ego4d 'fb_participant_id'
         user_annotations: List,
-        clip_sampler: Union[ClipSampler, EnhancedUntrimmedClipSampler],
+        clip_sampler: ClipSampler,
         video_sampler: Type[torch.utils.data.Sampler],
         video_path_prefix: str = "",
         decoder: str = "pyav",
@@ -256,7 +262,12 @@ def get_seq_annotated_clip_input_list(
     return untrimmed_miniclip_annotation_list
 
 
-def get_seq_annotations_by_policy(seq_user_df, clip_sampler, video_path_prefix, user_id, policy='fifo'):
+def get_seq_annotations_by_policy(
+        seq_user_df: pd.DataFrame,
+        clip_sampler: ClipSampler,
+        video_path_prefix: str,
+        user_id, policy='fifo'
+):
     """Take the user data frame, and return the annotations as a list of (video_path, annotation_info_dict) entries."""
     if policy == 'fifo':
         return annotation_fifo_policy(seq_user_df, clip_sampler, video_path_prefix, user_id)
@@ -264,7 +275,12 @@ def get_seq_annotations_by_policy(seq_user_df, clip_sampler, video_path_prefix, 
         raise NotImplementedError(f"Policy '{policy}' is unkown")
 
 
-def annotation_fifo_policy(seq_user_df, clip_sampler, video_path_prefix, user_id):
+def annotation_fifo_policy(
+        seq_user_df: pd.DataFrame,
+        clip_sampler: ClipSampler,
+        video_path_prefix: str,
+        user_id
+):
     # Keep final time, if start_time of new fragment < end_time, readjust start_time.
     # If the new_time >= end_time, just cut the fragment.
     # If subclip is < min_clip_len, disregard
@@ -334,54 +350,54 @@ def get_preprocessed_clips(video_annotation_list, video_sampler, clip_sampler: C
                 (video_path, annotation2_sampledclip2_info_dict),
                 ... ]
     """
-
     miniclip_annotation_list = []
-    next_clip_start_time = 0.0
     path_handler = VideoPathHandler()
 
     annotation_sampler = video_sampler(video_annotation_list)
     assert isinstance(annotation_sampler, SequentialSampler), \
         f"Preprocessing only supports a sequential (deterministic) annotation sampler, not {annotation_sampler}"
-    annotation_index = next(annotation_sampler)
+    annotation_sampler_iter = iter(annotation_sampler)
 
     # Iterate all annotations
-    while annotation_index < len(video_annotation_list):
+    for annotation_index in annotation_sampler_iter:
+        logger.debug(f"NEW ANNOTATION INDEX: {annotation_index}")
+        is_last_clip = False
+        next_clip_start_time = 0.0
 
-        video_path, info_dict = video_annotation_list[annotation_index]
-        assert os.path.isfile(video_path), f"Non-existing video: {video_path}"
-        logger.debug(f'video={os.path.basename(video_path)}, info={info_dict}')
+        while not is_last_clip:
+            video_path, info_dict = video_annotation_list[annotation_index]
+            assert os.path.isfile(video_path), f"Non-existing video: {video_path}"
 
-        # Meta-data holder object (not decoded yet)
-        video = path_handler.video_from_path(
-            video_path,
-            decode_audio=False,
-            decoder=decoder,
-        )
-        clip: ClipInfo = clip_sampler(
-            next_clip_start_time, video.duration, info_dict
-        )
-        assert not isinstance(clip, list), f"No multi-clip sampling supported"
+            # Meta-data holder object (not decoded yet)
+            video = path_handler.video_from_path(
+                video_path,
+                decode_audio=False,
+                decoder=decoder,
+            )
+            clip: ClipInfo = clip_sampler(
+                next_clip_start_time, video.duration, info_dict
+            )
+            assert not isinstance(clip, list), f"No multi-clip sampling supported"
 
-        # Untrimmed refers to the 5-min clip, with the clip start-time possibly != 0
-        untrimmed_clip_start_time = clip.clip_start_sec
-        untrimmed_clip_end_time = clip.clip_end_sec
+            # Untrimmed refers to the 5-min clip, with the clip start-time possibly != 0
+            untrimmed_clip_start_time = clip.clip_start_sec
+            untrimmed_clip_end_time = clip.clip_end_sec
 
-        # BE CAREFUL, this will be the UNTRIMMED TIME. WHEN PASSING TO THE SAMPLER ON NEXT ITERATION, SHOULD
-        # SUBTRACT THE START TIME!
-        next_clip_start_time = untrimmed_clip_end_time
+            # BE CAREFUL, this will be the UNTRIMMED TIME. WHEN PASSING TO THE SAMPLER ON NEXT ITERATION, SHOULD
+            # SUBTRACT THE START TIME!
+            next_clip_start_time = untrimmed_clip_end_time
 
-        # Add annotation entry with adapted times
-        new_cliplevel_entry = copy.deepcopy(video_annotation_list[annotation_index])
-        new_cliplevel_entry[1]['clip_start_sec'] = untrimmed_clip_start_time
-        new_cliplevel_entry[1]['clip_end_sec'] = untrimmed_clip_end_time
-        new_cliplevel_entry[1]['aug_index'] = clip.aug_index
-        new_cliplevel_entry[1]['clip_index'] = clip.clip_index
-        miniclip_annotation_list.append(new_cliplevel_entry)
+            # Add annotation entry with adapted times
+            new_cliplevel_entry = copy.deepcopy(video_annotation_list[annotation_index])
+            new_cliplevel_entry[1]['clip_start_sec'] = untrimmed_clip_start_time
+            new_cliplevel_entry[1]['clip_end_sec'] = untrimmed_clip_end_time
+            new_cliplevel_entry[1]['aug_index'] = clip.aug_index
+            new_cliplevel_entry[1]['clip_index'] = clip.clip_index
+            miniclip_annotation_list.append(new_cliplevel_entry)
+            logger.debug(f'video={os.path.basename(video_path)}, new_cliplevel_entry[1]={new_cliplevel_entry[1]}')
 
-        if clip.is_last_clip:  # This annotation ran out, sample next
-            next_clip_start_time = 0.0
-            annotation_index = next(annotation_sampler)
-            logger.debug(f"NEW ANNOTATION INDEX: {annotation_index}")
+            # Indicate end of annotation video range
+            is_last_clip = clip.is_last_clip
 
     return miniclip_annotation_list
 
@@ -417,6 +433,7 @@ class EnhancedUntrimmedClipSampler:
                 between the untrimmed clip boundary.
         """
         self._trimmed_clip_sampler = clip_sampler
+        self._clip_duration = clip_sampler._clip_duration
 
     def __call__(
             self, untrim_last_clip_time: float, video_duration: float, clip_info: Dict[str, Any]
