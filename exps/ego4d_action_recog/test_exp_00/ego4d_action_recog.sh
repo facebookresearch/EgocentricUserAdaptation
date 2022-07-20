@@ -3,8 +3,8 @@
 
 #-----------------------------------------------------------------------------------------------#
 # Add ego4d code modules to pythonpath
-this_script_path=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) # Change location to current script
-root_path=${this_script_path}/../../../                                    # One dir up
+this_script_dirpath=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) # Change location to current script
+root_path=${this_script_dirpath}/../../../                                    # One dir up
 ego4d_code_root="$root_path/forecasting"
 export PYTHONPATH=$PYTHONPATH:$ego4d_code_root
 
@@ -18,31 +18,35 @@ echo "RUN-ID=${run_id}"
 #-----------------------------------------------------------------------------------------------#
 BACKBONE_WTS="/home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation/k400_slowfast8x8.ckpt"
 CONFIG="$ego4d_code_root/continual_ego4d/configs/Ego4dContinualActionRecog/MULTISLOWFAST_8x8_R101.yaml"
+this_script_filepath="${this_script_dirpath}/$(basename "${BASH_SOURCE[0]}")"
 
 # Logging (stdout/tensorboard) output path
 OUTPUT_DIR="./logs/${run_id}"
 mkdir -p "${OUTPUT_DIR}"
-cp "${CONFIG}" "${OUTPUT_DIR}" # Make a copy of the config file (if we want to rerun later)
+cp "${CONFIG}" "${OUTPUT_DIR}"               # Make a copy of the config file (if we want to rerun later)
+cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script file (if we want to rerun later)
 
 # Data paths
 EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations/
 EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/resized_clips
 
 # Checkpoint path (Make unique)
-if [ $# -eq 0 ]; then # Default checkpoint path is based on 2 parent dirs + Unique id
-  parent_parent_dir="$(basename "$(dirname "$this_script_path")")"
-  parent_dir="$(basename "$this_script_path")"
-  CHECKPOINT_DIR="${root_path}/checkpoints/${parent_parent_dir}/${parent_dir}/${run_id}"
-else # When RESUMING
-  CHECKPOINT_DIR=$1
-fi
-mkdir -p "$CHECKPOINT_DIR"
-echo "CHECKPOINT_DIR=${CHECKPOINT_DIR}"
+#if [ $# -eq 0 ]; then # Default checkpoint path is based on 2 parent dirs + Unique id
+#  parent_parent_dir="$(basename "$(dirname "$this_script_dirpath")")"
+#  parent_dir="$(basename "$this_script_dirpath")"
+#  CHECKPOINT_DIR="${root_path}/checkpoints/${parent_parent_dir}/${parent_dir}/${run_id}"
+#else # When RESUMING
+#  CHECKPOINT_DIR=$1
+#fi
+#mkdir -p "$CHECKPOINT_DIR"
+#echo "CHECKPOINT_DIR=${CHECKPOINT_DIR}"
 
 #-----------------------------------------------------------------------------------------------#
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
-OVERWRITE_CFG_ARGS="CHECKPOINT_step_freq 300" # DEBUG
+OVERWRITE_CFG_ARGS="CHECKPOINT_step_freq 2" # DEBUG
+OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 16"
+OVERWRITE_CFG_ARGS+=" GPU_IDS 2"
 #OVERWRITE_CFG_ARGS="NUM_GPUS 1 TRAIN.BATCH_SIZE 1 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 32 CHECKPOINT_step_freq 300" # DEBUG
 
 # Architecture: aggregator/decoder only for LTA, SlowFast model directly performs Action Classification
@@ -61,16 +65,14 @@ OVERWRITE_CFG_ARGS+=" DATA.PATH_PREFIX ${EGO4D_VIDEOS}"
 OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 # DEBUG
-OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True"
-OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0"
-OVERWRITE_CFG_ARGS+=" GPU_IDS 5"
+#OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0 GPU_IDS 5 FAST_DEV_RUN True"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="MATT_${run_id}"
 #screen -dmS "${screenname}" \
 python -m continual_ego4d.run_lta_CL \
   --job_name "$screenname" \
-  --working_directory "${CHECKPOINT_DIR}" \
+  --working_directory "${OUTPUT_DIR}" \
   --cfg "${CONFIG}" \
   ${OVERWRITE_CFG_ARGS}
 

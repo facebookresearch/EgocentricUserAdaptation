@@ -39,6 +39,7 @@ import pprint
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.plugins import DDPPlugin
+from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
@@ -47,6 +48,7 @@ from continual_ego4d.tasks.continual_action_recog import ContinualMultiTaskClass
 from continual_ego4d.datasets.continual_action_recog_dataset import get_user_to_dataset_dict
 
 from scripts.slurm import copy_and_run_with_config
+import os
 
 logger = logging.get_logger(__name__)
 
@@ -113,11 +115,16 @@ def online_adaptation_single_user(cfg, user_id):
     """ Run single user sequentially. """
     seed_everything(cfg.RNG_SEED)
 
+    # Paths
+    main_output_dir = cfg.OUTPUT_DIR
+    experiment_version = f"user_{user_id.replace('.', '-')}"
+
     # Choose task type based on config.
     logger.info("Starting init Task")
     assert cfg.DATA.TASK == "classification", "Only action recognition supported, no LTA"
     task = ContinualMultiTaskClassificationTask(cfg)
 
+    # TODO REVISIT WHEN PARALLELIZING USERS
     # User-based Checkpointing
     if len(cfg.CHECKPOINT_USER_ID) > 0 and not cfg.LOADED_USER_CHECKPOINT:
         if user_id != cfg.CHECKPOINT_USER_ID:
@@ -130,14 +137,24 @@ def online_adaptation_single_user(cfg, user_id):
 
     # Save every N global training steps + save on the end of training (end of epoch)
     # Save_last will save an overwriting copy that we can easily resume from again
+    # Dir set to default_root_dir (cfg.OUTPUT)
     checkpoint_callback = ModelCheckpoint(
+        dirpath=os.path.join(main_output_dir, 'checkpoints', experiment_version),
         every_n_train_steps=cfg.CHECKPOINT_step_freq, save_on_train_epoch_end=True, save_last=True, save_top_k=1
     )
 
     # Additional callbacks/logging on top of the default Tensorboard logger
     # TB logger is passed by default, stdout 'logger' in this script is a handler from the main Py-Lightning logger
     if cfg.ENABLE_LOGGING:
-        args = {"callbacks": [LearningRateMonitor(), checkpoint_callback]}
+
+        loggers = [
+            TensorBoardLogger(save_dir=main_output_dir, name=f"tb", version=experiment_version),
+            CSVLogger(save_dir=main_output_dir, name="csv", version=experiment_version,
+                      flush_logs_every_n_steps=1),
+        ]
+
+        args = {"logger": loggers,
+                "callbacks": [LearningRateMonitor(), checkpoint_callback]}
     else:
         args = {"logger": False, "callbacks": [checkpoint_callback]}
 
@@ -156,6 +173,7 @@ def online_adaptation_single_user(cfg, user_id):
     # There are no validation/testing phases!
     logger.info("Initializing Trainer")
     trainer = Trainer(
+        # default_root_dir=main_output_dir,  # Default path for logs and weights when no logger/ckpt_callback passed
         accelerator=cfg.SOLVER.ACCELERATOR,  # cfg.SOLVER.ACCELERATOR, only single device for now
         max_epochs=cfg.SOLVER.MAX_EPOCH,
         num_sanity_val_steps=0,  # Sanity check before starting actual training to make sure validation works
@@ -163,7 +181,6 @@ def online_adaptation_single_user(cfg, user_id):
         log_gpu_memory="min_max",
         replace_sampler_ddp=False,  # Disable to use own custom sampler
         fast_dev_run=cfg.FAST_DEV_RUN,  # Debug: Run defined batches (int) for train/val/test
-        default_root_dir=cfg.OUTPUT_DIR,  # Default path for logs and weights when no logger/ckpt_callback passed
 
         # Devices/distributed
         devices=cfg.GPU_IDS,
