@@ -238,9 +238,12 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
     def _get_train_dataloader_subset(self, train_dataloader: torch.utils.data.DataLoader,
                                      subset_indices: Union[List, Tuple],
                                      batch_size: int = None):
-        """ Get a subset of the training dataloader's dataset. """
+        """ Get a subset of the training dataloader's dataset.
+
+        !Warning!: DONT COPY SAMPLER from train_dataloader to new dataloader as __len__ is re-used
+        from the parent train_dataloader in the new dataloader (which may not match the Dataset).
+        """
         dataset = train_dataloader.dataset
-        # sampler = torch.utils.data.SequentialSampler # TODO DONT COPY SAMPLER AS LEN IS RE-USED FROM THIS SAMPLER!!
 
         if batch_size is None:
             batch_size = train_dataloader.batch_size
@@ -255,7 +258,6 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
             batch_size=batch_size,
             shuffle=False,
             drop_last=False,
-            # sampler=sampler, # Sequential sampling
             num_workers=self.cfg.DATA_LOADER.NUM_WORKERS,
             pin_memory=self.cfg.DATA_LOADER.PIN_MEMORY,
             collate_fn=None,
@@ -264,27 +266,6 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
 
     @torch.no_grad()
     def _get_average_metrics_for_dataloader(self, dataloader):
-        # len(inputs): 2
-        # (Pdb) inputs[0].shape
-        # torch.Size([10, 3, 8, 224, 224])
-        # (Pdb) inputs[1].shape
-        # torch.Size([10, 3, 32, 224, 224])
-
-        # TODO why is dataloader len > 1???
-        # (Pdb) len(dataloader)
-        # 98
-        # (Pdb) dataloader.dataset
-        # <torch.utils.data.dataset.Subset object at 0x7f075ddd9dc0>
-        # (Pdb) dataloader.dataset.indices
-        # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-        # (Pdb) len(dataloader.dataset)
-        # 10
-        # (Pdb) len(dataloader.dataset.dataset)
-        # 971
-        # (Pdb) dataloader.dataset.dataset
-        # <continual_ego4d.datasets.continual_action_recog_dataset.Ego4dContinualRecognition object at 0x7f07659c3310>
-        # (Pdb) dataloader.dataset
-        # <torch.utils.data.dataset.Subset object at 0x7f075ddd9dc0>
 
         avg_metric_result_dict = defaultdict(AverageMeter)
         for batch_idx, (inputs, labels, _, _) in enumerate(dataloader):
