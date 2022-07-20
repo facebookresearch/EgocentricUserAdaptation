@@ -3,8 +3,8 @@ CHECKPOINT_FILE_PATH: ""
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition
-  BATCH_SIZE: 1 # Process 1 new video-subsequence a time (Online)
-  CONTINUAL_EVAL_BATCH_SIZE: 32
+  BATCH_SIZE: 10 # Process 1 new video-subsequence a time (Online)
+  CONTINUAL_EVAL_BATCH_SIZE: 50
 DATA:
   USER_SUBSET: 'train' # train or test
   PATH_TO_DATA_SPLIT_JSON:

@@ -95,6 +95,14 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         # Visit all miniclips (with annotation) sequentially
         self.miniclip_sampler = SequentialSampler(self.seq_input_list)
 
+        # Summarize
+        logger.info(
+            f"Initialized {self.__class__.__name__}\n"
+            f"\tNum Dataset clip entries = {self.__len__()}\n"
+            f"\tminiclip_sampler = {self.miniclip_sampler}\n"
+            f"\tdecode_audio = {self._decode_audio}\n"
+        )
+
     @property
     def sampler(self):
         return self.miniclip_sampler
@@ -155,15 +163,18 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             audio_samples = decoded_clip["audio"]
             logger.debug(f"decoded miniclip: {miniclip_info_dict}")
 
+            unique_sample_id = index.item() if isinstance(index, torch.Tensor) else index
+            logger.debug(f"unique_sample_id={unique_sample_id}")
+
             sample_dict = {
                 **miniclip_info_dict,
                 **({"audio": audio_samples} if audio_samples is not None else {}),
                 "video": frames,
                 "video_name": video.name,
-                "video_index": index,
+                "video_index": unique_sample_id,
                 "clip_index": clip_index,
                 "aug_index": aug_index,
-                "sample_index": index,  # Identifier for
+                "sample_index": unique_sample_id,  # Identifier for
             }
             if self._transform is not None:
                 sample_dict = self._transform(sample_dict)
@@ -189,7 +200,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                             Normalize(cfg.DATA.MEAN, cfg.DATA.STD),
                         ]
                         + video_transformer.random_scale_crop_flip(mode, cfg)
-                        + [video_transformer.uniform_temporal_subsample_repeated(cfg)]
+                        + [video_transformer.uniform_temporal_subsample_repeated(cfg)]  # Slow + fast sample for video
                     ),
                 ),
                 Lambda(

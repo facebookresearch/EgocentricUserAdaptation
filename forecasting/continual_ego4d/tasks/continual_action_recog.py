@@ -12,6 +12,8 @@ from ego4d.utils import logging
 from ego4d.datasets import loader
 from ego4d.models import build_model
 
+from continual_ego4d.utils.meters import AverageMeter
+
 from pytorch_lightning.core import LightningModule
 from typing import List, Tuple, Union
 
@@ -41,6 +43,10 @@ class ContinualVideoTask(LightningModule):
         self.save_hyperparameters()  # Save cfg to '
         self.model = build_model(cfg)
         self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")
+
+        # State vars
+        self.seen_samples_idxs = []
+        self.first_unseen_sample_idx = 0
         logger.debug('Initialized ContinualVideoTask')
 
     def training_step(self, batch, batch_idx):
@@ -111,7 +117,9 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
         """ Before update: Forward and define loss. """
 
         # PREDICTIONS + LOSS
-        inputs, labels, _, _ = batch
+        inputs, labels, video_names, sample_idxs = batch
+        sample_idxs = sample_idxs.tolist()
+
         preds = self.forward(inputs)
         loss1 = self.loss_fun(preds[0], labels[:, 0])  # Verbs
         loss2 = self.loss_fun(preds[1], labels[:, 1])  # Nouns
@@ -124,11 +132,15 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
             "noun_loss": loss2.item(),
         }
 
-        step_result = self.eval_current_batch(step_result, preds, labels, batch_idx)
+        self.first_unseen_sample_idx = min(sample_idxs)  # First unseen in sequence is min of batch
+        step_result = self.eval_current_batch(step_result, preds, labels, batch_idx, sample_idxs)
+
+        # Update seen samples
+        self.seen_samples_idxs.extend(sample_idxs)
 
         return step_result
 
-    def eval_current_batch(self, step_result, preds, labels, batch_idx):
+    def eval_current_batch(self, step_result, preds, labels, batch_idx, sample_idxs):
         logger.debug(f"Starting evaluation on current iteration: batch_idx={batch_idx}")
 
         # SET TO EVAL MODE
@@ -139,7 +151,7 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
         # METRICS
 
         # CURRENT BATCH METRICS
-        logger.debug(f"Gathering online results")
+        logger.debug(f"Gathering online results -> batch {batch_idx} SAMPLE IDXS = {sample_idxs}")
         step_result = {**step_result,
                        **self.add_prefix_to_keys(prefix='online',
                                                  source_dict=self._get_metric_results(preds, labels))}
@@ -160,10 +172,11 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
         self.model.train()
         torch.set_grad_enabled(True)
 
+        logger.debug(f"Results for batch_idx={batch_idx}: {step_result}")
         return step_result
 
     def add_prefix_to_keys(self, prefix: str, source_dict: dict, ):
-        return {f"{prefix}_{k}" for k, v in source_dict.items()}
+        return {f"{prefix}_{k}": v for k, v in source_dict.items()}
 
     @torch.no_grad()
     def _get_metric_results(self, preds, labels):
@@ -187,11 +200,17 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
     @torch.no_grad()
     def _get_observed_data_metrics(self, batch_idx):
         """ Stability measure of previous data. """
+        if batch_idx == 0:  # first batch
+            logger.debug(f"Skipping first batch (no observed data yet)")
+            return {}
+
+        seen_idxs = self.seen_samples_idxs
+        logger.debug(f"seen_idxs interval = [{seen_idxs[0]},..., {seen_idxs[-1]}]")
 
         obs_dataloader = self._get_train_dataloader_subset(
             self.train_loader,
             batch_size=self.cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE,
-            subset_indices=list(range(batch_idx)),  # Previous data, not including current
+            subset_indices=seen_idxs,  # Previous data, not including current
         )
 
         result_dict = self._get_average_metrics_for_dataloader(obs_dataloader)
@@ -200,12 +219,17 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
     @torch.no_grad()
     def _get_unseen_data_metrics(self, batch_idx):
         """ Zero-shot and generalization performance of future data (including current just-observed mini-batch."""
+        if batch_idx == len(self.train_loader):  # last batch
+            return {}
+
+        unseen_idxs = list(range(self.first_unseen_sample_idx, len(self.train_loader.dataset)))
+        logger.debug(f"unseen_idxs interval = [{unseen_idxs[0]},..., {unseen_idxs[-1]}]")
 
         # Create new dataloader
         future_dataloader = self._get_train_dataloader_subset(
             self.train_loader,
             batch_size=self.cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE,
-            subset_indices=list(range(batch_idx, len(self.train_loader))),  # Future data, including current
+            subset_indices=unseen_idxs,  # Future data, including current
         )
 
         result_dict = self._get_average_metrics_for_dataloader(future_dataloader)
@@ -216,19 +240,22 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
                                      batch_size: int = None):
         """ Get a subset of the training dataloader's dataset. """
         dataset = train_dataloader.dataset
+        # sampler = torch.utils.data.SequentialSampler # TODO DONT COPY SAMPLER AS LEN IS RE-USED FROM THIS SAMPLER!!
+
+        if batch_size is None:
+            batch_size = train_dataloader.batch_size
 
         if subset_indices is not None:
             dataset = torch.utils.data.Subset(dataset, indices=subset_indices)
 
-        if batch_size is None:
-            batch_size = train_dataloader.batch_size
+        batch_size = min(len(dataset), batch_size)  # Effective batch size
 
         loader = torch.utils.data.DataLoader(
             dataset,
             batch_size=batch_size,
             shuffle=False,
             drop_last=False,
-            sampler=dataset.sampler,
+            # sampler=sampler, # Sequential sampling
             num_workers=self.cfg.DATA_LOADER.NUM_WORKERS,
             pin_memory=self.cfg.DATA_LOADER.PIN_MEMORY,
             collate_fn=None,
@@ -237,16 +264,45 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
 
     @torch.no_grad()
     def _get_average_metrics_for_dataloader(self, dataloader):
-        from continual_ego4d.utils import AverageMeter
+        # len(inputs): 2
+        # (Pdb) inputs[0].shape
+        # torch.Size([10, 3, 8, 224, 224])
+        # (Pdb) inputs[1].shape
+        # torch.Size([10, 3, 32, 224, 224])
+
+        # TODO why is dataloader len > 1???
+        # (Pdb) len(dataloader)
+        # 98
+        # (Pdb) dataloader.dataset
+        # <torch.utils.data.dataset.Subset object at 0x7f075ddd9dc0>
+        # (Pdb) dataloader.dataset.indices
+        # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        # (Pdb) len(dataloader.dataset)
+        # 10
+        # (Pdb) len(dataloader.dataset.dataset)
+        # 971
+        # (Pdb) dataloader.dataset.dataset
+        # <continual_ego4d.datasets.continual_action_recog_dataset.Ego4dContinualRecognition object at 0x7f07659c3310>
+        # (Pdb) dataloader.dataset
+        # <torch.utils.data.dataset.Subset object at 0x7f075ddd9dc0>
 
         avg_metric_result_dict = defaultdict(AverageMeter)
         for batch_idx, (inputs, labels, _, _) in enumerate(dataloader):
-            bs = inputs.shape[0]
+            logger.debug(f"AVG_METRICS BATCH_IDX={batch_idx}")
+            # Slowfast inputs (list):
+            # inputs[0].shape = torch.Size([32, 3, 8, 224, 224]) -> Slow net
+            # inputs[1].shape =  torch.Size([32, 3, 32, 224, 224]) -> Fast net
+
+            labels = labels.to(self.device)
+            inputs = [x.to(self.device) for x in inputs] if isinstance(inputs, list) \
+                else inputs.to(self.device)
+
+            batch_size = labels.shape[0]
             preds = self.forward(inputs)
 
             metric_result_dict = self._get_metric_results(preds, labels)
             for k, v in metric_result_dict.items():
-                avg_metric_result_dict[k].update(v, weight=bs)
+                avg_metric_result_dict[k].update(v, weight=batch_size)
 
         # Avg per metric
         for metric_name, avg_meter in avg_metric_result_dict.items():
@@ -263,7 +319,7 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
             )
         _ = misc.aggregate_split_bn_stats(self.model)
 
-        keys = [x for x in outputs[0].keys() if x is not "loss"]
+        keys = [x for x in outputs[0].keys() if x != "loss"]
         for key in keys:
             metric = torch.tensor([x[key] for x in outputs]).mean()
             self.log(key, metric)
