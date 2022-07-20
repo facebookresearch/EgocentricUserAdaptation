@@ -21,7 +21,7 @@ from typing import List, Tuple, Union, Any
 logger = logging.get_logger(__name__)
 
 
-class ContinualVideoTask(LightningModule):
+class ContinualMultiTaskClassificationTask(LightningModule):
     """
     For all lightning hooks, see: https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html#hooks
     """
@@ -54,76 +54,15 @@ class ContinualVideoTask(LightningModule):
         # State vars
         self.seen_samples_idxs = []
         self.first_unseen_sample_idx = 0
-        logger.debug('Initialized ContinualVideoTask')
-
-    def training_step(self, batch, batch_idx):
-        raise NotImplementedError
-
-    def training_step_end(self, training_step_outputs):
-        if self.cfg.SOLVER.ACCELERATOR in ["dp", "gpu"]:
-            training_step_outputs["loss"] = training_step_outputs["loss"].mean()
-        return training_step_outputs
-
-    def validation_step(self, batch, batch_idx):
-        pass
-
-    def test_step(self, batch, batch_idx):
-        pass
-
-    def forward(self, inputs):
-        return self.model(inputs)
-
-    # ---------------------
-    # TRAINING SETUP
-    # ---------------------
-    def setup(self, stage):
-        # Setup is called immediately after the distributed processes have been
-        # registered. We can now setup the distributed process groups for each machine
-        # and create the distributed data loaders.
-        # if not self.cfg.FBLEARNER:
-        if self.cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
-            du.init_distributed_groups(self.cfg)
-
-        self.train_loader = loader.construct_loader(self.cfg, "continual")
-        # self.val_loader = None
-        # self.test_loader = None
-
-    def configure_optimizers(self):
-        steps_in_epoch = len(self.train_loader)
-        return lr_scheduler.lr_factory(
-            self.model, self.cfg, steps_in_epoch, self.cfg.SOLVER.LR_POLICY
-        )
-
-    def train_dataloader(self):
-        return self.train_loader
-
-    def val_dataloader(self):
-        return None
-
-    def test_dataloader(self):
-        return None
-
-    def on_after_backward(self):
-        if (self.cfg.LOG_GRADIENT_PERIOD >= 0 and
-                self.trainer.global_step % self.cfg.LOG_GRADIENT_PERIOD == 0
-        ):
-            for name, weight in self.model.named_parameters():
-                if weight is not None:
-                    self.logger.experiment.add_histogram(
-                        name, weight, self.trainer.global_step
-                    )
-                    if weight.grad is not None:
-                        self.logger.experiment.add_histogram(
-                            f"{name}.grad", weight.grad, self.trainer.global_step
-                        )
-
-
-class ContinualMultiTaskClassificationTask(LightningModule):
+        logger.debug(f'Initialized {self.__class__.__name__}')
 
     def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
         """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""
         altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
         return altered_batch
+
+    def forward(self, inputs):
+        return self.model(inputs)
 
     def training_step(self, batch, batch_idx):
         """ Before update: Forward and define loss. """
@@ -142,6 +81,25 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.seen_samples_idxs.extend(sample_idxs)
 
         return step_result
+
+    def on_after_backward(self):
+        # Log gradients possibly
+        if (self.cfg.LOG_GRADIENT_PERIOD >= 0 and
+                self.trainer.global_step % self.cfg.LOG_GRADIENT_PERIOD == 0):
+            for name, weight in self.model.named_parameters():
+                if weight is not None:
+                    self.logger.experiment.add_histogram(
+                        name, weight, self.trainer.global_step
+                    )
+                    if weight.grad is not None:
+                        self.logger.experiment.add_histogram(
+                            f"{name}.grad", weight.grad, self.trainer.global_step
+                        )
+
+    def training_step_end(self, training_step_outputs):
+        if self.cfg.SOLVER.ACCELERATOR in ["dp", "gpu"]:
+            training_step_outputs["loss"] = training_step_outputs["loss"].mean()
+        return training_step_outputs
 
     def eval_current_batch(self, step_result, outputs, labels, batch_idx, sample_idxs):
         logger.debug(f"Starting evaluation on current iteration: batch_idx={batch_idx}")
@@ -307,6 +265,36 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         for key in keys:
             metric = torch.tensor([x[key] for x in outputs]).mean()
             self.log(key, metric)
+
+    # ---------------------
+    # TRAINING SETUP
+    # ---------------------
+    def setup(self, stage):
+        # Setup is called immediately after the distributed processes have been
+        # registered. We can now setup the distributed process groups for each machine
+        # and create the distributed data loaders.
+        # if not self.cfg.FBLEARNER:
+        if self.cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
+            du.init_distributed_groups(self.cfg)
+
+        self.train_loader = loader.construct_loader(self.cfg, "continual")
+        # self.val_loader = None
+        # self.test_loader = None
+
+    def configure_optimizers(self):
+        steps_in_epoch = len(self.train_loader)
+        return lr_scheduler.lr_factory(
+            self.model, self.cfg, steps_in_epoch, self.cfg.SOLVER.LR_POLICY
+        )
+
+    def train_dataloader(self):
+        return self.train_loader
+
+    def val_dataloader(self):
+        return None
+
+    def test_dataloader(self):
+        return None
 
     def test_step(self, batch, batch_idx):
         raise NotImplementedError(
