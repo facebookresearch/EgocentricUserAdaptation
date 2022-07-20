@@ -54,11 +54,11 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
     _MAX_CONSECUTIVE_FAILURES = 10
 
-    def __init__(self, cfg, mode):
+    def __init__(self, cfg, mode, debug=False):
         self.cfg = cfg
         assert mode in ["continual"], \
             "Split '{}' not supported for Continual Ego4d ".format(mode)
-
+        self._debug = debug
         self._decode_audio = False
         self._transform = self._make_transform('test',
                                                cfg)  # Only single time viewed in sequence + revisiting for eval should be same
@@ -131,7 +131,6 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                     decode_audio=self._decode_audio,
                     decoder=self._decoder,
                 )
-                # logger.debug(f'video={os.path.basename(video_path)}, info={info_dict}')
             except Exception as e:
                 logger.debug(
                     "Failed to load video with error: {}; trial {}".format(e, i_try)
@@ -161,10 +160,11 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
             frames = decoded_clip["video"]
             audio_samples = decoded_clip["audio"]
-            logger.debug(f"decoded miniclip: {miniclip_info_dict}")
-
             unique_sample_id = index.item() if isinstance(index, torch.Tensor) else index
-            logger.debug(f"unique_sample_id={unique_sample_id}")
+
+            if self._debug:
+                logger.debug(f"decoded miniclip: {miniclip_info_dict}")
+                logger.debug(f"unique_sample_id={unique_sample_id}")
 
             sample_dict = {
                 **miniclip_info_dict,

@@ -13,14 +13,19 @@ from ego4d.datasets import loader
 from ego4d.models import build_model
 
 from continual_ego4d.utils.meters import AverageMeter
-
+from continual_ego4d.methods.build import build_method
+from continual_ego4d.methods.method_callbacks import Method
 from pytorch_lightning.core import LightningModule
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Any
 
 logger = logging.get_logger(__name__)
 
 
 class ContinualVideoTask(LightningModule):
+    """
+    For all lightning hooks, see: https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html#hooks
+    """
+
     def __init__(self, cfg):
         logger.debug('Starting init ContinualVideoTask')
         super().__init__()
@@ -43,6 +48,8 @@ class ContinualVideoTask(LightningModule):
         self.save_hyperparameters()  # Save cfg to '
         self.model = build_model(cfg)
         self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")
+
+        self.method: Method = build_method(cfg, self)
 
         # State vars
         self.seen_samples_idxs = []
@@ -111,36 +118,32 @@ class ContinualVideoTask(LightningModule):
                         )
 
 
-class ContinualMultiTaskClassificationTask(ContinualVideoTask):
+class ContinualMultiTaskClassificationTask(LightningModule):
+
+    def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
+        """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""
+        altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
+        return altered_batch
 
     def training_step(self, batch, batch_idx):
         """ Before update: Forward and define loss. """
-
         # PREDICTIONS + LOSS
         inputs, labels, video_names, sample_idxs = batch
         sample_idxs = sample_idxs.tolist()
-
-        preds = self.forward(inputs)
-        loss1 = self.loss_fun(preds[0], labels[:, 0])  # Verbs
-        loss2 = self.loss_fun(preds[1], labels[:, 1])  # Nouns
-        loss = loss1 + loss2  # Avg losses
-
-        step_result = {
-            "loss": loss,
-            "train_loss": loss.item(),
-            "verb_loss": loss1.item(),
-            "noun_loss": loss2.item(),
-        }
-
         self.first_unseen_sample_idx = min(sample_idxs)  # First unseen in sequence is min of batch
-        step_result = self.eval_current_batch(step_result, preds, labels, batch_idx, sample_idxs)
+
+        # Do method callback
+        step_result, outputs = self.method.training_step(inputs, labels)
+
+        # Perform additional eval
+        step_result = self.eval_current_batch(step_result, outputs, labels, batch_idx, sample_idxs)
 
         # Update seen samples
         self.seen_samples_idxs.extend(sample_idxs)
 
         return step_result
 
-    def eval_current_batch(self, step_result, preds, labels, batch_idx, sample_idxs):
+    def eval_current_batch(self, step_result, outputs, labels, batch_idx, sample_idxs):
         logger.debug(f"Starting evaluation on current iteration: batch_idx={batch_idx}")
 
         # SET TO EVAL MODE
@@ -154,7 +157,7 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
         logger.debug(f"Gathering online results -> batch {batch_idx} SAMPLE IDXS = {sample_idxs}")
         step_result = {**step_result,
                        **self.add_prefix_to_keys(prefix='online',
-                                                 source_dict=self._get_metric_results(preds, labels))}
+                                                 source_dict=self._get_metric_results(outputs, labels))}
         # PAST METRICS
         logger.debug(f"Gathering results on past data")
         step_result = {**step_result,
@@ -269,7 +272,6 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
 
         avg_metric_result_dict = defaultdict(AverageMeter)
         for batch_idx, (inputs, labels, _, _) in enumerate(dataloader):
-            logger.debug(f"AVG_METRICS BATCH_IDX={batch_idx}")
             # Slowfast inputs (list):
             # inputs[0].shape = torch.Size([32, 3, 8, 224, 224]) -> Slow net
             # inputs[1].shape =  torch.Size([32, 3, 32, 224, 224]) -> Fast net
@@ -292,6 +294,7 @@ class ContinualMultiTaskClassificationTask(ContinualVideoTask):
 
     def training_epoch_end(self, outputs):
         """ End of stream."""
+        return
         raise NotImplementedError()  # TODO make results/logs dump
 
         if self.cfg.BN.USE_PRECISE_STATS and len(get_bn_modules(self.model)) > 0:
