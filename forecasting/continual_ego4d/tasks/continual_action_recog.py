@@ -48,16 +48,26 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.save_hyperparameters()  # Save cfg to '
         self.model = build_model(cfg)
         self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")
-
         self.method: Method = build_method(cfg, self)
+        self.continual_eval_freq = cfg.TRAIN.CONTINUAL_EVAL_FREQ
 
-        # State vars
+        # Store vars
         self.seen_samples_idxs = []
+
+        # State vars (single batch)
         self.first_unseen_sample_idx = 0
+        self.sample_idxs = None
+
         logger.debug(f'Initialized {self.__class__.__name__}')
 
     def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
         """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""
+        if self.sample_idxs is not None:  # Update seen samples from previous batch
+            self.seen_samples_idxs.extend(self.sample_idxs)
+        _, _, _, sample_idxs = batch  # Guaranteed new samples from the stream (e.g. replay might instead mix batch)
+        self.sample_idxs = sample_idxs.tolist()
+        self.first_unseen_sample_idx = min(self.sample_idxs)  # First unseen in sequence is min of batch
+
         altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
         return altered_batch
 
@@ -68,19 +78,20 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         """ Before update: Forward and define loss. """
         # PREDICTIONS + LOSS
         inputs, labels, video_names, sample_idxs = batch
-        sample_idxs = sample_idxs.tolist()
-        self.first_unseen_sample_idx = min(sample_idxs)  # First unseen in sequence is min of batch
 
         # Do method callback
-        step_result, outputs = self.method.training_step(inputs, labels)
+        loss, outputs, log_results = self.method.training_step(inputs, labels)
 
         # Perform additional eval
-        step_result = self.eval_current_batch(step_result, outputs, labels, batch_idx, sample_idxs)
+        if batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader):
+            log_results = self.eval_current_batch(log_results, outputs, labels, batch_idx, sample_idxs)
 
-        # Update seen samples
-        self.seen_samples_idxs.extend(sample_idxs)
+        # LOG results
+        self.log_metrics(log_results)
+        logger.debug(f"Results for batch_idx={batch_idx}: {log_results}")
 
-        return step_result
+        # Only loss should be used and stored for entire epoch (stream)
+        return loss
 
     def on_after_backward(self):
         # Log gradients possibly
@@ -133,7 +144,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.model.train()
         torch.set_grad_enabled(True)
 
-        logger.debug(f"Results for batch_idx={batch_idx}: {step_result}")
         return step_result
 
     def add_prefix_to_keys(self, prefix: str, source_dict: dict, ):
@@ -249,22 +259,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         for metric_name, avg_meter in avg_metric_result_dict.items():
             avg_metric_result_dict[metric_name] = avg_meter.avg
         return avg_metric_result_dict
-
-    def training_epoch_end(self, outputs):
-        """ End of stream."""
-        return
-        raise NotImplementedError()  # TODO make results/logs dump
-
-        if self.cfg.BN.USE_PRECISE_STATS and len(get_bn_modules(self.model)) > 0:
-            misc.calculate_and_update_precise_bn(
-                self.train_loader, self.model, self.cfg.BN.NUM_BATCHES_PRECISE
-            )
-        _ = misc.aggregate_split_bn_stats(self.model)
-
-        keys = [x for x in outputs[0].keys() if x != "loss"]
-        for key in keys:
-            metric = torch.tensor([x[key] for x in outputs]).mean()
-            self.log(key, metric)
 
     # ---------------------
     # TRAINING SETUP

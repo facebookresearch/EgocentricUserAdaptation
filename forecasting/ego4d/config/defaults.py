@@ -9,7 +9,6 @@ from fvcore.common.config import CfgNode
 # -----------------------------------------------------------------------------
 _C = CfgNode()
 
-
 # ---------------------------------------------------------------------------- #
 # METHOD options
 # ---------------------------------------------------------------------------- #
@@ -63,6 +62,9 @@ _C.TRAIN.BATCH_SIZE = 1
 
 # Batch size for evaluation after each model prediction during training.
 _C.TRAIN.CONTINUAL_EVAL_BATCH_SIZE = 10
+
+# Every how many update steps should evaluate
+_C.TRAIN.CONTINUAL_EVAL_FREQ = 10
 
 # ---------------------------------------------------------------------------- #
 # Testing options
@@ -368,7 +370,7 @@ _C.MVIT.POOL_FIRST = False
 _C.DATA = CfgNode()
 
 # User data splits
-_C.DATA.USER_SUBSET = 'train' # train or test split for users.
+_C.DATA.USER_SUBSET = 'train'  # train or test split for users.
 _C.DATA.PATH_TO_DATA_SPLIT_JSON = CfgNode()
 _C.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT = ""
 _C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = ""
@@ -387,7 +389,7 @@ _C.DATA.PATH_TO_DATA_DIR = ""
 _C.DATA.PATH_PREFIX = ""
 
 # Model head path if any
-_C.DATA.CHECKPOINT_MODULE_FILE_PATH = "" # ego4d/models/
+_C.DATA.CHECKPOINT_MODULE_FILE_PATH = ""  # ego4d/models/
 
 # The spatial crop size of the input clip.
 _C.DATA.CROP_SIZE = 224

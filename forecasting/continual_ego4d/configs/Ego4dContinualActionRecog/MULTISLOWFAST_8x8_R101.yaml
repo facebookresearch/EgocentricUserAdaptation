@@ -1,10 +1,13 @@
 CHECKPOINT_USER_ID: ""
 CHECKPOINT_FILE_PATH: ""
+METHOD:
+  METHOD_NAME: "Finetuning"
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition
   BATCH_SIZE: 10 # Process 1 new video-subsequence a time (Online)
   CONTINUAL_EVAL_BATCH_SIZE: 50
+  CONTINUAL_EVAL_FREQ: 1
 DATA:
   USER_SUBSET: 'train' # train or test
   PATH_TO_DATA_SPLIT_JSON:
