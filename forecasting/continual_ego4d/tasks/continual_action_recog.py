@@ -64,8 +64,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""
         if self.sample_idxs is not None:  # Update seen samples from previous batch
             self.seen_samples_idxs.extend(self.sample_idxs)
-        _, _, _, sample_idxs = batch  # Guaranteed new samples from the stream (e.g. replay might instead mix batch)
-        self.sample_idxs = sample_idxs.tolist()
+        _, _, _, stream_sample_idxs = batch  # Guaranteed new samples from the stream (e.g. replay might instead mix batch)
+        self.sample_idxs = stream_sample_idxs.tolist()
         self.first_unseen_sample_idx = min(self.sample_idxs)  # First unseen in sequence is min of batch
 
         altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
@@ -77,14 +77,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def training_step(self, batch, batch_idx):
         """ Before update: Forward and define loss. """
         # PREDICTIONS + LOSS
-        inputs, labels, video_names, sample_idxs = batch
+        inputs, labels, video_names, _ = batch
 
         # Do method callback
         loss, outputs, log_results = self.method.training_step(inputs, labels)
 
         # Perform additional eval
         if batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader):
-            log_results = self.eval_current_batch(log_results, outputs, labels, batch_idx, sample_idxs)
+            log_results = self.eval_current_batch(log_results, outputs, labels, batch_idx)
 
         # LOG results
         self.log_metrics(log_results)
@@ -92,6 +92,10 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Only loss should be used and stored for entire epoch (stream)
         return loss
+
+    def log_metrics(self, log_dict):
+        for logname, logval in log_dict.items():
+            self.log(logname, logval)
 
     def on_after_backward(self):
         # Log gradients possibly
@@ -107,12 +111,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                             f"{name}.grad", weight.grad, self.trainer.global_step
                         )
 
-    def training_step_end(self, training_step_outputs):
-        if self.cfg.SOLVER.ACCELERATOR in ["dp", "gpu"]:
-            training_step_outputs["loss"] = training_step_outputs["loss"].mean()
-        return training_step_outputs
-
-    def eval_current_batch(self, step_result, outputs, labels, batch_idx, sample_idxs):
+    def eval_current_batch(self, step_result, outputs, labels, batch_idx):
         logger.debug(f"Starting evaluation on current iteration: batch_idx={batch_idx}")
 
         # SET TO EVAL MODE
@@ -123,7 +122,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # METRICS
 
         # CURRENT BATCH METRICS
-        logger.debug(f"Gathering online results -> batch {batch_idx} SAMPLE IDXS = {sample_idxs}")
+        logger.debug(f"Gathering online results -> batch {batch_idx} SAMPLE IDXS = {self.sample_idxs}")
         step_result = {**step_result,
                        **self.add_prefix_to_keys(prefix='online',
                                                  source_dict=self._get_metric_results(outputs, labels))}
@@ -159,13 +158,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             preds[1], labels[:, 1], (1, 5)
         )
 
-        # TODO get total action error (merge the two)
+        # Get total action error (merge independent verb and noun predictions)
+        top1_err_action = metrics.distributed_twodistr_top1_errors(preds, labels.t())
 
         return {
             f"top1_verb_err": top1_err_verb.item(),
             f"top5_verb_err": top5_err_verb.item(),
             f"top1_noun_err": top1_err_noun.item(),
             f"top5_noun_err": top5_err_noun.item(),
+            f"top1_action_err": top1_err_action.item(),
         }
 
     @torch.no_grad()

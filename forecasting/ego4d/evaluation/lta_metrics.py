@@ -16,6 +16,30 @@ from sklearn.metrics import average_precision_score
 logger = logging.get_logger(__name__)
 
 
+def distributed_twodistr_top1_errors(two_distr_preds, two_distr_labels):
+    """
+    Prediction from both distributions (verb,noun) has to be correct for a correct (action) prediction.
+    Only takes top1 as top-K with K>1 results in combinatorial solutions.
+    (e.g. is top-2 the second best of first or second distr?)"""
+    preds1, preds2 = two_distr_preds
+    labels1, labels2 = two_distr_labels
+    assert preds1.shape[0] == preds2.shape[0] == labels1.shape[0] == labels2.shape[0]
+    batch_size = preds1.shape[0]
+    k = 1
+
+    # (1 x batch_size) indicator matrix
+    top1_correct1 = _get_topk_correct_onehot_matrix(preds1, labels1, ks=[k])
+    top1_correct2 = _get_topk_correct_onehot_matrix(preds2, labels2, ks=[k])
+
+    # Take AND operation on indicator matrix
+    top1_correct_both = torch.logical_and(top1_correct1, top1_correct2)
+
+    # Count corrects over batch
+    top1_correct_count = top1_correct_both.reshape(-1).float().sum()
+
+    return (1.0 - top1_correct_count / batch_size) * 100.0
+
+
 def distributed_topk_errors(preds, labels, ks):
     """
     Computes the top-k error for each k. Average reduces the result with all other
@@ -47,9 +71,19 @@ def topks_correct(preds, labels, ks):
         topks_correct (list): list of numbers, where the `i`-th entry
             corresponds to the number of top-`ks[i]` correct predictions.
     """
-    assert preds.size(0) == labels.size(
-        0
-    ), "Batch dim of predictions and labels must match"
+    top_max_k_correct = _get_topk_correct_onehot_matrix(preds, labels, ks)
+    # Compute the number of topk correct predictions for each k. (= sums over batch dim)
+    topks_correct = [top_max_k_correct[:k, :].reshape(-1).float().sum() for k in ks]
+    return topks_correct
+
+
+def _get_topk_correct_onehot_matrix(preds, labels, ks):
+    """
+    Returns (max_k, batch_size) indicator matrix, from which each batch-dim (a single sample) indicates from which
+    k the prediction is correct, this will be for only one k, or None.
+    """
+    assert preds.size(0) == labels.size(0), \
+        "Batch dim of predictions and labels must match"
 
     # Find the top max_k predictions for each sample
     maxk = max(ks)
@@ -63,9 +97,8 @@ def topks_correct(preds, labels, ks):
     rep_max_k_labels = labels.view(1, -1).expand_as(top_max_k_inds)
     # (i, j) = 1 if top i-th prediction for the j-th sample is correct.
     top_max_k_correct = top_max_k_inds.eq(rep_max_k_labels)
-    # Compute the number of topk correct predictions for each k.
-    topks_correct = [top_max_k_correct[:k, :].reshape(-1).float().sum() for k in ks]
-    return topks_correct
+
+    return top_max_k_correct
 
 
 def topk_errors(preds, labels, ks):
@@ -79,6 +112,7 @@ def topk_errors(preds, labels, ks):
     num_topks_correct = topks_correct(preds, labels, ks)
     return [(1.0 - x / preds.size(0)) * 100.0 for x in num_topks_correct]
 
+
 def edit_distance(preds, labels):
     """
     Damerau–Levenshtein edit distance from: https://github.com/gfairchild/pyxDamerauLevenshtein
@@ -87,14 +121,16 @@ def edit_distance(preds, labels):
     N, Z, K = preds.shape
     dists = []
     for n in range(N):
-        dist = min([editdistance.eval(preds[n, :, k], labels[n])/Z for k in range(K)])
+        dist = min([editdistance.eval(preds[n, :, k], labels[n]) / Z for k in range(K)])
         dists.append(dist)
     return np.mean(dists)
+
 
 def distributed_edit_distance(preds, labels):
     preds = torch.cat(du.all_gather_unaligned(preds), dim=0)
     labels = torch.cat(du.all_gather_unaligned(labels), dim=0)
     return edit_distance(preds, labels)
+
 
 def AUED(preds, labels):
     N, Z, K = preds.shape
@@ -108,6 +144,7 @@ def AUED(preds, labels):
     output = {"AUED": AUED}
     output.update({f"ED_{z}": ED[z] for z in range(Z)})
     return output
+
 
 def distributed_AUED(preds, labels):
     preds = torch.cat(du.all_gather_unaligned(preds), dim=0)
