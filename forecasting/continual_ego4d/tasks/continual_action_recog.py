@@ -94,6 +94,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         return loss
 
     def log_metrics(self, log_dict):
+        logger.debug(f"LOGGING: {log_dict}")
         for logname, logval in log_dict.items():
             self.log(logname, logval)
 
@@ -151,23 +152,29 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     @torch.no_grad()
     def _get_metric_results(self, preds, labels):
         """ Get metrics for predictions and labels."""
+        ret = {}
+
+        # Verb/noun errors
         top1_err_verb, top5_err_verb = metrics.distributed_topk_errors(
             preds[0], labels[:, 0], (1, 5)
         )
         top1_err_noun, top5_err_noun = metrics.distributed_topk_errors(
             preds[1], labels[:, 1], (1, 5)
         )
+        ret = {**ret, **{f"top1_verb_err": top1_err_verb.item(),
+                         f"top5_verb_err": top5_err_verb.item(),
+                         f"top1_noun_err": top1_err_noun.item(),
+                         f"top5_noun_err": top5_err_noun.item(), }}
 
         # Get total action error (merge independent verb and noun predictions)
         top1_err_action = metrics.distributed_twodistr_top1_errors(preds, labels.t())
+        ret["top1_action_err"] = top1_err_action.item()
 
-        return {
-            f"top1_verb_err": top1_err_verb.item(),
-            f"top5_verb_err": top5_err_verb.item(),
-            f"top1_noun_err": top1_err_noun.item(),
-            f"top5_noun_err": top5_err_noun.item(),
-            f"top1_action_err": top1_err_action.item(),
-        }
+        # TODO cumulative loss
+
+        # TODO avg loss
+
+        return ret
 
     @torch.no_grad()
     def _get_observed_data_metrics(self, batch_idx):
