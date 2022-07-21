@@ -6,6 +6,7 @@ import torch.utils.data
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch.utils.data
+from collections import Counter
 
 import itertools
 import pandas as pd
@@ -95,12 +96,24 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         # Visit all miniclips (with annotation) sequentially
         self.miniclip_sampler = SequentialSampler(self.seq_input_list)
 
+        # Get all unique verbs,nouns,actions and their counts
+        # This should be PER INPUT-CLIP, as PER-ANNOTATION can have various time ranges
+        verbs, nouns, actions = Counter(), Counter(), Counter()
+        for entry in self.seq_input_list:
+            verbs.update(entry['verb_label'])
+            nouns.update(entry['noun_label'])
+            actions.update(f"{verbs}-{nouns}")
+
         # Summarize
         logger.info(
             f"Initialized {self.__class__.__name__}\n"
             f"\tNum Dataset clip entries = {self.__len__()}\n"
             f"\tminiclip_sampler = {self.miniclip_sampler}\n"
             f"\tdecode_audio = {self._decode_audio}\n"
+            f"\tunique actions = {len(actions)}\n"
+            f"\tunique verbs = {len(verbs)}\n"
+            f"\tunique nouns = {len(nouns)}\n"
+            f"\taction input counts sorted = {sorted(list(actions.values()))}\n"
         )
 
     @property
