@@ -44,7 +44,7 @@ from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
 
-from continual_ego4d.tasks.continual_action_recog import ContinualMultiTaskClassificationTask
+from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
 from continual_ego4d.datasets.continual_action_recog_dataset import get_user_to_dataset_dict
 
 from scripts.slurm import copy_and_run_with_config
