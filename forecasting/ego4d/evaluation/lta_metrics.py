@@ -16,13 +16,11 @@ from sklearn.metrics import average_precision_score
 logger = logging.get_logger(__name__)
 
 
-def distributed_twodistr_top1_errors(two_distr_preds, two_distr_labels, acc=False):
+def distributed_twodistr_top1_errors(preds1, preds2, labels1, labels2, acc=False) -> float:
     """
     Prediction from both distributions (verb,noun) has to be correct for a correct (action) prediction.
     Only takes top1 as top-K with K>1 results in combinatorial solutions.
     (e.g. is top-2 the second best of first or second distr?)"""
-    preds1, preds2 = two_distr_preds
-    labels1, labels2 = two_distr_labels
     assert preds1.shape[0] == preds2.shape[0] == labels1.shape[0] == labels2.shape[0]
     batch_size = preds1.shape[0]
     k = 1

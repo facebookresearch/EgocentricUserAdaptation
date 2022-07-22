@@ -16,8 +16,7 @@ from ego4d.models import build_model
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
-from continual_ego4d.metrics.metrics import Metric, AvgTopkVerbAccMetric, OnlineTopkVerbAccMetric, \
-    AvgTopkNounAccMetric, OnlineTopkNounAccMetric, AvgTop1ActionAccMetric, OnlineTop1ActionAccMetric
+from continual_ego4d.metrics.metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric
 
 from pytorch_lightning.core import LightningModule
 from typing import List, Tuple, Union, Any, Optional
@@ -64,10 +63,13 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.sample_idxs = None
 
         # Metrics
-        self.current_batch_metrics = [[AvgTopkVerbAccMetric(k=k), OnlineTopkVerbAccMetric(k=k),
-                                       AvgTopkNounAccMetric(k=k), OnlineTopkNounAccMetric(k=k)] for k in [1, 5]]
+        from itertools import product
+        self.current_batch_metrics = [
+            [OnlineTopkAccMetric(k=k, mode=m), RunningAvgOnlineTopkAccMetric(k=k, mode=m)]
+            for k, m in product([1, 5], ['verb', 'noun'])]
+        self.current_batch_metrics.append(
+            [OnlineTopkAccMetric(k=1, mode='action'), RunningAvgOnlineTopkAccMetric(k=1, mode='action')])
         self.current_batch_metrics = [m for metric_list in self.current_batch_metrics for m in metric_list]
-        self.current_batch_metrics += [AvgTop1ActionAccMetric(), OnlineTop1ActionAccMetric()]
 
         self.future_metrics = [AvgTop1ActionAccMetric()]
         self.past_metrics = [AvgTop1ActionAccMetric()]
@@ -145,6 +147,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def on_train_batch_end(self, outputs, batch: Any, batch_idx: int, unused: Optional[int] = 0) -> None:
         inputs, labels, video_names, stream_sample_idxs = batch
+        stream_sample_idxs = stream_sample_idxs.tolist()
 
         # Do post-update evaluation of the past
         if batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader):
@@ -157,14 +160,17 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             logger.debug(f"POST-UPDATE Results for batch_idx={batch_idx}: {metric_results}")
 
         # Derive action from verbs,nouns
-        verbs = labels[0, :].tolist()
-        nouns = labels[1, :].tolist()
+        verbs = labels[:, 0].tolist()
+        nouns = labels[:, 1].tolist()
         actions = [f"{verb}-{noun}" for verb, noun in zip(verbs, nouns)]
 
         # Update seen states
         self.seen_action_set.update(actions)
-        self.last_seen_sample_idx = max(self.sample_idxs)  # Last unseen idx
-        self.seen_samples_idxs.extend(self.sample_idxs)
+        self.last_seen_sample_idx = max(stream_sample_idxs)  # Last unseen idx
+        self.seen_samples_idxs.extend(stream_sample_idxs)
+        logger.debug(f"seen_action_set={self.seen_action_set}")
+        logger.debug(f"last_seen_sample_idx={self.last_seen_sample_idx}")
+        logger.debug(f"seen_samples_idxs={self.seen_samples_idxs}")
 
     # ---------------------
     # PER-STEP EVALUATION
@@ -172,6 +178,11 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def log_metrics(self, log_dict):
         logger.debug(f"LOGGING: {log_dict}")
         for logname, logval in log_dict.items():
+            if isinstance(logval, torch.Tensor):
+                try:
+                    logval = logval.item()
+                except:
+                    pass
             self.log(logname, logval)
 
     @torch.no_grad()
@@ -210,7 +221,10 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             batch_size=self.cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE,
             subset_indices=unseen_idxs,  # Future data, including current
         )
-        result_dict = self._get_average_metrics_for_dataloader(future_dataloader, metrics=self.future_metrics)
+
+        # TODO split based on action seen (generalization) or unseen (zero-shot)
+
+        result_dict = self._get_metric_results_over_dataloader(future_dataloader, metrics=self.future_metrics)
 
         self.add_to_dict_(step_result, result_dict, prefix='future')
 
@@ -230,7 +244,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             batch_size=self.cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE,
             subset_indices=seen_idxs,  # Previous data, not including current
         )
-        result_dict = self._get_average_metrics_for_dataloader(obs_dataloader, metrics=self.past_metrics)
+        result_dict = self._get_metric_results_over_dataloader(obs_dataloader, metrics=self.past_metrics)
 
         self.add_to_dict_(step_result, result_dict, prefix='past')
 
@@ -274,9 +288,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         return loader
 
     @torch.no_grad()
-    def _get_average_metrics_for_dataloader(self, dataloader, metrics: List[Metric]):
+    def _get_metric_results_over_dataloader(self, dataloader, metrics: List[Metric]):
 
-        avg_metric_result_dict = defaultdict(AverageMeter)
+        # Update metrics over dataloader data
         for batch_idx, (inputs, labels, _, _) in enumerate(dataloader):
             # Slowfast inputs (list):
             # inputs[0].shape = torch.Size([32, 3, 8, 224, 224]) -> Slow net
@@ -285,27 +299,25 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             labels = labels.to(self.device)
             inputs = [x.to(self.device) for x in inputs] if isinstance(inputs, list) \
                 else inputs.to(self.device)
-
-            batch_size = labels.shape[1]
             preds = self.forward(inputs)
 
-            metric_result_dict = {}
             for metric in metrics:
-                metric_result_dict = {**metric_result_dict, **metric.result(preds, labels)}
+                metric.update(preds, labels)
 
-            for k, v in metric_result_dict.items():
-                avg_metric_result_dict[k].update(v, weight=batch_size)
+        # Gather results
+        avg_metric_result_dict = {}
+        for metric in metrics:
+            avg_metric_result_dict = {**avg_metric_result_dict, **metric.result()}
 
-        # Avg per metric
-        for metric_name, avg_meter in avg_metric_result_dict.items():
-            avg_metric_result_dict[metric_name] = avg_meter.avg
         return avg_metric_result_dict
 
     # ---------------------
     # TRAINING SETUP
     # ---------------------
     def forward(self, inputs):
-        return self.model(inputs)
+        preds = self.model(inputs)
+        # preds = torch.vstack(preds).transpose(0, 1)  # (2x batch_size x outdim) -> (batch_size x 2 x outdim)
+        return preds
 
     def setup(self, stage):
         # Setup is called immediately after the distributed processes have been

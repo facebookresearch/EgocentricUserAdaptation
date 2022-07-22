@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 from continual_ego4d.methods.build import build_method, METHOD_REGISTRY
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 from torch import Tensor
 from pytorch_lightning.core import LightningModule
+import torch
 
 
 class Method:
@@ -14,13 +15,13 @@ class Method:
     def on_before_batch_transfer(self, batch, dataloader_idx):
         return batch
 
-    def training_step(self, inputs, labels) -> Tuple[Tensor, Tensor, Dict]:
+    def training_step(self, inputs, labels) -> Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
 
-        preds = self.lightning_module.forward(inputs)
-        loss1 = self.lightning_module.loss_fun(preds[0], labels[0, :])  # Verbs
-        loss2 = self.lightning_module.loss_fun(preds[1], labels[1, :])  # Nouns
+        preds: list = self.lightning_module.forward(inputs)
+        loss1 = self.lightning_module.loss_fun(preds[0], labels[:, 0])  # Verbs
+        loss2 = self.lightning_module.loss_fun(preds[1], labels[:, 1])  # Nouns
         loss = loss1 + loss2  # Avg losses
 
         log_results = {

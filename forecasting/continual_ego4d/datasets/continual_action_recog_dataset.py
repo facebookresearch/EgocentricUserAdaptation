@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import copy
+import pprint
 
 import torch.utils.data
+from collections import defaultdict
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 import torch.utils.data
@@ -98,15 +100,15 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
         # Get all unique verbs,nouns,actions and their counts
         # This should be PER INPUT-CLIP, as PER-ANNOTATION can have various time ranges
-        verbs, nouns, actions = Counter(), Counter(), Counter()
+        verbs, nouns, actions = defaultdict(int), defaultdict(int), defaultdict(int)
         for entry in self.seq_input_list:
-            verbs.update([entry[1]['verb_label']])
-            nouns.update([entry[1]['noun_label']])
-            actions.update([f"{verbs}-{nouns}"])
+            verbs[entry[1]['verb_label']] += 1
+            nouns[entry[1]['noun_label']] += 1
+            actions[f"{entry[1]['verb_label']}-{entry[1]['noun_label']}"] += 1
 
-        self.unique_verbs = set(verbs)
-        self.unique_nouns = set(nouns)
-        self.unique_actions = set(actions)
+        self.unique_verbs = list(verbs.keys())
+        self.unique_nouns = list(nouns.keys())
+        self.unique_actions = list(actions.keys())
 
         # Summarize
         logger.info(
@@ -116,8 +118,9 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             f"\tdecode_audio = {self._decode_audio}\n"
             f"\tunique actions = {len(actions)}\n"
             f"\tunique verbs = {len(verbs)}\n"
-            f"\tunique nouns = {len(nouns)}\n"
-            f"\taction input counts sorted = {sorted(list(actions.values()))}\n"
+            f"\tunique nouns = {len(nouns)}\n" +
+            "\taction input counts sorted = \n{}".format(
+                pprint.pformat(sorted(actions.items(), key=lambda x: x[1], reverse=True)))
         )
 
     @property
@@ -193,6 +196,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                 "aug_index": aug_index,
                 "sample_index": unique_sample_id,  # Identifier for
             }
+
             if self._transform is not None:
                 sample_dict = self._transform(sample_dict)
 
@@ -223,7 +227,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                 Lambda(
                     lambda x: (
                         x["video"],
-                        torch.tensor([x["verb_label"], x["noun_label"]]).t(),
+                        torch.tensor([x["verb_label"], x["noun_label"]]),
                         str(x["video_name"]) + "_" + str(x["video_index"]),
                         x['sample_index'],
                     )
