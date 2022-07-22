@@ -16,7 +16,7 @@ from sklearn.metrics import average_precision_score
 logger = logging.get_logger(__name__)
 
 
-def distributed_twodistr_top1_errors(two_distr_preds, two_distr_labels):
+def distributed_twodistr_top1_errors(two_distr_preds, two_distr_labels, acc=False):
     """
     Prediction from both distributions (verb,noun) has to be correct for a correct (action) prediction.
     Only takes top1 as top-K with K>1 results in combinatorial solutions.
@@ -37,10 +37,13 @@ def distributed_twodistr_top1_errors(two_distr_preds, two_distr_labels):
     # Count corrects over batch
     top1_correct_count = top1_correct_both.reshape(-1).float().sum()
 
-    return (1.0 - top1_correct_count / batch_size) * 100.0
+    if not acc:
+        return (1.0 - top1_correct_count / batch_size) * 100.0
+    else:
+        return (top1_correct_count / batch_size) * 100.0
 
 
-def distributed_topk_errors(preds, labels, ks):
+def distributed_topk_errors(preds, labels, ks, acc=False):
     """
     Computes the top-k error for each k. Average reduces the result with all other
     distributed processes.
@@ -51,7 +54,7 @@ def distributed_topk_errors(preds, labels, ks):
     """
     preds = torch.cat(du.all_gather_unaligned(preds), dim=0)
     labels = torch.cat(du.all_gather_unaligned(labels), dim=0)
-    errors = topk_errors(preds, labels, ks)
+    errors = topk_errors(preds, labels, ks, acc=acc)
     return errors
 
 
@@ -101,7 +104,7 @@ def _get_topk_correct_onehot_matrix(preds, labels, ks):
     return top_max_k_correct
 
 
-def topk_errors(preds, labels, ks):
+def topk_errors(preds, labels, ks, acc=False):
     """
     Computes the top-k error for each k.
     Args:
@@ -110,7 +113,11 @@ def topk_errors(preds, labels, ks):
         ks (list): list of ks to calculate the top accuracies.
     """
     num_topks_correct = topks_correct(preds, labels, ks)
-    return [(1.0 - x / preds.size(0)) * 100.0 for x in num_topks_correct]
+
+    if not acc:
+        return [(1.0 - x / preds.size(0)) * 100.0 for x in num_topks_correct]
+    else:
+        return [(x / preds.size(0)) * 100.0 for x in num_topks_correct]
 
 
 def edit_distance(preds, labels):

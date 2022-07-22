@@ -100,9 +100,13 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         # This should be PER INPUT-CLIP, as PER-ANNOTATION can have various time ranges
         verbs, nouns, actions = Counter(), Counter(), Counter()
         for entry in self.seq_input_list:
-            verbs.update(entry['verb_label'])
-            nouns.update(entry['noun_label'])
-            actions.update(f"{verbs}-{nouns}")
+            verbs.update([entry[1]['verb_label']])
+            nouns.update([entry[1]['noun_label']])
+            actions.update([f"{verbs}-{nouns}"])
+
+        self.unique_verbs = set(verbs)
+        self.unique_nouns = set(nouns)
+        self.unique_actions = set(actions)
 
         # Summarize
         logger.info(
@@ -219,7 +223,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                 Lambda(
                     lambda x: (
                         x["video"],
-                        torch.tensor([x["verb_label"], x["noun_label"]]),
+                        torch.tensor([x["verb_label"], x["noun_label"]]).t(),
                         str(x["video_name"]) + "_" + str(x["video_index"]),
                         x['sample_index'],
                     )

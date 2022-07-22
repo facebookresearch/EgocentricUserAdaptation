@@ -19,8 +19,8 @@ class Method:
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
 
         preds = self.lightning_module.forward(inputs)
-        loss1 = self.lightning_module.loss_fun(preds[0], labels[:, 0])  # Verbs
-        loss2 = self.lightning_module.loss_fun(preds[1], labels[:, 1])  # Nouns
+        loss1 = self.lightning_module.loss_fun(preds[0], labels[0, :])  # Verbs
+        loss2 = self.lightning_module.loss_fun(preds[1], labels[1, :])  # Nouns
         loss = loss1 + loss2  # Avg losses
 
         log_results = {
