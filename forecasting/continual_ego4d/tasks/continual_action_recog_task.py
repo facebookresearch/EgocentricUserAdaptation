@@ -16,7 +16,9 @@ from ego4d.models import build_model
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
-from continual_ego4d.metrics.metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric
+from continual_ego4d.metrics.metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
+    GeneralizationTopkAccMetric, FWTTopkAccMetric
+from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 
 from pytorch_lightning.core import LightningModule
 from typing import List, Tuple, Union, Any, Optional
@@ -57,6 +59,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Store vars
         self.seen_samples_idxs = []
         self.seen_action_set = set()
+        self.action_last_observed_streamid = {}  # On-the-fly: For each action keep all ids when it was observed
 
         # State vars (single batch)
         self.last_seen_sample_idx = -1
@@ -68,11 +71,20 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             [OnlineTopkAccMetric(k=k, mode=m), RunningAvgOnlineTopkAccMetric(k=k, mode=m)]
             for k, m in product([1, 5], ['verb', 'noun'])]
         self.current_batch_metrics.append(
-            [OnlineTopkAccMetric(k=1, mode='action'), RunningAvgOnlineTopkAccMetric(k=1, mode='action')])
+            [
+                OnlineTopkAccMetric(k=1, mode='action'),
+                RunningAvgOnlineTopkAccMetric(k=1, mode='action')
+            ])
         self.current_batch_metrics = [m for metric_list in self.current_batch_metrics for m in metric_list]
 
-        self.future_metrics = [AvgTop1ActionAccMetric()]
-        self.past_metrics = [AvgTop1ActionAccMetric()]
+        self.future_metrics = [
+            GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
+            # FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
+        ]
+
+        self.past_metrics = [
+
+        ]
 
         logger.debug(f'Initialized {self.__class__.__name__}')
 
@@ -162,7 +174,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Derive action from verbs,nouns
         verbs = labels[:, 0].tolist()
         nouns = labels[:, 1].tolist()
-        actions = [f"{verb}-{noun}" for verb, noun in zip(verbs, nouns)]
+        actions = [verbnoun_to_action(verb, noun) for verb, noun in zip(verbs, nouns)]
 
         # Update seen states
         self.seen_action_set.update(actions)
@@ -221,8 +233,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             batch_size=self.cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE,
             subset_indices=unseen_idxs,  # Future data, including current
         )
-
-        # TODO split based on action seen (generalization) or unseen (zero-shot)
 
         result_dict = self._get_metric_results_over_dataloader(future_dataloader, metrics=self.future_metrics)
 
@@ -291,7 +301,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def _get_metric_results_over_dataloader(self, dataloader, metrics: List[Metric]):
 
         # Update metrics over dataloader data
-        for batch_idx, (inputs, labels, _, _) in enumerate(dataloader):
+        for batch_idx, (inputs, labels, _, stream_sample_ids) in enumerate(dataloader):
             # Slowfast inputs (list):
             # inputs[0].shape = torch.Size([32, 3, 8, 224, 224]) -> Slow net
             # inputs[1].shape =  torch.Size([32, 3, 32, 224, 224]) -> Fast net
@@ -302,7 +312,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             preds = self.forward(inputs)
 
             for metric in metrics:
-                metric.update(preds, labels)
+                metric.update(preds, labels, stream_sample_ids)
 
         # Gather results
         avg_metric_result_dict = {}

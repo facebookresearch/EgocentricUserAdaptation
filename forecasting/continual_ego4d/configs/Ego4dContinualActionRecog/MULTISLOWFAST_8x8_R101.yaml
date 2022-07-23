@@ -6,7 +6,7 @@ TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition
   BATCH_SIZE: 10 # Process 1 new video-subsequence a time (Online)
-  CONTINUAL_EVAL_BATCH_SIZE: 50
+  CONTINUAL_EVAL_BATCH_SIZE: 64
   CONTINUAL_EVAL_FREQ: 1
 DATA:
   USER_SUBSET: 'train' # train or test

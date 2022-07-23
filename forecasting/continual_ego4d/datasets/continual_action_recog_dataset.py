@@ -51,6 +51,11 @@ from ego4d.datasets.ptv_dataset_helper import UntrimmedClipSampler  # TODO MAKE 
 logger = logging.get_logger(__name__)
 
 
+def verbnoun_to_action(verb: Union[str, int], noun: Union[str, int]) -> tuple[int, int]:
+    # return f"{verb}-{noun}"
+    return tuple((int(verb), int(noun)))
+
+
 @DATASET_REGISTRY.register()
 class Ego4dContinualRecognition(torch.utils.data.Dataset):
     """Torch compatible Wrapper dataset with video transforms."""
@@ -104,7 +109,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         for entry in self.seq_input_list:
             verbs[entry[1]['verb_label']] += 1
             nouns[entry[1]['noun_label']] += 1
-            actions[f"{entry[1]['verb_label']}-{entry[1]['noun_label']}"] += 1
+            actions[verbnoun_to_action(entry[1]['verb_label'], entry[1]['noun_label'])] += 1
 
         self.unique_verbs = list(verbs.keys())
         self.unique_nouns = list(nouns.keys())

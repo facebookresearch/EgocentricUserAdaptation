@@ -19,7 +19,7 @@ class AverageMeter(object):
         self.val = val
         self.sum += val * weight
         self.count += weight
-        self.avg = self.sum / self.count
+        self.avg = self.sum / self.count if self.count > 0 else 0
 
     def all_reduce(self):
         total = torch.FloatTensor([self.sum, self.count])
