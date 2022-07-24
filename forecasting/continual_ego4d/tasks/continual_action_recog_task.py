@@ -17,7 +17,7 @@ from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
 from continual_ego4d.metrics.metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
-    GeneralizationTopkAccMetric, FWTTopkAccMetric
+    GeneralizationTopkAccMetric, FWTTopkAccMetric, ConditionalOnlineForgettingMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 
 from pytorch_lightning.core import LightningModule
@@ -58,8 +58,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Store vars
         self.seen_samples_idxs = []
-        self.seen_action_set = set()
-        self.action_last_observed_streamid = {}  # On-the-fly: For each action keep all ids when it was observed
+        self.seen_action_to_obs_ids = defaultdict(list)  # On-the-fly: For each action keep all ids when it was observed
 
         # State vars (single batch)
         self.last_seen_sample_idx = -1
@@ -83,7 +82,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         ]
 
         self.past_metrics = [
-
+            ConditionalOnlineForgettingMetric()
         ]
 
         logger.debug(f'Initialized {self.__class__.__name__}')
@@ -158,8 +157,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                         )
 
     def on_train_batch_end(self, outputs, batch: Any, batch_idx: int, unused: Optional[int] = 0) -> None:
-        inputs, labels, video_names, stream_sample_idxs = batch
-        stream_sample_idxs = stream_sample_idxs.tolist()
+        inputs, labels, video_names, stream_sample_ids = batch
+        stream_sample_ids = stream_sample_ids.tolist()
 
         # Do post-update evaluation of the past
         if batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader):
@@ -171,16 +170,18 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             self.log_metrics(metric_results)
             logger.debug(f"POST-UPDATE Results for batch_idx={batch_idx}: {metric_results}")
 
-        # Derive action from verbs,nouns
-        verbs = labels[:, 0].tolist()
-        nouns = labels[:, 1].tolist()
-        actions = [verbnoun_to_action(verb, noun) for verb, noun in zip(verbs, nouns)]
+            # (optionally) Save metrics after batch
+            for metric in [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]:
+                metric.save_result_to_history()
 
-        # Update seen states
-        self.seen_action_set.update(actions)
-        self.last_seen_sample_idx = max(stream_sample_idxs)  # Last unseen idx
-        self.seen_samples_idxs.extend(stream_sample_idxs)
-        logger.debug(f"seen_action_set={self.seen_action_set}")
+        # Derive action from verbs,nouns
+        for (verb, noun), stream_sample_id in zip(labels.tolist(), stream_sample_ids):
+            action = verbnoun_to_action(verb, noun)
+            self.seen_action_to_obs_ids[action].append(stream_sample_id)
+
+        # Update Task states
+        self.last_seen_sample_idx = max(stream_sample_ids)  # Last unseen idx
+        self.seen_samples_idxs.extend(stream_sample_ids)
         logger.debug(f"last_seen_sample_idx={self.last_seen_sample_idx}")
         logger.debug(f"seen_samples_idxs={self.seen_samples_idxs}")
 
@@ -301,7 +302,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def _get_metric_results_over_dataloader(self, dataloader, metrics: List[Metric]):
 
         # Update metrics over dataloader data
-        for batch_idx, (inputs, labels, _, stream_sample_ids) in enumerate(dataloader):
+        for batch_idx, (inputs, labels, _, _) in enumerate(dataloader):
             # Slowfast inputs (list):
             # inputs[0].shape = torch.Size([32, 3, 8, 224, 224]) -> Slow net
             # inputs[1].shape =  torch.Size([32, 3, 32, 224, 224]) -> Fast net
@@ -312,7 +313,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             preds = self.forward(inputs)
 
             for metric in metrics:
-                metric.update(preds, labels, stream_sample_ids)
+                metric.update(preds, labels)
 
         # Gather results
         avg_metric_result_dict = {}
