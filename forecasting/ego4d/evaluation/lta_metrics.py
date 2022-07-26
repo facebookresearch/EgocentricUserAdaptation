@@ -33,7 +33,7 @@ def distributed_twodistr_top1_errors(preds1, preds2, labels1, labels2, acc=False
     top1_correct_both = torch.logical_and(top1_correct1, top1_correct2)
 
     # Count corrects over batch
-    top1_correct_count = top1_correct_both.reshape(-1).float().sum()
+    top1_correct_count = top1_correct_both.reshape(-1).float().sum().item()
 
     if not acc:
         return (1.0 - top1_correct_count / batch_size) * 100.0
@@ -74,7 +74,7 @@ def topks_correct(preds, labels, ks):
     """
     top_max_k_correct = _get_topk_correct_onehot_matrix(preds, labels, ks)
     # Compute the number of topk correct predictions for each k. (= sums over batch dim)
-    topks_correct = [top_max_k_correct[:k, :].reshape(-1).float().sum() for k in ks]
+    topks_correct = [top_max_k_correct[:k, :].reshape(-1).float().sum().item() for k in ks]
     return topks_correct
 
 

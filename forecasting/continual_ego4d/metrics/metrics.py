@@ -1,9 +1,11 @@
+import logging
 from abc import ABC, abstractmethod
 import torch
 from typing import Dict, Set, Union, Tuple
 from continual_ego4d.utils.meters import AverageMeter
 from ego4d.evaluation import lta_metrics as metrics
 from collections import defaultdict
+from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 
 
 class Metric(ABC):
@@ -97,8 +99,7 @@ class RunningAvgOnlineTopkAccMetric(OnlineTopkAccMetric):
 class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
     reset_before_batch = True
 
-    def __init__(self, k, mode, name_prefix, cond_set: Union[Set[int], Set[Tuple[int]], Dict[int], Dict[Tuple[int]]],
-                 in_cond_set=True):
+    def __init__(self, k, mode, name_prefix, cond_set: Union[Set[int], Set[Tuple[int]]], in_cond_set=True):
         """
         Mask out predictions, but keep those that are in (in_cond_set=True) or not in (in_cond_set=False) the
         given label set (cond_set).
@@ -157,7 +158,7 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
         # Get mask
         label_batch_axis = 0
         label_mask = torch.cat([
-            torch.BoolTensor([tuple((verbnoun_t.tolist())) in self.cond_set])  # Is (verb,noun) tuple in cond_set?
+            torch.BoolTensor([verbnoun_to_action(*verbnoun_t.tolist()) in self.cond_set])
             for verbnoun_t in torch.unbind(labels, dim=label_batch_axis)
         ], dim=label_batch_axis)
 
@@ -203,17 +204,29 @@ class ConditionalOnlineForgettingMetric(Metric):
     reset_before_batch = True  # Resets forgetting Avg metrics, but history is kept
     modes = ["verb", "noun", "action"]
 
-    def __init__(self, k: int = 1, mode="action"):
+    def __init__(self, k: int = 1, mode="action", name_prefix="",
+                 action_cond_set: Union[Set[int], Set[Tuple[int]]] = None, in_cond_set=True):
         """
-        Takes in the history stream, and calculates accuracy per action.
-        The result gives the average over all action-accuracies, each minus their previous stored accuracy.
-        The metric stores the accuracies for previous actions on save_result_to_history.
+        Takes in the history stream, and calculates forgetting per action.
+        The result gives the average over all action-accuracies deltas, each minus their previous stored accuracy.
+        This delta equals to Forgetting.
 
+        The action_cond_set can be used to only consider action in the update() method that are in the cond_set
+        (if in_cond_set=True) or are NOT in the cond_set (in_cond_set=False).
+
+        For each observed action, we keep:
+        - The sample_id of the prev instance of this action: (represents t_a)
+        - The previous accuracy (at last observed time t_a)
+        - Current AverageMeter for current Accuracy (Stops counting for t > t_a).
+
+        Notes:
+        The metric stores the accuracies for previous actions on save_result_to_history.
         The reset only resets the running average meters, not the history.
         """
-
         self.k = k
-        self.name = f"top{self.k}_{mode}_forg"
+        if len(name_prefix) > 0:
+            name_prefix = f"{name_prefix}_"
+        self.name = f"{name_prefix}top{self.k}_{mode}_forg"
 
         assert mode == 'action', f"Only action mode supported for now"
         self.mode = mode
@@ -229,17 +242,11 @@ class ConditionalOnlineForgettingMetric(Metric):
 
         # Forgetting states
         self.action_to_prev_acc = {}
-        self.action_to_avgmeter = defaultdict(AverageMeter)
-        """ Set with observed actions (seen set), and for each observed action, we keep:
-        - The previous accuracy (at prev time t_a)
-        - The sample_idx of the prev instance of this action: (represents t_a)
-        - Current AverageMeter for current Accuracy (Stop counting for t > t_a).
-        
-        Then avg over all these average meters their results to get the final result.        
-        """
+        self.action_to_current_acc = defaultdict(AverageMeter)
 
-        # TODO: Add conditional set (Current learning batch, NOT EVAL BATCH in metric.update())
-        #  to get disentangled forgetting metrics
+        # Filtering in Update-method
+        self.in_cond_set = in_cond_set  # Only consider actions in the cond set if True, Outside if False.
+        self.action_cond_set: set = action_cond_set  # If None, not considering cond_set
 
     @torch.no_grad()
     def update(self, preds, labels):
@@ -248,19 +255,6 @@ class ConditionalOnlineForgettingMetric(Metric):
         Update per-action accuracy metric from predictions and labels.
         """
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
-
-        """
-        Use sampler! Keep all actions that have been seen, and keep last observation sample_idx.
-        Get 1 metric per seen action, and iterate over all history samples with max(all_seen_actions_observation_sample_idxs).
-        So basically the latest one.
-        
-        -> This can also be conditional that they are in the condiitonal set (like future)
-        
-        Each action-metric only accumulates until its 'seen'-index.
-        
-        Afterwards the average over all is returned.
-        
-        """
 
         # Verb/noun errors
         if self.mode in ['verb', 'noun']:
@@ -277,33 +271,26 @@ class ConditionalOnlineForgettingMetric(Metric):
         raise NotImplementedError()
 
     def _get_action_topk_acc(self, preds, labels):
-
-        # TODO: Select current batch on 2 conditions,
-        # For each batch we have to check:
-        # 1) Which samples belong to action a_i? (for each a_i we count acc for the action separately)
-
-        # 2) Is sample_idx < lates_action_idx? -> Easiest to check: Skip actions that have t_a > min(all_t's in batch)
-        # Get top-acc results for Meter per action for the subset that satisfies.
-        # -> ALWAYS SATISFIED FOR HISTORY STREAM OF DATA: all data will be action data until last time seen that action
-        # This is because we measure acc separately per action.
-
-        # first_sample_id = min(stream_sample_ids)
-        # Filter out actions for which current min sample id (t) in batch > last action observation id (t_a)
-        # seen_actions_sat = {a for a, t_a_list in self.seen_action_to_obs_ids.items()
-        #                     if t_a_list[-1] > first_sample_id}
-
         # Iterate actions in batch, continue if not satisfying filter constraint
         obs_actions_batch = set()
         label_batch_axis = 0
         for idx, verbnoun_t in enumerate(torch.unbind(labels, dim=label_batch_axis)):
-            action = tuple((verbnoun_t.tolist()))
-            if action in obs_actions_batch:  # Already processed, so skip
+            action = verbnoun_to_action(*verbnoun_t.tolist())
+
+            # Filter out based on conditional set
+            if self.action_cond_set is not None:
+                if (self.in_cond_set and action not in self.action_cond_set) or \
+                        (not self.in_cond_set and action in self.action_cond_set):
+                    continue
+
+            # Already processed, so skip
+            if action in obs_actions_batch:
                 continue
             obs_actions_batch.add(action)
 
-            # Process all samples in batch for this action at once
+            # Process all samples in batch for this action at once + check (verb,noun) tuple in cond_set?
             label_mask = torch.cat([
-                torch.BoolTensor([tuple((verbnoun_t.tolist())) == action])  # Is (verb,noun) tuple in cond_set?
+                torch.BoolTensor([verbnoun_to_action(*verbnoun_t.tolist()) == action])
                 for verbnoun_t in torch.unbind(labels, dim=label_batch_axis)
             ], dim=label_batch_axis)
 
@@ -316,21 +303,25 @@ class ConditionalOnlineForgettingMetric(Metric):
             action_topk_acc: float = metrics.distributed_twodistr_top1_errors(
                 preds1, preds2, labels1, labels2, acc=True)
 
-            self.action_to_avgmeter[action].update(action_topk_acc, weight=subset_batch_size)
+            self.action_to_current_acc[action].update(action_topk_acc, weight=subset_batch_size)
 
     @torch.no_grad()
     def reset(self):
         """Reset the metric."""
-        self.action_to_avgmeter = defaultdict(AverageMeter)
+        self.action_to_current_acc = defaultdict(AverageMeter)
 
     @torch.no_grad()
     def result(self) -> Dict:
         """Get the metric(s) with name in dict format.
-        Averages with equal weight over all actions with a meter (observed in history stream)."""
+        Averages with equal weight over all actions with a meter.
+        """
 
         # avg acc results over all actions, and make relative to previous acc (forgetting)
         avg_forg_over_actions = AverageMeter()
-        for action, action_current_acc in self.action_to_avgmeter.items():
+        for action, action_current_acc in self.action_to_current_acc.items():
+            if action not in self.action_to_prev_acc:  # First time the acc is measured on the model for this action
+                logging.debug(f"Action {action} acc measured for first time in history stream.")
+                continue
             current_acc = action_current_acc.avg
             forg = current_acc - self.action_to_prev_acc[action]
             avg_forg_over_actions.update(forg, weight=1)
@@ -339,11 +330,37 @@ class ConditionalOnlineForgettingMetric(Metric):
 
     @torch.no_grad()
     def save_result_to_history(self):
-        """Optional: after getting the result, we may also want to re-use this result later on."""
-        # save results per action in the dict
-        for action, action_current_acc in self.action_to_avgmeter.items():
-            self.action_to_prev_acc[action] = action_current_acc
+        """ Save acc on current model results per action in the dict."""
+        for action, action_current_acc in self.action_to_current_acc.items():
+            self.action_to_prev_acc[action] = action_current_acc.avg
 
-# class OnlineForgetting(Metric):
-# class ReexposureForgetting(Metric):
-# class OnlineForgetting(Metric):
+
+class FullOnlineForgettingMetric(ConditionalOnlineForgettingMetric):
+    """ Measure on history data over all actions that have already been observed."""
+
+    def __init__(self, k, mode):
+        super().__init__(
+            k=k, mode=mode,
+            name_prefix='', action_cond_set=None, in_cond_set=True  # Fixed
+        )
+
+
+class ReexposureForgettingMetric(ConditionalOnlineForgettingMetric):
+    """ Measure on history data over actions that have already been observed AND are observed in current mini-batch."""
+
+    def __init__(self, current_batch_actions: set, k, mode):
+        super().__init__(
+            k=k, mode=mode,
+            name_prefix='EXPOSE', action_cond_set=current_batch_actions, in_cond_set=True
+        )
+
+
+class CollateralForgettingMetric(ConditionalOnlineForgettingMetric):
+    """ Measure on history data over actions that have already been observed
+    AND are NOTobserved in current mini-batch."""
+
+    def __init__(self, current_batch_actions: set, k, mode):
+        super().__init__(
+            k=k, mode=mode,
+            name_prefix='COLLAT', action_cond_set=current_batch_actions, in_cond_set=False
+        )

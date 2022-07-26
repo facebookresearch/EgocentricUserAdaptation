@@ -17,7 +17,8 @@ from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
 from continual_ego4d.metrics.metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
-    GeneralizationTopkAccMetric, FWTTopkAccMetric, ConditionalOnlineForgettingMetric
+    GeneralizationTopkAccMetric, FWTTopkAccMetric, ConditionalOnlineForgettingMetric, ReexposureForgettingMetric, \
+    CollateralForgettingMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 
 from pytorch_lightning.core import LightningModule
@@ -56,8 +57,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.method: Method = build_method(cfg, self)
         self.continual_eval_freq = cfg.TRAIN.CONTINUAL_EVAL_FREQ
 
-        # Store vars
+        # Store vars (Don't reassign, use ref)
         self.seen_samples_idxs = []
+        self.current_batch_action_set = set()
+        self.seen_action_set = set()
+        self.seen_verb_set = set()
+        self.seen_noun_set = set()
         self.seen_action_to_obs_ids = defaultdict(list)  # On-the-fly: For each action keep all ids when it was observed
 
         # State vars (single batch)
@@ -78,11 +83,13 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         self.future_metrics = [
             GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
-            # FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
+            FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
         ]
 
         self.past_metrics = [
-            ConditionalOnlineForgettingMetric()
+            ConditionalOnlineForgettingMetric(),
+            ReexposureForgettingMetric(self.current_batch_action_set, k=1, mode='action'),
+            CollateralForgettingMetric(self.current_batch_action_set, k=1, mode='action'),
         ]
 
         logger.debug(f'Initialized {self.__class__.__name__}')
@@ -124,6 +131,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         """ Before update: Forward and define loss. """
         # PREDICTIONS + LOSS
         inputs, labels, video_names, stream_sample_idxs = batch
+
+        # Keep current-batch refs for Metrics (e.g. Exposure-based forgetting)
+        self.current_batch_action_set.clear()
+        for (verb, noun) in labels.tolist():
+            action = verbnoun_to_action(verb, noun)
+            self.current_batch_action_set.add(action)
 
         # Do method callback (Get losses etc)
         loss, outputs, metric_results = self.method.training_step(inputs, labels)
@@ -178,6 +191,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         for (verb, noun), stream_sample_id in zip(labels.tolist(), stream_sample_ids):
             action = verbnoun_to_action(verb, noun)
             self.seen_action_to_obs_ids[action].append(stream_sample_id)
+            self.seen_action_set.add(action)
 
         # Update Task states
         self.last_seen_sample_idx = max(stream_sample_ids)  # Last unseen idx
