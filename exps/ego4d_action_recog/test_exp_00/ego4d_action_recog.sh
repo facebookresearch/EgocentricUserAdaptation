@@ -44,10 +44,14 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/resized_cli
 #-----------------------------------------------------------------------------------------------#
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
-OVERWRITE_CFG_ARGS="CHECKPOINT_step_freq 2" # DEBUG
+OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 16"
-OVERWRITE_CFG_ARGS+=" GPU_IDS 2"
-#OVERWRITE_CFG_ARGS="NUM_GPUS 1 TRAIN.BATCH_SIZE 1 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 32 CHECKPOINT_step_freq 300" # DEBUG
+OVERWRITE_CFG_ARGS+=" GPU_IDS 7"
+#OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0 TRAIN.BATCH_SIZE 10 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 16 CHECKPOINT_step_freq 300" # DEBUG
+OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30" # DEBUG
+
+# RESUME
+#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/test_exp_00/logs/2022-07-26_14-33-36_UIDd8a02398-ec4c-4d49-b81b-2d357c63bcf4"
 
 # Architecture: aggregator/decoder only for LTA, SlowFast model directly performs Action Classification
 #OVERWRITE_CFG_ARGS+=" FORECASTING.AGGREGATOR TransformerAggregator"
@@ -63,9 +67,6 @@ OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE False"
 OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_DIR ${EGO4D_ANNOTS}"
 OVERWRITE_CFG_ARGS+=" DATA.PATH_PREFIX ${EGO4D_VIDEOS}"
 OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
-
-# DEBUG
-#OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0 GPU_IDS 5 FAST_DEV_RUN True"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="MATT_${run_id}"

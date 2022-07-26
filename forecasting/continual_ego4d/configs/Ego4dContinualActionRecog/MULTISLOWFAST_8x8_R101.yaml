@@ -44,14 +44,14 @@ NONLOCAL:
   INSTANTIATION: softmax
 BN:
   USE_PRECISE_STATS: True
-  NUM_BATCHES_PRECISE: 200
+  NUM_BATCHES_PRECISE: 200 # After this many batches, Recomputes Batch-stats on actual fixed model instead of running avg
 SOLVER:
-  BASE_LR: 1e-4
-  LR_POLICY: cosine_warmup
+  BASE_LR: 1e-2
+  LR_POLICY: constant
   MAX_EPOCH: 1
   MOMENTUM: 0.9
   OPTIMIZING_METHOD: sgd
-  WEIGHT_DECAY: 1e-4
+  WEIGHT_DECAY: 0
 MODEL:
   NUM_CLASSES: [ 115, 478 ] # Verbs, nouns
   ARCH: slowfast
@@ -59,7 +59,7 @@ MODEL:
   LOSS_FUNC: cross_entropy
   DROPOUT_RATE: 0.5
 DATA_LOADER:
-  NUM_WORKERS: 8
+  NUM_WORKERS: 16
   PIN_MEMORY: True
 NUM_GPUS: 1
 NUM_SHARDS: 1

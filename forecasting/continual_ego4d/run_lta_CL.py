@@ -62,7 +62,7 @@ def main(cfg):
         cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR  # Resume run if specified, and output to same output dir
 
     logging.setup_logging(cfg.OUTPUT_DIR)
-    logger.info("Starting main script")
+    logger.info(f"Starting main script with OUTPUT_DIR={cfg.OUTPUT_DIR}")
 
     # CFG overwrites and setup
     overwrite_config_continual_learning(cfg)
@@ -94,14 +94,19 @@ def main(cfg):
         processed_user_ids = []
 
     # Iterate user datasets
-    user_result_path = {}
+    user_result_paths = {}
     user_ids_s = sorted([u for u in usersplit_annotations.keys()])  # Deterministic user order
     for user_id in user_ids_s:
         cfg.DATA.USER_ID = user_id
         cfg.DATA.USER_DS_ENTRIES = usersplit_annotations[user_id]
-        user_result_path[user_id] = online_adaptation_single_user(cfg, user_id, processed_user_ids)
+
+        user_result_path, interrupted = online_adaptation_single_user(cfg, user_id, processed_user_ids)
+        if interrupted:
+            logger.debug(f"Shutting down on USER {user_id}, because of Trainer being Interrupted")
+            raise Exception()
 
         # Update and save state
+        user_result_paths[user_id] = user_result_path
         processed_user_ids.append(user_id)
         torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path)
 
@@ -114,6 +119,7 @@ def overwrite_config_continual_learning(cfg):
         "NUM_GPUS": 1,
         "NUM_SHARDS": 1,
         "SOLVER.MAX_EPOCH": 1,
+        "SOLVER.LR_POLICY": "constant",
     }
 
     for hierarchy_k, v in overwrite_dict.items():
@@ -127,8 +133,8 @@ def overwrite_config_continual_learning(cfg):
     logger.debug(f"OVERWRITING CFG attributes for continual learning:\n{pprint.pformat(overwrite_dict)}")
 
 
-def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> str:
-    """ Run single user sequentially. Returns path to user results."""
+def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, bool):
+    """ Run single user sequentially. Returns path to user results and interruption status."""
     seed_everything(cfg.RNG_SEED)
     logger.info(f"{'*' * 20} USER {user_id} (seed={cfg.RNG_SEED}) {'*' * 20}")
 
@@ -136,30 +142,27 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> str:
     main_output_dir = cfg.OUTPUT_DIR
     experiment_version = f"user_{user_id.replace('.', '-')}"
 
-    # Additional callbacks/logging on top of the default Tensorboard logger
-    # TB logger is passed by default, stdout 'logger' in this script is a handler from the main Py-Lightning logger
+    # Loggers
     assert cfg.ENABLE_LOGGING, "Need CSV logging to aggregate results afterwards."
     tb_logger = TensorBoardLogger(save_dir=main_output_dir, name=f"tb", version=experiment_version)
     csv_logger = CSVLogger(save_dir=main_output_dir, name="csv", version=experiment_version,
                            flush_logs_every_n_steps=1)
-    loggers = [tb_logger, csv_logger]
+    trainer_loggers = [tb_logger, csv_logger]
     user_result_path = csv_logger.log_dir
 
     # SKIP PROCESSED USER
     if user_id in processed_user_ids:
         logger.info(f"Skipping USER {user_id} as already processed, result_path={user_result_path}")
-        return user_result_path
+        return user_result_path, False
 
+    # Callbacks
     # Save model on end of stream for possibly ad-hoc usage of the model
-    # Dir set to default_root_dir (cfg.OUTPUT)
     checkpoint_dirpath = os.path.join(main_output_dir, 'checkpoints', experiment_version)
     checkpoint_callback = ModelCheckpoint(
         dirpath=checkpoint_dirpath,
         every_n_epochs=1, save_on_train_epoch_end=True, save_last=True, save_top_k=1,
     )
-
-    trainer_args = {"logger": loggers,
-                    "callbacks": [LearningRateMonitor(), checkpoint_callback]}
+    trainer_callbacks = [checkpoint_callback]  # LearningRateMonitor(),
 
     # Choose task type based on config.
     logger.info("Starting init Task")
@@ -186,7 +189,7 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> str:
         benchmark=True,
         log_gpu_memory="min_max",
         replace_sampler_ddp=False,  # Disable to use own custom sampler
-        fast_dev_run=cfg.FAST_DEV_RUN,  # Debug: Run defined batches (int) for train/val/test
+        fast_dev_run=False,  # For CL Should NOT define fast_dev_run in lightning! Doesn't log results then
 
         # Devices/distributed
         devices=cfg.GPU_IDS,
@@ -194,13 +197,16 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> str:
         # auto_select_gpus=True,
         # plugins=DDPPlugin(find_unused_parameters=False), # DDP specific
         num_nodes=cfg.NUM_SHARDS,  # DDP specific
-        **trainer_args,
+
+        callbacks=trainer_callbacks,
+        logger=trainer_loggers,
+        log_every_n_steps=1,  # Required to allow per-step log-cals for evaluation
     )
 
     logger.info("Starting Trainer fitting")
     trainer.fit(task, val_dataloaders=None)  # Skip validation
 
-    return user_result_path
+    return user_result_path, trainer.interrupted
 
 
 if __name__ == "__main__":
