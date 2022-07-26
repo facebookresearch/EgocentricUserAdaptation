@@ -26,7 +26,6 @@ def parse_args():
     parser.add_argument("--job_name", default="", type=str)
     parser.add_argument("--on_cluster", action="store_true")
     parser.add_argument("--working_directory", default="", type=str)
-    parser.add_argument("--fast_dev_run", action="store_true")
     parser.add_argument(
         "--shard_id",
         help="The shard id of current node, Starts from 0 to num_shards - 1",
@@ -77,7 +76,5 @@ def load_config(args):
         cfg.RNG_SEED = args.rng_seed
     if hasattr(args, "output_dir"):
         cfg.OUTPUT_DIR = args.output_dir
-    if hasattr(args, "fast_dev_run"):
-        cfg.FAST_DEV_RUN = args.fast_dev_run
 
     return cfg

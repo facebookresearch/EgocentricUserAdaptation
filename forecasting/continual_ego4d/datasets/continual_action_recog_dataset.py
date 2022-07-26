@@ -68,8 +68,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             "Split '{}' not supported for Continual Ego4d ".format(mode)
         self._debug = debug
         self._decode_audio = False
-        self._transform = self._make_transform('test',
-                                               cfg)  # Only single time viewed in sequence + revisiting for eval should be same
+        self._transform = self._make_transform('test', cfg)  # Deterministic, so eval of prev samples has same transform
         self._decoder = "pyav"
         self.path_handler = VideoPathHandler()
 
@@ -82,8 +81,8 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
         # Clip sampling
         clip_duration = Fraction((self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE), self.cfg.DATA.TARGET_FPS)
-        clip_stride_seconds = Fraction(self.cfg.DATA.SEQ_OBSERVED_FRAME_STRIDE, self.cfg.DATA.TARGET_FPS)  # Seconds
-        clip_stride_seconds = None
+        # clip_stride_seconds = Fraction(self.cfg.DATA.SEQ_OBSERVED_FRAME_STRIDE, self.cfg.DATA.TARGET_FPS)  # Seconds
+        clip_stride_seconds = None  # No overlap by default
 
         logger.debug(f"CLIP SAMPLER: Clip duration={clip_duration}, clip_stride_seconds={clip_stride_seconds}")
         clip_sampler = EnhancedUntrimmedClipSampler(UniformClipSampler(
@@ -91,7 +90,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             stride=clip_stride_seconds,
         ))
 
-        self.seq_input_list = get_seq_annotated_clip_input_list(
+        self.seq_input_list: list = get_seq_annotated_clip_input_list(
             user_id=cfg.DATA.USER_ID,
             user_annotations=cfg.DATA.USER_DS_ENTRIES,
             clip_sampler=clip_sampler,
@@ -99,6 +98,11 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             video_path_prefix=self.cfg.DATA.PATH_PREFIX,
             decoder=self._decoder
         )
+
+        if cfg.FAST_DEV_RUN:
+            logger.debug(f"FAST-DEV DEBUG: cutting off user data "
+                         f"from {len(self.seq_input_list)} to {cfg.FAST_DEV_DATA_CUTOFF}")
+            self.seq_input_list = self.seq_input_list[:cfg.FAST_DEV_DATA_CUTOFF]
 
         # Visit all miniclips (with annotation) sequentially
         self.miniclip_sampler = SequentialSampler(self.seq_input_list)
@@ -267,7 +271,7 @@ def get_seq_annotated_clip_input_list(
         video_sampler: Type[torch.utils.data.Sampler],
         video_path_prefix: str = "",
         decoder: str = "pyav",
-):
+) -> list:
     # Sort clips to match sequence
     # Per video (>>5miin): origin_video_id (user collected by same collector-instance, with possibly time-like video id)
     # Per 5min clip in video: 'clip_parent_start_sec'
@@ -366,7 +370,11 @@ def annotation_fifo_policy(
     return untrimmed_clip_annotations
 
 
-def get_preprocessed_clips(video_annotation_list, video_sampler, clip_sampler: ClipSampler, decoder: str = "pyav"):
+def get_preprocessed_clips(video_annotation_list,
+                           video_sampler,
+                           clip_sampler: ClipSampler,
+                           decoder: str = "pyav"
+                           ) -> list:
     """
 
     Videos are only decoded when using video.get_clip(). Loading the videos without decoding calls,

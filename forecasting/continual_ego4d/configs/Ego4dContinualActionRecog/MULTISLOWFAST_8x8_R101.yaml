@@ -1,3 +1,4 @@
+FAST_DEV_RUN: False
 OUTPUT_DIR: "" # OVERWRITTEN IN CALLING-SCRIPT
 RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/
 CHECKPOINT_FILE_PATH: ""
@@ -14,7 +15,6 @@ DATA:
   PATH_TO_DATA_SPLIT_JSON:
     TRAIN_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-15_14-59-55_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_40users.json'
     TEST_SPLIT: '//home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-15_14-59-55_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_10users.json'
-  SEQ_OBSERVED_FRAME_STRIDE: 1 # TODO constrain to BATCH SIZE to avoid overlap (Stride for next observed frame in stream
   TARGET_FPS: 30
   NUM_FRAMES: 32
   SAMPLING_RATE: 2

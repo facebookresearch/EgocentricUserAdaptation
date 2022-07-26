@@ -377,7 +377,7 @@ _C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = ""
 
 # CL: Stride for next observed frame in sequential data stream (in a single sequential clip-video)
 #  If batch size > STRIDE, then next step will contain seen samples (Although shifted)
-_C.DATA.SEQ_OBSERVED_FRAME_STRIDE = 1
+# _C.DATA.SEQ_OBSERVED_FRAME_STRIDE = 1 # BY DEFAULT specified as None: a full new batch is observed
 
 _C.DATA.PATH_TO_DATA_DIR = ""
 
@@ -537,6 +537,9 @@ _C.LOG_GRADIENT_PERIOD = -1
 
 # Run 1 train, val and test batch for debuggin
 _C.FAST_DEV_RUN = False
+
+# How much data to consider max per user for debugging
+_C.FAST_DEV_DATA_CUTOFF = 30
 
 # Path to the checkpoint to load the initial weight.
 _C.CHECKPOINT_FILE_PATH = ""
