@@ -22,7 +22,7 @@ from continual_ego4d.metrics.metrics import Metric, OnlineTopkAccMetric, Running
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 
 from pytorch_lightning.core import LightningModule
-from typing import List, Tuple, Union, Any, Optional
+from typing import List, Tuple, Union, Any, Optional, Dict
 
 logger = logging.get_logger(__name__)
 
@@ -198,6 +198,13 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.seen_samples_idxs.extend(stream_sample_ids)
         logger.debug(f"last_seen_sample_idx={self.last_seen_sample_idx}")
         logger.debug(f"seen_samples_idxs={self.seen_samples_idxs}")
+
+    # TODO if we want to extend to in-user checkpointing
+    # def on_save_checkpoint(self, checkpoint):
+    #     checkpoint['something_cool_i_want_to_save'] = my_cool_pickable_object
+    #
+    # def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+    #     checkpoint['something_cool_i_want_to_save'] = my_cool_pickable_object
 
     # ---------------------
     # PER-STEP EVALUATION

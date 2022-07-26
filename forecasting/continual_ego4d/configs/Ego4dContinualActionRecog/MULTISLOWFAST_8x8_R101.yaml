@@ -1,4 +1,5 @@
-CHECKPOINT_USER_ID: ""
+OUTPUT_DIR: "" # OVERWRITTEN IN CALLING-SCRIPT
+RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/
 CHECKPOINT_FILE_PATH: ""
 METHOD:
   METHOD_NAME: "Finetuning"
@@ -63,4 +64,4 @@ DATA_LOADER:
 NUM_GPUS: 1
 NUM_SHARDS: 1
 RNG_SEED: 0
-OUTPUT_DIR: .
+

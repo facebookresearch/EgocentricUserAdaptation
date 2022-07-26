@@ -36,6 +36,7 @@ from continual_ego4d.utils.checkpoint_loading import load_checkpoint
 
 import pprint
 
+import torch
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.plugins import DDPPlugin
@@ -49,12 +50,17 @@ from continual_ego4d.datasets.continual_action_recog_dataset import get_user_to_
 
 from scripts.slurm import copy_and_run_with_config
 import os
+import os.path as osp
 
 logger = logging.get_logger(__name__)
 
 
 def main(cfg):
     """ Iterate users and aggregate. """
+    resuming_run = len(cfg.RESUME_OUTPUT_DIR) > 0
+    if resuming_run:
+        cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR  # Resume run if specified, and output to same output dir
+
     logging.setup_logging(cfg.OUTPUT_DIR)
     logger.info("Starting main script")
 
@@ -75,19 +81,29 @@ def main(cfg):
     usersplit_annotations = get_user_to_dataset_dict(data_path)
     logger.info(f'Running JSON USER SPLIT "{cfg.DATA.USER_SUBSET}" in path: {data_path}')
 
-    # Checkpoint resume vars and checks
-    if len(cfg.CHECKPOINT_USER_ID) > 0:  # Skip until first user ckp encountered (if defined)
-        assert len(cfg.CHECKPOINT_FILE_PATH) > 0, "Must defined ckp_path "
-        assert 'last.ckpt' in cfg.CHECKPOINT_FILE_PATH, \
-            f'ckp_path is not last save (should be last.ckpt): {cfg.CHECKPOINT_FILE_PATH}'  # TODO last_userid_ckpt or in user_id dir
-    cfg.LOADED_USER_CHECKPOINT = False
+    # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
+    meta_checkpoint_path = osp.join(cfg.OUTPUT_DIR, 'meta_checkpoint.pth')
+    if resuming_run:
+        logger.info(f"Resuming run from {cfg.OUTPUT_DIR}")
+        assert osp.isfile(meta_checkpoint_path), \
+            f"Can't resume run, because no meta checkpoint missing: {meta_checkpoint_path}"
+        meta_checkpoint = torch.load(meta_checkpoint_path)
+        processed_user_ids = meta_checkpoint['processed_user_ids']
+        logger.debug(f"LOADED META CHECKPOINT: {meta_checkpoint}, from path: {meta_checkpoint_path}")
+    else:
+        processed_user_ids = []
 
     # Iterate user datasets
+    user_result_path = {}
     user_ids_s = sorted([u for u in usersplit_annotations.keys()])  # Deterministic user order
     for user_id in user_ids_s:
         cfg.DATA.USER_ID = user_id
         cfg.DATA.USER_DS_ENTRIES = usersplit_annotations[user_id]
-        online_adaptation_single_user(cfg, user_id)
+        user_result_path[user_id] = online_adaptation_single_user(cfg, user_id, processed_user_ids)
+
+        # Update and save state
+        processed_user_ids.append(user_id)
+        torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path)
 
     # TODO aggregate metrics over user dumps
 
@@ -111,60 +127,50 @@ def overwrite_config_continual_learning(cfg):
     logger.debug(f"OVERWRITING CFG attributes for continual learning:\n{pprint.pformat(overwrite_dict)}")
 
 
-def online_adaptation_single_user(cfg, user_id):
-    """ Run single user sequentially. """
+def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> str:
+    """ Run single user sequentially. Returns path to user results."""
     seed_everything(cfg.RNG_SEED)
+    logger.info(f"{'*' * 20} USER {user_id} (seed={cfg.RNG_SEED}) {'*' * 20}")
 
     # Paths
     main_output_dir = cfg.OUTPUT_DIR
     experiment_version = f"user_{user_id.replace('.', '-')}"
+
+    # Additional callbacks/logging on top of the default Tensorboard logger
+    # TB logger is passed by default, stdout 'logger' in this script is a handler from the main Py-Lightning logger
+    assert cfg.ENABLE_LOGGING, "Need CSV logging to aggregate results afterwards."
+    tb_logger = TensorBoardLogger(save_dir=main_output_dir, name=f"tb", version=experiment_version)
+    csv_logger = CSVLogger(save_dir=main_output_dir, name="csv", version=experiment_version,
+                           flush_logs_every_n_steps=1)
+    loggers = [tb_logger, csv_logger]
+    user_result_path = csv_logger.log_dir
+
+    # SKIP PROCESSED USER
+    if user_id in processed_user_ids:
+        logger.info(f"Skipping USER {user_id} as already processed, result_path={user_result_path}")
+        return user_result_path
+
+    # Save model on end of stream for possibly ad-hoc usage of the model
+    # Dir set to default_root_dir (cfg.OUTPUT)
+    checkpoint_dirpath = os.path.join(main_output_dir, 'checkpoints', experiment_version)
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=checkpoint_dirpath,
+        every_n_epochs=1, save_on_train_epoch_end=True, save_last=True, save_top_k=1,
+    )
+
+    trainer_args = {"logger": loggers,
+                    "callbacks": [LearningRateMonitor(), checkpoint_callback]}
 
     # Choose task type based on config.
     logger.info("Starting init Task")
     assert cfg.DATA.TASK == "classification", "Only action recognition supported, no LTA"
     task = ContinualMultiTaskClassificationTask(cfg)
 
-    # TODO REVISIT WHEN PARALLELIZING USERS
-    # User-based Checkpointing
-    if len(cfg.CHECKPOINT_USER_ID) > 0 and not cfg.LOADED_USER_CHECKPOINT:
-        if user_id != cfg.CHECKPOINT_USER_ID:
-            logger.info(f"Skipping user {user_id}, until found checkpoint-resuming user: {cfg.CHECKPOINT_USER_ID}")
-            return
-        else:  # Load model from checkpoint if checkpoint file path is given.
-            logger.info(f"Loading ckpt for user: {user_id}")
-            load_checkpoint(cfg, cfg.CHECKPOINT_FILE_PATH, task)
-            cfg.LOADED_USER_CHECKPOINT = True  # Set state as resumed from this user
-
-    # Save every N global training steps + save on the end of training (end of epoch)
-    # Save_last will save an overwriting copy that we can easily resume from again
-    # Dir set to default_root_dir (cfg.OUTPUT)
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=os.path.join(main_output_dir, 'checkpoints', experiment_version),
-        every_n_train_steps=cfg.CHECKPOINT_step_freq, save_on_train_epoch_end=True, save_last=True, save_top_k=1
-    )
-
-    # Additional callbacks/logging on top of the default Tensorboard logger
-    # TB logger is passed by default, stdout 'logger' in this script is a handler from the main Py-Lightning logger
-    if cfg.ENABLE_LOGGING:
-
-        loggers = [
-            TensorBoardLogger(save_dir=main_output_dir, name=f"tb", version=experiment_version),
-            CSVLogger(save_dir=main_output_dir, name="csv", version=experiment_version,
-                      flush_logs_every_n_steps=1),
-        ]
-
-        args = {"logger": loggers,
-                "callbacks": [LearningRateMonitor(), checkpoint_callback]}
-    else:
-        args = {"logger": False, "callbacks": [checkpoint_callback]}
-
     # GPU DEVICE
-    # Make sure it's an array so it defines the GPU-ids. A single int indicates the number of GPUs instead.
+    # Make sure it's an array to define the GPU-ids. A single int indicates the number of GPUs instead.
     if cfg.GPU_IDS is not None:
         cfg.NUM_GPUS = None  # Need to disable
-        # [07/19 14:09:10][INFO] __main__:  152: Initializing Trainer
         # /accelerator_connector.py:266: UserWarning: The flag `devices=[7]` will be ignored, as you have set `gpus=1`
-
         if isinstance(cfg.GPU_IDS, int):
             cfg.GPU_IDS = [cfg.GPU_IDS]
         elif isinstance(cfg.GPU_IDS, str):
@@ -188,11 +194,13 @@ def online_adaptation_single_user(cfg, user_id):
         # auto_select_gpus=True,
         # plugins=DDPPlugin(find_unused_parameters=False), # DDP specific
         num_nodes=cfg.NUM_SHARDS,  # DDP specific
-        **args,
+        **trainer_args,
     )
 
     logger.info("Starting Trainer fitting")
     trainer.fit(task, val_dataloaders=None)  # Skip validation
+
+    return user_result_path
 
 
 if __name__ == "__main__":

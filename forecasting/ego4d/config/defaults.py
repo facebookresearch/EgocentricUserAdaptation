@@ -376,9 +376,8 @@ _C.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT = ""
 _C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = ""
 
 # CL: Stride for next observed frame in sequential data stream (in a single sequential clip-video)
-_C.DATA.SEQ_OBSERVED_FRAME_STRIDE = 1
-# TODO constrain to BATCH SIZE to avoid overlap:
 #  If batch size > STRIDE, then next step will contain seen samples (Although shifted)
+_C.DATA.SEQ_OBSERVED_FRAME_STRIDE = 1
 
 _C.DATA.PATH_TO_DATA_DIR = ""
 
@@ -502,9 +501,6 @@ _C.SOLVER.ACCELERATOR = "ddp"
 # Misc options
 # ---------------------------------------------------------------------------- #
 
-# Path to the checkpoint to load the initial weight.
-_C.CHECKPOINT_USER_ID = ""
-
 # Number of GPUs to use (applies to both training and testing).
 _C.NUM_GPUS = 1
 
@@ -516,6 +512,9 @@ _C.NUM_SHARDS = 1
 
 # Output basedir.
 _C.OUTPUT_DIR = "./tmp"
+
+# Specify with outputdir if want to resume run, e.g. /path/to/logs/run_id/
+_C.RESUME_OUTPUT_DIR = ""
 
 # Path to the output results.pkl
 _C.RESULTS_PKL = ""
