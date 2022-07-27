@@ -25,13 +25,13 @@ def load_caffe_checkpoint(cfg, ckp_path, task):
     print(f"Checkpoint {ckp_path} loaded")
 
 
-def load_mvit_checkpoint(cfg, ckp_path, task):
+def load_mvit_backbone(ckp_path, task):
+    """ Never loads head, only backbone."""
     data_parallel = False  # cfg.NUM_GPUS > 1 # Check this
 
     ms = task.model.module if data_parallel else task.model
-    path = ckp_path if len(ckp_path) > 0 else cfg.DATA.CHECKPOINT_MODULE_FILE_PATH
     checkpoint = torch.load(
-        path,
+        ckp_path,
         map_location=lambda storage, loc: storage,
     )
     remove_model = lambda x: x[6:]
@@ -78,11 +78,11 @@ def load_mvit_checkpoint(cfg, ckp_path, task):
     ms.load_state_dict(pre_train_dict_match, strict=False)
 
 
-def load_slowfast_checkpoint(cfg, task):
-    # Load slowfast weights into backbone submodule
+def load_slowfast_backbone(ckpt_path, task):
+    """ Load slowfast weights into backbone submodule. Never loads head. """
     ckpt = torch.load(
-        cfg.DATA.CHECKPOINT_MODULE_FILE_PATH,
-        map_location=lambda storage, loc: storage,
+        ckpt_path,
+        map_location=(lambda storage, loc: storage),
     )
 
     def remove_first_module(key):
@@ -116,9 +116,14 @@ def load_slowfast_checkpoint(cfg, task):
         logger.info(f"Could not load {key} weights")
 
 
-def load_any_checkpoint(cfg, ckp_path, task):
+def load_lightning_model(cfg, ckp_path, task):
+    """
+    Fully load pretrained model, then iterate current model and load_state_dict for all params.
+    This allows to keep the hyperparams of our current model, and only adapting the weights.
+    The head is loaded based on config.
+    """
     # Get pretrained model
-    pretrained = task.load_from_checkpoint(ckp_path)
+    pretrained = task.load_from_checkpoint(ckp_path)  # Load both model and hyperparams for PL checkpoint
     state_dict_for_child_module = {
         child_name: child_state_dict.state_dict()
         for child_name, child_state_dict in pretrained.model.named_children()
@@ -127,6 +132,7 @@ def load_any_checkpoint(cfg, ckp_path, task):
     # Iterate current task model and load pretrained
     for child_name, child_module in task.model.named_children():
         if not cfg.CHECKPOINT_LOAD_MODEL_HEAD and "head" in child_name:
+            logger.info(f"Skipping head: {child_name}")
             continue
 
         logger.info(f"Loading in {child_name}")
@@ -135,15 +141,26 @@ def load_any_checkpoint(cfg, ckp_path, task):
         assert len(missing_keys) + len(unexpected_keys) == 0
 
 
-def load_checkpoint(cfg, ckp_path, task):
+def load_pretrain_model(cfg, ckp_path, task):
+    logger.info(f"LOADING PRETRAINED MODEL")
+
+    # For CAFFE backbone
     if cfg.CHECKPOINT_VERSION == "caffe2":
         load_caffe_checkpoint(cfg, ckp_path, task)
+        logger.info(f"LOADED CAFFE PRETRAIN MODEL")
 
-    elif cfg.MODEL.ARCH == "mvit" and cfg.DATA.CHECKPOINT_MODULE_FILE_PATH != "":
-        load_mvit_checkpoint(cfg, ckp_path, task)
-
+    # Pytorch pretrained model state-dict for backbone (Not Lightning), never loads head (Mainly used for LTA backbone)
     elif cfg.DATA.CHECKPOINT_MODULE_FILE_PATH != "":
-        load_slowfast_checkpoint(cfg, ckp_path)
+        if cfg.MODEL.ARCH == "mvit":
+            load_mvit_backbone(cfg.DATA.CHECKPOINT_MODULE_FILE_PATH, task)
+            logger.info(f"LOADED MVIT PRETRAIN MODEL")
+        elif cfg.MODEL.ARCH == "slow":
+            load_slowfast_backbone(cfg.DATA.CHECKPOINT_MODULE_FILE_PATH, task)
+            logger.info(f"LOADED SLOWFAST PRETRAIN MODEL")
+        else:
+            raise NotImplementedError(f"Unkown ARCH in config: {cfg.MODEL.ARCH}")
 
-    else:  # Load all child modules except for "head" if CHECKPOINT_LOAD_MODEL_HEAD is False.
-        load_any_checkpoint(cfg, ckp_path, task)
+    # For Lightning Checkpoint
+    else:
+        load_lightning_model(cfg, ckp_path, task)
+        logger.info(f"LOADED LIGHTNING PRETRAIN MODEL")

@@ -32,13 +32,13 @@ run_lta.py: trainer.fit(task: LongTermAnticipationTask)
 
 
 """
-from continual_ego4d.utils.checkpoint_loading import load_checkpoint
+from continual_ego4d.utils.checkpoint_loading import load_pretrain_model
 
 import pprint
 
 import torch
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, DeviceStatsMonitor
 from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
@@ -111,6 +111,7 @@ def main(cfg):
         torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path)
 
     # TODO aggregate metrics over user dumps
+    logger.info(f"All results over users can be found in OUTPUT-DIR={cfg.OUTPUT_DIR}")
 
 
 def overwrite_config_continual_learning(cfg):
@@ -120,6 +121,7 @@ def overwrite_config_continual_learning(cfg):
         "NUM_SHARDS": 1,
         "SOLVER.MAX_EPOCH": 1,
         "SOLVER.LR_POLICY": "constant",
+        "CHECKPOINT_LOAD_MODEL_HEAD": True,  # From pretrain we also load model head
     }
 
     for hierarchy_k, v in overwrite_dict.items():
@@ -163,12 +165,15 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, boo
         dirpath=checkpoint_dirpath,
         every_n_epochs=1, save_on_train_epoch_end=True, save_last=True, save_top_k=1,
     )
-    trainer_callbacks = [checkpoint_callback]  # LearningRateMonitor(),
+    trainer_callbacks = [checkpoint_callback, DeviceStatsMonitor()]  # LearningRateMonitor(),
 
     # Choose task type based on config.
     logger.info("Starting init Task")
     assert cfg.DATA.TASK == "classification", "Only action recognition supported, no LTA"
     task = ContinualMultiTaskClassificationTask(cfg)
+
+    # LOAD PRETRAINED
+    load_pretrain_model(cfg, cfg.CHECKPOINT_FILE_PATH, task)
 
     # GPU DEVICE
     # Make sure it's an array to define the GPU-ids. A single int indicates the number of GPUs instead.
@@ -188,7 +193,6 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, boo
         max_epochs=cfg.SOLVER.MAX_EPOCH,
         num_sanity_val_steps=0,  # Sanity check before starting actual training to make sure validation works
         benchmark=True,
-        log_gpu_memory="min_max",
         replace_sampler_ddp=False,  # Disable to use own custom sampler
         fast_dev_run=False,  # For CL Should NOT define fast_dev_run in lightning! Doesn't log results then
 

@@ -17,6 +17,7 @@ echo "RUN-ID=${run_id}"
 # PATHS
 #-----------------------------------------------------------------------------------------------#
 BACKBONE_WTS="/home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation/k400_slowfast8x8.ckpt"
+BACKBONE_WTS="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/test_exp_00/logs/2022-07-26_17-25-24_UIDb2eefd5f-e504-4959-925d-6b3063c6f7ee/checkpoints/user_10-0/last.ckpt"
 CONFIG="$ego4d_code_root/continual_ego4d/configs/Ego4dContinualActionRecog/MULTISLOWFAST_8x8_R101.yaml"
 this_script_filepath="${this_script_dirpath}/$(basename "${BASH_SOURCE[0]}")"
 
@@ -60,7 +61,7 @@ OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30" # DEBUG
 # Checkpoint loading
 #OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
-OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD False"
+OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True"
 OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE False"
 
 # Paths
