@@ -12,6 +12,7 @@ import argparse
 import datetime
 import os
 from collections import defaultdict
+import sys
 
 parser = argparse.ArgumentParser(description="User split for ego4d LTA task.")
 parser.add_argument(
@@ -24,8 +25,16 @@ parser.add_argument(
     "--nb_users_train",
     help="Number users to use for training, should be <= nb_users_thresh."
          "The 'nb_users_thresh - nb_users_train' are used for testing.",
-    default=40,
+    default=10,
     type=int,
+)
+
+parser.add_argument(
+    "--usersplit_criterion",
+    help="Criterion to split the users on",
+    default='random',
+    choices=['random', 'time_weighed'],
+    type=str,
 )
 
 parser.add_argument(
@@ -54,15 +63,38 @@ parser.add_argument(
 )
 
 
+# Write both to file and stdout
+class Logger(object):
+    def __init__(self, filename="Default.log"):
+        self.terminal = sys.stdout
+        self.log = open(filename, "a")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.log.flush()
+
+
 def generate_usersplit_from_trainval(
         meta_data_file_path: str,
         train_annotation_file: str,
         val_annotation_file: str,
         user_id_col="fb_participant_id"):
+    """ Get mini-train, test, and pretrain data splits."""
+
     args = parser.parse_args()
     nb_users_test = args.nb_users_thresh - args.nb_users_train
-
+    train_ratio = args.nb_users_train / args.nb_users_thresh
     np.random.seed(args.seed)
+
+    # Paths and logger
+    # Check outdir path
+    now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    output_dir = osp.join(args.p_output_dir, f"{now}_ego4d_LTA_usersplit")
+    os.makedirs(output_dir, exist_ok=True)
+    sys.stdout = Logger(osp.join(output_dir, "logger_dump.txt"))
 
     # check args
     assert args.nb_users_thresh is None or args.user_videotime_min_thresh is None, \
@@ -108,75 +140,93 @@ def generate_usersplit_from_trainval(
     # Sort users on sum_length
     trainval_user_df = trainval_user_df.sort_values(by=[args.sort_by_col], ascending=False)
 
+    pretrain_user_ids = []
+    pretrain_sort_values = []
     # Keep only highest in sorted
     if args.nb_users_thresh is not None:
         print(f"Thresholding on nb_users_thresh")
         sorted_user_ids = trainval_user_df[: args.nb_users_thresh][user_id_col].tolist()
         user_sort_values = trainval_user_df[: args.nb_users_thresh][args.sort_by_col].tolist()
 
+        # Leftover users
+        pretrain_user_ids = trainval_user_df[args.nb_users_thresh:][user_id_col].tolist()
+        pretrain_sort_values = trainval_user_df[args.nb_users_thresh:][args.sort_by_col].tolist()
+
     elif args.user_videotime_min_thresh is not None:
+        raise NotImplementedError("Not supporting this split")
         print(f"Thresholding on user_videotime_min_thresh")
         user_subset_df = trainval_user_df.loc[trainval_user_df[args.sort_by_col] >= args.user_videotime_min_thresh]
         sorted_user_ids = user_subset_df[user_id_col].tolist()
         user_sort_values = user_subset_df[args.sort_by_col].tolist()
 
     else:  # No cutoff
-        print(f"No thresholding")
+        print(f"No thresholding = no pretrain data")
         sorted_user_ids = trainval_user_df[user_id_col].tolist()
         user_sort_values = trainval_user_df[args.sort_by_col].tolist()
 
     # Get train/test splits from train/val datasets
-    shuffled_idxs = np.random.permutation(np.arange(len(sorted_user_ids)))
-    train_idxs, test_idxs = shuffled_idxs[:args.nb_users_train], shuffled_idxs[args.nb_users_train:]
+    if args.usersplit_criterion == 'random':
+        shuffled_idxs = np.random.permutation(np.arange(len(sorted_user_ids)))
+        train_idxs, test_idxs = shuffled_idxs[:args.nb_users_train], shuffled_idxs[args.nb_users_train:]
+
+    elif args.usersplit_criterion == 'time_weighed':
+        raise NotImplementedError()
+    else:
+        raise ValueError()
+
     sorted_user_ids, user_sort_values = np.array(sorted_user_ids), np.array(user_sort_values)
     train_user_ids, test_user_ids = sorted_user_ids[train_idxs], sorted_user_ids[test_idxs]
     train_sort_values, test_sort_values = user_sort_values[train_idxs], user_sort_values[test_idxs]
-
-    # Get colors for train+test summary plot
-    bar_colors = []
-    train_color, test_color = 'r', 'blue'
-    for bar_idx in range(len(user_sort_values)):
-        if bar_idx in train_idxs:
-            bar_colors.append(train_color)
-        else:
-            bar_colors.append(test_color)
 
     # Print summary
     nb_traintest_users_subset = len(sorted_user_ids)
     nb_train_users_subset = len(train_user_ids)
     nb_test_users_subset = len(test_user_ids)
+    nb_pretrain_users_subset = len(pretrain_user_ids)
+    nb_total_users = nb_pretrain_users_subset + nb_traintest_users_subset
 
-    nb_total_users = trainval_user_df.shape[0]
     print_summary(user_sort_values, nb_traintest_users_subset, nb_total_users, "Train+Test user subset")
     print_summary(train_sort_values, nb_train_users_subset, nb_traintest_users_subset, "Train user subset")
     print_summary(test_sort_values, nb_test_users_subset, nb_traintest_users_subset, "Test user subset")
-
-    # Check outdir path
-    now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    output_dir = osp.join(args.p_output_dir, f"{now}_ego4d_LTA_usersplit")
-    os.makedirs(output_dir, exist_ok=True)
+    print_summary(pretrain_sort_values, nb_pretrain_users_subset, nb_total_users, "Pretrain user subset")
 
     # Summary plot (pdf?)
     ylabel = 'Sum of clip video lengths (min)'
     xlabel = "Users - sorted"
     title = "Sum of clip video lengths (min) per user"
 
-    y_axis = user_sort_values
-    x_axis = [idx for idx in range(len(user_sort_values))]
-    plot_tag = 'TRAIN_TEST'
-    plot_barchart(x_axis, y_axis, title=f'{plot_tag} {title} (train=red,test=blue)', ylabel=ylabel, xlabel=xlabel,
+    # Get colors for train+test summary plot
+    labels = ['train', 'test']
+    bar_colors = ['r', 'blue']
+    y_axis = [list(train_sort_values), list(test_sort_values)]
+    x_axis = [train_idxs, test_idxs]
+    if len(pretrain_sort_values) > 0:
+        x_offset = nb_traintest_users_subset
+        y_axis.append(list(pretrain_sort_values))
+        x_axis.append([idx for idx in range(x_offset, x_offset + len(pretrain_sort_values))])
+        bar_colors.append('black')
+        labels.append('pretrain')
+    plot_tag = 'TRAIN_TEST_PRETRAIN'
+    plot_barchart(x_axis, y_axis, title=f'{plot_tag} {title}', ylabel=ylabel, legend_labels=labels,
+                  xlabel=xlabel,
                   bar_colors=bar_colors, output_file=osp.join(output_dir, f'{plot_tag}_video_freq_plot.pdf'))
 
     y_axis = sorted(train_sort_values, reverse=True)
     x_axis = [idx for idx in range(len(train_sort_values))]
     plot_tag = 'TRAIN'
-    plot_barchart(x_axis, y_axis, title=f'{plot_tag} {title}', ylabel=ylabel, xlabel=xlabel,
+    plot_barchart([x_axis], [y_axis], title=f'{plot_tag} {title}', ylabel=ylabel, xlabel=xlabel,
                   output_file=osp.join(output_dir, f'{plot_tag}_video_freq_plot.pdf'))
 
     y_axis = sorted(test_sort_values, reverse=True)
     x_axis = [idx for idx in range(len(test_sort_values))]
     plot_tag = 'TEST'
-    plot_barchart(x_axis, y_axis, title=f'{plot_tag} {title}', ylabel=ylabel, xlabel=xlabel,
+    plot_barchart([x_axis], [y_axis], title=f'{plot_tag} {title}', ylabel=ylabel, xlabel=xlabel,
+                  output_file=osp.join(output_dir, f'{plot_tag}_video_freq_plot.pdf'))
+
+    y_axis = sorted(pretrain_sort_values, reverse=True)
+    x_axis = [idx for idx in range(len(pretrain_sort_values))]
+    plot_tag = 'PRETRAIN'
+    plot_barchart([x_axis], [y_axis], title=f'{plot_tag} {title}', ylabel=ylabel, xlabel=xlabel,
                   output_file=osp.join(output_dir, f'{plot_tag}_video_freq_plot.pdf'))
 
     # OUTPUT TO JSONS
@@ -185,7 +235,7 @@ def generate_usersplit_from_trainval(
     json_col_names = list(train_clips_df) + [
         'fb_participant_id',
         'scenarios',
-        'origin_video_id' # Used for sorting
+        'origin_video_id'  # Used for sorting
     ]
 
     # TRAIN JSON
@@ -197,6 +247,11 @@ def generate_usersplit_from_trainval(
     split = 'test'
     json_test_filepath = osp.join(output_dir, json_filename.format(split, nb_test_users_subset))
     save_json(trainval_joined_df, user_id_col, test_user_ids, json_col_names, json_test_filepath, split)
+
+    # PRETRAIN JSON
+    split = 'pretrain'
+    json_test_filepath = osp.join(output_dir, json_filename.format(split, nb_pretrain_users_subset))
+    save_json(trainval_joined_df, user_id_col, pretrain_user_ids, json_col_names, json_test_filepath, split)
 
 
 def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_filepath, split):
@@ -220,6 +275,7 @@ def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_fi
 def print_summary(user_sort_values, nb_users_subset, nb_total_users, title: str):
     print(f"\n{'*' * 20} SUMMARY: {title} {'*' * 20}")
     print(f"Retaining a total of {nb_users_subset} / {nb_total_users} users")
+    print(f"SUM = {sum(user_sort_values)}")
     print(f"MAX = {user_sort_values[0]}, MIN = {user_sort_values[-1]}")
     print(f"HEAD = {user_sort_values[:10]}...")
     print(f"TAIL = ...{user_sort_values[-10:]}")
@@ -270,22 +326,24 @@ def summarize_clips_by_user(joined_df):
     return user_df
 
 
-def plot_barchart(x_axis, y_vals, title, ylabel, xlabel, y_labels=None, x_labels=None,
-                  grid=False, yerror=None, xerror=None, bar_align='edge', barh=False, bar_colors=None,
+def plot_barchart(x_axis: list[list], y_vals: list[list], title, ylabel, xlabel, y_labels=None, x_labels=None,
+                  legend_labels=None,
+                  grid=False, yerror: list[list] = None, bar_align='edge', bar_colors=None,
                   figsize=(12, 6), log=False, interactive=False, x_minor_ticks=None, output_file=None):
-    max_val = max(y_vals)
+    max_val = max(el for y_l in y_vals for el in y_l)
     my_cmap = plt.get_cmap("plasma")
     fig = plt.figure(figsize=figsize, dpi=600)  # So all bars are visible!
     ax = plt.subplot()
 
-    if not barh:
-        bars = plt.bar(x_axis, height=y_vals, color=my_cmap.colors, align=bar_align, yerr=yerror, width=0.9, log=log)
-    else:
-        bars = plt.barh(y_vals, width=x_axis, color=my_cmap.colors, align=bar_align, xerr=xerror, height=0.9, log=log)
+    for plot_idx, (x, y) in enumerate(zip(x_axis, y_vals)):
+        plot_yerror = None if yerror is None else yerror[plot_idx]
+        bar_color = my_cmap.colors if bar_colors is None else bar_colors[plot_idx]
+        legend_label = None if legend_labels is None else legend_labels[plot_idx]
+        plt.bar(x, height=y, yerr=plot_yerror, label=legend_label,
+                color=bar_color, align=bar_align, width=0.9, log=log)
 
-    if bar_colors:
-        for idx, bar_color in enumerate(bar_colors):
-            bars[idx].set_color(bar_color)
+    if legend_labels is not None:
+        plt.legend()
 
     if x_minor_ticks is not None:
         #         ax.set_xticks(major_ticks)
