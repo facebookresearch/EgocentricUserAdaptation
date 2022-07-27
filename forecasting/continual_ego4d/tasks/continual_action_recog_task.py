@@ -214,6 +214,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         torch.save({
             "batch_to_actions": self.batch_to_actions,
             "action_to_batches": self.action_to_batches,
+            "dataset_all_entries_ordered": self.train_dataloader().dataset.seq_input_list,
         },
             self.dumpfile)
         logger.debug(f"Logged stream info to dumpfile {self.dumpfile}")
