@@ -43,15 +43,15 @@ NONLOCAL:
   GROUP: [ [ 1, 1 ], [ 1, 1 ], [ 1, 1 ], [ 1, 1 ] ]
   INSTANTIATION: softmax
 BN:
-  USE_PRECISE_STATS: True
-  NUM_BATCHES_PRECISE: 200 # After this many batches, Recomputes Batch-stats on actual fixed model instead of running avg
+  USE_PRECISE_STATS: False # Not for CL
+#  NUM_BATCHES_PRECISE: 200 # After this many batches, Recomputes Batch-stats on actual fixed model instead of running avg
 SOLVER:
   BASE_LR: 1e-2
   LR_POLICY: constant
   MAX_EPOCH: 1
   MOMENTUM: 0.9
   OPTIMIZING_METHOD: sgd
-  WEIGHT_DECAY: 0
+  WEIGHT_DECAY: 0.0
 MODEL:
   NUM_CLASSES: [ 115, 478 ] # Verbs, nouns
   ARCH: slowfast

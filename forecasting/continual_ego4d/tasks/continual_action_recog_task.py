@@ -3,6 +3,7 @@ from fvcore.nn.precise_bn import get_bn_modules
 
 from collections import defaultdict
 import numpy as np
+from itertools import product
 
 from ego4d.evaluation import lta_metrics as metrics
 from ego4d.utils import misc
@@ -12,6 +13,7 @@ from ego4d.utils import distributed as du
 from ego4d.utils import logging
 from ego4d.datasets import loader
 from ego4d.models import build_model
+import os.path as osp
 
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
@@ -63,14 +65,17 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.seen_action_set = set()
         self.seen_verb_set = set()
         self.seen_noun_set = set()
-        self.seen_action_to_obs_ids = defaultdict(list)  # On-the-fly: For each action keep all ids when it was observed
+
+        # For data stream info dump
+        self.dumpfile = self.cfg.USER_DUMP_FILE
+        self.action_to_batches = defaultdict(list)  # On-the-fly: For each action keep all ids when it was observed
+        self.batch_to_actions = defaultdict(list)
 
         # State vars (single batch)
         self.last_seen_sample_idx = -1
         self.sample_idxs = None
 
         # Metrics
-        from itertools import product
         self.current_batch_metrics = [
             [OnlineTopkAccMetric(k=k, mode=m), RunningAvgOnlineTopkAccMetric(k=k, mode=m)]
             for k, m in product([1, 5], ['verb', 'noun'])]
@@ -129,17 +134,21 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def training_step(self, batch, batch_idx):
         """ Before update: Forward and define loss. """
+        metric_results = {}
+
         # PREDICTIONS + LOSS
         inputs, labels, video_names, stream_sample_idxs = batch
 
         # Keep current-batch refs for Metrics (e.g. Exposure-based forgetting)
-        self.current_batch_action_set.clear()
+        self.current_batch_action_set.clear()  # Clear set, but keep reference
         for (verb, noun) in labels.tolist():
             action = verbnoun_to_action(verb, noun)
             self.current_batch_action_set.add(action)
+        # metric_results['actions_on_step'] = '|'.join([f"{x[0]}-{x[1]}" for x in labels.tolist()])  # For logging
 
         # Do method callback (Get losses etc)
-        loss, outputs, metric_results = self.method.training_step(inputs, labels)
+        loss, outputs, step_results = self.method.training_step(inputs, labels)
+        metric_results = {**metric_results, **step_results}
 
         # Perform additional eval
         if batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader):
@@ -190,8 +199,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Derive action from verbs,nouns
         for (verb, noun), stream_sample_id in zip(labels.tolist(), stream_sample_ids):
             action = verbnoun_to_action(verb, noun)
-            self.seen_action_to_obs_ids[action].append(stream_sample_id)
             self.seen_action_set.add(action)
+            self.action_to_batches[action].append(batch_idx)  # Possibly add multiple time batch_idx
+            self.batch_to_actions[batch_idx].append(action)
 
         # Update Task states
         self.last_seen_sample_idx = max(stream_sample_ids)  # Last unseen idx
@@ -199,12 +209,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         logger.debug(f"last_seen_sample_idx={self.last_seen_sample_idx}")
         logger.debug(f"seen_samples_idxs={self.seen_samples_idxs}")
 
-    # TODO if we want to extend to in-user checkpointing
-    # def on_save_checkpoint(self, checkpoint):
-    #     checkpoint['something_cool_i_want_to_save'] = my_cool_pickable_object
-    #
-    # def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-    #     checkpoint['something_cool_i_want_to_save'] = my_cool_pickable_object
+    def on_train_end(self) -> None:
+        """Dump any additional stats about the training."""
+        torch.save({
+            "batch_to_actions": self.batch_to_actions,
+            "action_to_batches": self.action_to_batches,
+        },
+            self.dumpfile)
+        logger.debug(f"Logged stream info to dumpfile {self.dumpfile}")
 
     # ---------------------
     # PER-STEP EVALUATION
@@ -217,7 +229,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                     logval = logval.item()
                 except:
                     pass
-            self.log(logname, logval)
+            self.log(logname, logval, on_step=True, on_epoch=False)
 
     @torch.no_grad()
     @_eval_in_train_decorator
@@ -347,9 +359,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # TRAINING SETUP
     # ---------------------
     def forward(self, inputs):
-        preds = self.model(inputs)
-        # preds = torch.vstack(preds).transpose(0, 1)  # (2x batch_size x outdim) -> (batch_size x 2 x outdim)
-        return preds
+        return self.model(inputs)
 
     def setup(self, stage):
         # Setup is called immediately after the distributed processes have been
@@ -360,8 +370,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             du.init_distributed_groups(self.cfg)
 
         self.train_loader = loader.construct_loader(self.cfg, "continual")
-        # self.val_loader = None
-        # self.test_loader = None
 
     def configure_optimizers(self):
         steps_in_epoch = len(self.train_loader)

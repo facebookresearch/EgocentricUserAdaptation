@@ -145,15 +145,16 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, boo
     # Loggers
     assert cfg.ENABLE_LOGGING, "Need CSV logging to aggregate results afterwards."
     tb_logger = TensorBoardLogger(save_dir=main_output_dir, name=f"tb", version=experiment_version)
-    csv_logger = CSVLogger(save_dir=main_output_dir, name="csv", version=experiment_version,
+    csv_logger = CSVLogger(save_dir=main_output_dir, name="user_logs", version=experiment_version,
                            flush_logs_every_n_steps=1)
     trainer_loggers = [tb_logger, csv_logger]
-    user_result_path = csv_logger.log_dir
+    cfg.USER_RESULT_PATH = csv_logger.log_dir  # Use for CSV and other dumps
+    cfg.USER_DUMP_FILE = osp.join(cfg.USER_RESULT_PATH, 'stream_info_dump.pth')  # Dump-path for Trainer stream info
 
     # SKIP PROCESSED USER
     if user_id in processed_user_ids:
-        logger.info(f"Skipping USER {user_id} as already processed, result_path={user_result_path}")
-        return user_result_path, False
+        logger.info(f"Skipping USER {user_id} as already processed, result_path={cfg.USER_RESULT_PATH}")
+        return cfg.USER_RESULT_PATH, False
 
     # Callbacks
     # Save model on end of stream for possibly ad-hoc usage of the model
@@ -206,7 +207,7 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, boo
     logger.info("Starting Trainer fitting")
     trainer.fit(task, val_dataloaders=None)  # Skip validation
 
-    return user_result_path, trainer.interrupted
+    return cfg.USER_RESULT_PATH, trainer.interrupted
 
 
 if __name__ == "__main__":

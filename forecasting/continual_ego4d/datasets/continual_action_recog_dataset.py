@@ -52,7 +52,6 @@ logger = logging.get_logger(__name__)
 
 
 def verbnoun_to_action(verb: Union[str, int], noun: Union[str, int]) -> tuple[int, int]:
-    # return f"{verb}-{noun}"
     return tuple((int(verb), int(noun)))
 
 
@@ -405,7 +404,7 @@ def get_preprocessed_clips(video_annotation_list,
 
     # Iterate all annotations
     for annotation_index in annotation_sampler_iter:
-        logger.debug(f"NEW ANNOTATION INDEX: {annotation_index}")
+        # logger.debug(f"NEW ANNOTATION INDEX: {annotation_index}")
         is_last_clip = False
         next_clip_start_time = 0.0
 
@@ -439,7 +438,7 @@ def get_preprocessed_clips(video_annotation_list,
             new_cliplevel_entry[1]['aug_index'] = clip.aug_index
             new_cliplevel_entry[1]['clip_index'] = clip.clip_index
             miniclip_annotation_list.append(new_cliplevel_entry)
-            logger.debug(f'video={os.path.basename(video_path)}, new_cliplevel_entry[1]={new_cliplevel_entry[1]}')
+            # logger.debug(f'video={os.path.basename(video_path)}, new_cliplevel_entry[1]={new_cliplevel_entry[1]}')
 
             # Indicate end of annotation video range
             is_last_clip = clip.is_last_clip
