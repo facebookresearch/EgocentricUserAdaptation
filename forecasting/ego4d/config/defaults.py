@@ -379,10 +379,13 @@ _C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = ""
 #  If batch size > STRIDE, then next step will contain seen samples (Although shifted)
 # _C.DATA.SEQ_OBSERVED_FRAME_STRIDE = 1 # BY DEFAULT specified as None: a full new batch is observed
 
-# Filename for Ego4d
-_C.DATA.PATH_TO_DATA_FILE = ""
+# Custom data path names for Ego4d
+_C.DATA.PATH_TO_DATA_FILE = CfgNode()
+_C.DATA.PATH_TO_DATA_FILE.TRAIN = ""
+_C.DATA.PATH_TO_DATA_FILE.VAL = ""
+_C.DATA.PATH_TO_DATA_FILE.TEST = ""
 
-# The path to the data directory.
+# Default ego4d path, using default names for json files (overwrite by PATH_TO_DATA_FILE)
 _C.DATA.PATH_TO_DATA_DIR = ""
 
 # Video path prefix if any.

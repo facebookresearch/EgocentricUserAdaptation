@@ -243,7 +243,7 @@ def main(cfg):
         num_nodes=cfg.NUM_SHARDS,
         accelerator=cfg.SOLVER.ACCELERATOR,
         max_epochs=cfg.SOLVER.MAX_EPOCH,
-        num_sanity_val_steps=3,
+        num_sanity_val_steps=1,
         benchmark=True,
         log_gpu_memory="min_max",
         replace_sampler_ddp=False,

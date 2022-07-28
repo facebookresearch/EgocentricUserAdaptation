@@ -107,8 +107,8 @@ def construct_loader(cfg, split):
 
     # Construct the dataset
     dataset = build_dataset(dataset_name, cfg, split)
-    # Create a sampler for multi-process training
 
+    # Create a sampler for multi-process training
     sampler = None
     if not cfg.FBLEARNER:
         # Create a sampler for multi-process training

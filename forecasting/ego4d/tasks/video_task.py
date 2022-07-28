@@ -30,7 +30,7 @@ class VideoTask(LightningModule):
             cfg.EPIC_KITCHEN.STRIDE_TYPE = "constant"
 
         self.cfg = cfg
-        self.save_hyperparameters() # Save cfg to '
+        self.save_hyperparameters()  # Save cfg to '
         self.model = build_model(cfg)
         self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")
 
@@ -64,7 +64,7 @@ class VideoTask(LightningModule):
 
         self.train_loader = loader.construct_loader(self.cfg, "train")
         self.val_loader = loader.construct_loader(self.cfg, "val")
-        self.test_loader = loader.construct_loader(self.cfg, "test")
+        self.test_loader = loader.construct_loader(self.cfg, "test") if self.cfg.TEST.ENABLE else None
 
     def configure_optimizers(self):
         steps_in_epoch = len(self.train_loader)
@@ -83,8 +83,8 @@ class VideoTask(LightningModule):
 
     def on_after_backward(self):
         if (
-            self.cfg.LOG_GRADIENT_PERIOD >= 0
-            and self.trainer.global_step % self.cfg.LOG_GRADIENT_PERIOD == 0
+                self.cfg.LOG_GRADIENT_PERIOD >= 0
+                and self.trainer.global_step % self.cfg.LOG_GRADIENT_PERIOD == 0
         ):
             for name, weight in self.model.named_parameters():
                 if weight is not None:
