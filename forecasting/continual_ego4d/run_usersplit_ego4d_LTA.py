@@ -248,19 +248,31 @@ def generate_usersplit_from_trainval(
     json_test_filepath = osp.join(output_dir, json_filename.format(split, nb_test_users_subset))
     save_json(trainval_joined_df, user_id_col, test_user_ids, json_col_names, json_test_filepath, split)
 
-    # PRETRAIN JSON
+    # PRETRAIN JSON (Per user)
     split = 'pretrain'
     json_test_filepath = osp.join(output_dir, json_filename.format(split, nb_pretrain_users_subset))
     save_json(trainval_joined_df, user_id_col, pretrain_user_ids, json_col_names, json_test_filepath, split)
 
+    # PRETRAIN JSON (USER + USER-AGNOSTIC ENTRIES in 'users' and 'clips' keys)
+    # The 'clips' key allows to use the Ego4d code directly, making the json compatible with the codebase
+    split = 'pretrain'
+    json_test_filepath = osp.join(output_dir, json_filename.format(split, nb_pretrain_users_subset))
+    save_json(trainval_joined_df, user_id_col, pretrain_user_ids, json_col_names, json_test_filepath, split,
+              flatten=True)
 
-def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_filepath, split):
+
+def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_filepath, split, flatten=False):
     """Filter json dataframe, parse to json-compatible object. Dump to json file."""
     train_df = trainval_joined_df.loc[trainval_joined_df[user_id_col].isin(user_ids)]  # Get train datatframe
     train_df = train_df[json_col_names]
     train_df = train_df.rename(columns={"scenarios": "parent_video_scenarios"})
 
     train_json = df_to_formatted_json(train_df, user_ids, split, user_id_col)  # Convert to json
+    if flatten:  # Generate flat list (user-agnostic) in clips-key
+        flat_train_json = train_json
+        flatten_clips = [el for user_id, user_entry_list in train_json['users'].items() for el in user_entry_list]
+        flat_train_json['clips'] = flatten_clips
+
     with open(json_filepath, 'w', encoding='utf-8') as f:
         json.dump(train_json, f, ensure_ascii=False, indent=4)
         print(f"Saved JSON: {osp.abspath(json_filepath)}")
