@@ -44,7 +44,10 @@ class Ego4dRecognition(torch.utils.data.Dataset):
         clip_sampler = make_clip_sampler(clip_sampler_type, clip_duration)
 
         mode_ = 'test_unannotated' if mode == 'test' else mode
-        data_path = os.path.join(self.cfg.DATA.PATH_TO_DATA_DIR, f'fho_lta_{mode_}.json')  # TODO datapath here!
+        if len(self.cfg.DATA.PATH_TO_DATA_FILE) == 0:
+            data_path = os.path.join(self.cfg.DATA.PATH_TO_DATA_DIR, f'fho_lta_{mode_}.json')
+        else:
+            data_path = self.cfg.DATA.PATH_TO_DATA_FILE
 
         self.dataset = ptv_dataset_helper.clip_recognition_dataset(
             data_path=data_path,

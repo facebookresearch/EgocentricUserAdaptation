@@ -379,7 +379,8 @@ _C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = ""
 #  If batch size > STRIDE, then next step will contain seen samples (Although shifted)
 # _C.DATA.SEQ_OBSERVED_FRAME_STRIDE = 1 # BY DEFAULT specified as None: a full new batch is observed
 
-_C.DATA.PATH_TO_DATA_DIR = ""
+# Filename for Ego4d
+_C.DATA.PATH_TO_DATA_FILE = ""
 
 # The path to the data directory.
 _C.DATA.PATH_TO_DATA_DIR = ""
@@ -505,7 +506,7 @@ _C.SOLVER.ACCELERATOR = "ddp"
 _C.NUM_GPUS = 1
 
 # Can use a comma-split string to specify which GPU devices to use only. -1 sets to all.
-_C.GPU_IDS = -1
+_C.GPU_IDS = "-1"
 
 # Number of machine to use for the job.
 _C.NUM_SHARDS = 1
