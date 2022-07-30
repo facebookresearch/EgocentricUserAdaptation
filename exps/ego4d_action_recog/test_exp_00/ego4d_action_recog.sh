@@ -17,19 +17,22 @@ echo "RUN-ID=${run_id}"
 # PATHS
 #-----------------------------------------------------------------------------------------------#
 BACKBONE_WTS="/home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation/k400_slowfast8x8.ckpt"
-BACKBONE_WTS="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/test_exp_00/logs/2022-07-26_17-25-24_UIDb2eefd5f-e504-4959-925d-6b3063c6f7ee/checkpoints/user_10-0/last.ckpt"
+BACKBONE_WTS="/home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation/ego4d_slowfast8x8.ckpt" # Tmp debug with ego4d
+#BACKBONE_WTS="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/test_exp_00/logs/2022-07-26_17-25-24_UIDb2eefd5f-e504-4959-925d-6b3063c6f7ee/checkpoints/user_10-0/last.ckpt"
 CONFIG="$ego4d_code_root/continual_ego4d/configs/Ego4dContinualActionRecog/MULTISLOWFAST_8x8_R101.yaml"
 this_script_filepath="${this_script_dirpath}/$(basename "${BASH_SOURCE[0]}")"
 
 # Logging (stdout/tensorboard) output path
-OUTPUT_DIR="./logs/${run_id}"
+p_dirname="$(basename "${this_script_dirpath}")"
+pp_dirname="$(basename "$(dirname -- "${this_script_dirpath}")")"
+OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${run_id}" # Alternative:/home/matthiasdelange/data/ego4d/continual_ego4d_pretrained_models_usersplit
 mkdir -p "${OUTPUT_DIR}"
 cp "${CONFIG}" "${OUTPUT_DIR}"               # Make a copy of the config file (if we want to rerun later)
 cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script file (if we want to rerun later)
 
 # Data paths
 EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations/
-EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/resized_clips
+EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
 
 # Checkpoint path (Make unique)
 #if [ $# -eq 0 ]; then # Default checkpoint path is based on 2 parent dirs + Unique id
@@ -47,7 +50,7 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/resized_cli
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 16"
-OVERWRITE_CFG_ARGS+=" GPU_IDS 7"
+OVERWRITE_CFG_ARGS+=" GPU_IDS '7'"
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0 TRAIN.BATCH_SIZE 10 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 16 CHECKPOINT_step_freq 300" # DEBUG
 OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30" # DEBUG
 
@@ -61,8 +64,8 @@ OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30" # DEBUG
 # Checkpoint loading
 #OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
-OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True"
-OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE False"
+OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True" # Load population head
+OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE False" # Learn features as well
 
 # Paths
 OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_DIR ${EGO4D_ANNOTS}"

@@ -22,7 +22,7 @@ this_script_filepath="${this_script_dirpath}/$(basename "${BASH_SOURCE[0]}")"
 # Logging (stdout/tensorboard) output path
 p_dirname="$(basename "${this_script_dirpath}")"
 pp_dirname="$(basename "$(dirname -- "${this_script_dirpath}")")"
-OUTPUT_DIR="$ego4d_code_root/results/${pp_dirname}/${p_dirname}/logs/${run_id}" # Alternative:/home/matthiasdelange/data/ego4d/continual_ego4d_pretrained_models_usersplit
+OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${run_id}" # Alternative:/home/matthiasdelange/data/ego4d/continual_ego4d_pretrained_models_usersplit
 mkdir -p "${OUTPUT_DIR}"
 cp "${CONFIG}" "${OUTPUT_DIR}"               # Make a copy of the config file (if we want to rerun later)
 cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script file (if we want to rerun later)
@@ -30,11 +30,12 @@ cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script fil
 #-----------------------------------------------------------------------------------------------#
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
-export CUDA_VISIBLE_DEVICES="1,2,3,4,5,6" # Set as environment variable for this script
+#export CUDA_VISIBLE_DEVICES="1,2,3,4,5" # Set as environment variable for this script
 
 OVERWRITE_CFG_ARGS=""
-OVERWRITE_CFG_ARGS+=" NUM_GPUS 6"
+OVERWRITE_CFG_ARGS+=" NUM_GPUS 8"
 #OVERWRITE_CFG_ARGS+=" GPU_IDS '6,7'" # Not compatible with DDP
+OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN False"
 
 # RESUME
 #OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/test_exp_00/logs/2022-07-26_14-33-36_UIDd8a02398-ec4c-4d49-b81b-2d357c63bcf4"

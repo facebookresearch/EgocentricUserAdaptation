@@ -9,7 +9,7 @@ from pytorchvideo.transforms import (
     Normalize,
     UniformTemporalSubsample,
 )
-from torch.utils.data import RandomSampler, SequentialSampler
+from torch.utils.data import RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 from torchvision.transforms import (
     Compose,
@@ -116,12 +116,11 @@ class Ego4dLongTermAnticipation(torch.utils.data.Dataset):
 
         sampler = RandomSampler
         if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"] and cfg.NUM_GPUS > 1:
-            sampler = DistributedSampler  # TODO NOT JUST DISTRIBUTED, BUT ALSO SEQUENTIAL?
+            sampler = DistributedSampler
 
         clip_sampler_type = "uniform" if mode == "test" else "random"
-        clip_duration = (
-                                self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE
-                        ) / self.cfg.DATA.TARGET_FPS  # Slowfast8x8:32*2, MVIT16x4: 16 FRAMES * S-RATE 4, TARGET_FPS always 30
+        clip_duration = (self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE
+                         ) / self.cfg.DATA.TARGET_FPS  # Slowfast8x8:32*2, MVIT16x4: 16 FRAMES * S-RATE 4, TARGET_FPS always 30
         clip_sampler = make_clip_sampler(clip_sampler_type, clip_duration)
 
         mode_ = 'test_unannotated' if mode == 'test' else mode

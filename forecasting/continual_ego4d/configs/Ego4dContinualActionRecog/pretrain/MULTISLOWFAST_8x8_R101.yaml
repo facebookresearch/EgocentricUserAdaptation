@@ -36,7 +36,7 @@ NONLOCAL:
   INSTANTIATION: softmax
 BN:
   USE_PRECISE_STATS: True
-  NUM_BATCHES_PRECISE: 200
+  NUM_BATCHES_PRECISE: 20  # Originally 200 for full Ego4d, but have only 166 batches for subset
 SOLVER:
   BASE_LR: 1e-4
   LR_POLICY: cosine_warmup
@@ -55,7 +55,7 @@ TEST:
   DATASET: Ego4dRecognition
   BATCH_SIZE: 64
 DATA_LOADER:
-  NUM_WORKERS: 8
+  NUM_WORKERS: 4
   PIN_MEMORY: True
 NUM_GPUS: 8
 NUM_SHARDS: 1

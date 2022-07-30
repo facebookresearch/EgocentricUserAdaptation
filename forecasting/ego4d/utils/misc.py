@@ -147,4 +147,4 @@ def calculate_and_update_precise_bn(loader, model, num_iters=200):
             yield inputs
 
     # Update the bn stats.
-    update_bn_stats(model, _gen_loader(), num_iters)
+    update_bn_stats(model, _gen_loader(), num_iters, progress='tqdm')

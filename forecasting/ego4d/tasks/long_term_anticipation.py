@@ -42,16 +42,21 @@ class MultiTaskClassificationTask(VideoTask):
         return step_result
 
     def training_epoch_end(self, outputs):
+        logger.debug(f"Starting training_epoch_end")
         if self.cfg.BN.USE_PRECISE_STATS and len(get_bn_modules(self.model)) > 0:
+            logger.debug(f"Starting calculate_and_update_precise_bn")
             misc.calculate_and_update_precise_bn(
                 self.train_loader, self.model, self.cfg.BN.NUM_BATCHES_PRECISE
             )
+        logger.debug(f"Starting aggregate_split_bn_stats")
         _ = misc.aggregate_split_bn_stats(self.model)
 
+        logger.debug(f"Starting Logging")
         keys = [x for x in outputs[0].keys() if x is not "loss"]
         for key in keys:
             metric = torch.tensor([x[key] for x in outputs]).mean()
             self.log(key, metric)
+            logger.info(f"END TRAIN EPOCH {self.current_epoch}: {key}={metric}")
 
     def validation_step(self, batch, batch_idx):
         inputs, labels, _, _ = batch
@@ -74,6 +79,7 @@ class MultiTaskClassificationTask(VideoTask):
         for key in keys:
             metric = torch.tensor([x[key] for x in outputs]).mean()
             self.log(key, metric)
+            logger.info(f"END VAL EPOCH {self.current_epoch}: {key}={metric}")
 
     def test_step(self, batch, batch_idx):
         inputs, labels, clip_id, _ = batch
@@ -284,4 +290,3 @@ class LongTermAnticipationTask(VideoTask):
                     'noun': test_outputs['noun_preds'][idx].cpu().tolist(),
                 }
             json.dump(pred_dict, open('outputs.json', 'w'))
-
