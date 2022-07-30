@@ -135,7 +135,7 @@ def generate_usersplit_from_trainval(
     # FIND USERS that satisfy video-length threshold
     # Note: video_uid relates to the entire uncut raw video,
     # these are split into ~5-min clips, denoted with clip_id for the annotations.
-    trainval_user_df = summarize_clips_by_user(trainval_joined_df)
+    trainval_user_df, nan_user_df = summarize_clips_by_user(trainval_joined_df)
 
     # Sort users on sum_length
     trainval_user_df = trainval_user_df.sort_values(by=[args.sort_by_col], ascending=False)
@@ -148,9 +148,13 @@ def generate_usersplit_from_trainval(
         sorted_user_ids = trainval_user_df[: args.nb_users_thresh][user_id_col].tolist()
         user_sort_values = trainval_user_df[: args.nb_users_thresh][args.sort_by_col].tolist()
 
-        # Leftover users
+        # PRETRAIN: Leftover users + NaN user
         pretrain_user_ids = trainval_user_df[args.nb_users_thresh:][user_id_col].tolist()
         pretrain_sort_values = trainval_user_df[args.nb_users_thresh:][args.sort_by_col].tolist()
+
+        # Add NaN user
+        pretrain_user_ids.append("NaN")
+        pretrain_sort_values.extend(nan_user_df[args.sort_by_col].tolist())
 
     elif args.user_videotime_min_thresh is not None:
         raise NotImplementedError("Not supporting this split")
@@ -252,12 +256,19 @@ def generate_usersplit_from_trainval(
     # The 'clips' key allows to use the Ego4d code directly, making the json compatible with the codebase
     split = 'pretrain'
     json_test_filepath = osp.join(output_dir, json_filename.format(split, nb_pretrain_users_subset))
-    save_json(trainval_joined_df, user_id_col, pretrain_user_ids, json_col_names, json_test_filepath, split, flatten=True)
+    save_json(trainval_joined_df, user_id_col, pretrain_user_ids, json_col_names, json_test_filepath, split,
+              flatten=True, include_nan_user=True)
 
 
-def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_filepath, split, flatten=False):
+def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_filepath, split,
+              flatten=False, include_nan_user=False):
     """Filter json dataframe, parse to json-compatible object. Dump to json file."""
     train_df = trainval_joined_df.loc[trainval_joined_df[user_id_col].isin(user_ids)]  # Get train datatframe
+
+    if include_nan_user:
+        nan_user_df = trainval_joined_df[trainval_joined_df[user_id_col].isnull()]
+        train_df = pd.concat([nan_user_df, train_df], ignore_index=True, sort=False)
+
     train_df = train_df[json_col_names]
     train_df = train_df.rename(columns={"scenarios": "parent_video_scenarios"})
 
@@ -282,7 +293,7 @@ def print_summary(user_sort_values, nb_users_subset, nb_total_users, title: str)
     print(f"\n{'*' * 20} SUMMARY: {title} {'*' * 20}")
     print(f"Retaining a total of {nb_users_subset} / {nb_total_users} users")
     print(f"SUM = {sum(user_sort_values)}")
-    print(f"MAX = {user_sort_values[0]}, MIN = {user_sort_values[-1]}")
+    print(f"MAX = {max(user_sort_values)}, MIN = {min(user_sort_values)}")
     print(f"HEAD = {user_sort_values[:10]}...")
     print(f"TAIL = ...{user_sort_values[-10:]}")
     print(f"{'*' * 50}")
@@ -312,7 +323,7 @@ def summarize_clips_by_user(joined_df):
         lambda x: x[0] - x[1], axis=1)
 
     # Group by fb_participant_id, which has allocated multiple 5min clips (unique clip_uid's)
-    user_df = clip_df.groupby(clip_df['fb_participant_id'], as_index=False).agg(
+    user_df = clip_df.groupby(clip_df['fb_participant_id'], as_index=False, dropna=False).agg(  # NaN Dropped by default
         {
             'scenarios': list,
             'verb': list, 'noun': list, 'verb_label': list, 'noun_label': list, 'action_idx': list,
@@ -326,10 +337,14 @@ def summarize_clips_by_user(joined_df):
     # The scenarios only apply to the raw uncut video, not the 5min clips
     user_df = user_df.rename(columns={"scenarios": "possible_clip_scenarios"})
 
-    # Check that no NaN user
+    # Extract NaN user entry
+    nan_user_df = user_df[user_df.fb_participant_id.isnull()]
+    user_df = user_df[user_df.fb_participant_id.notnull()]
+
+    # Check that no NaN user for valid users
     assert not (user_df['fb_participant_id'].isna().any())
 
-    return user_df
+    return user_df, nan_user_df
 
 
 def plot_barchart(x_axis: list[list], y_vals: list[list], title, ylabel, xlabel, y_labels=None, x_labels=None,
