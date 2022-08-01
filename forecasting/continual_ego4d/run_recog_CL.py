@@ -44,6 +44,7 @@ from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
+from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
 
 from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
 from continual_ego4d.datasets.continual_action_recog_dataset import get_user_to_dataset_dict
@@ -173,7 +174,8 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, boo
     task = ContinualMultiTaskClassificationTask(cfg)
 
     # LOAD PRETRAINED
-    load_pretrain_model(cfg, cfg.CHECKPOINT_FILE_PATH, task)
+    ckpt_task_types = [MultiTaskClassificationTask, ContinualMultiTaskClassificationTask]
+    load_pretrain_model(cfg, cfg.CHECKPOINT_FILE_PATH, task, ckpt_task_types)
 
     # GPU DEVICE
     # Make sure it's an array to define the GPU-ids. A single int indicates the number of GPUs instead.
@@ -183,7 +185,7 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, boo
         if isinstance(cfg.GPU_IDS, int):
             cfg.GPU_IDS = [cfg.GPU_IDS]
         elif isinstance(cfg.GPU_IDS, str):
-            cfg.GPU_IDS = cfg.GPU_IDS.split(',')
+            cfg.GPU_IDS = list(map(int, cfg.GPU_IDS.split(',')))
 
     # There are no validation/testing phases!
     logger.info("Initializing Trainer")

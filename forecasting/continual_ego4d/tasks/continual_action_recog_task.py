@@ -4,6 +4,7 @@ from fvcore.nn.precise_bn import get_bn_modules
 from collections import defaultdict
 import numpy as np
 from itertools import product
+from tqdm import tqdm
 
 from ego4d.evaluation import lta_metrics as metrics
 from ego4d.utils import misc
@@ -207,7 +208,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.last_seen_sample_idx = max(stream_sample_ids)  # Last unseen idx
         self.seen_samples_idxs.extend(stream_sample_ids)
         logger.debug(f"last_seen_sample_idx={self.last_seen_sample_idx}")
-        logger.debug(f"seen_samples_idxs={self.seen_samples_idxs}")
+        assert len(self.seen_samples_idxs) == len(np.unique(self.seen_samples_idxs)), \
+            f"Duplicate visited samples in {self.seen_samples_idxs}"
 
     def on_train_end(self) -> None:
         """Dump any additional stats about the training."""
@@ -223,14 +225,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # PER-STEP EVALUATION
     # ---------------------
     def log_metrics(self, log_dict):
-        logger.debug(f"LOGGING: {log_dict}")
+        # logger.debug(f"LOGGING: {log_dict}")
         for logname, logval in log_dict.items():
-            if isinstance(logval, torch.Tensor):
-                try:
-                    logval = logval.item()
-                except:
-                    pass
-            self.log(logname, logval, on_step=True, on_epoch=False)
+            self.log(logname, float(logval), on_step=True, on_epoch=False)
 
     @torch.no_grad()
     @_eval_in_train_decorator
@@ -336,7 +333,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def _get_metric_results_over_dataloader(self, dataloader, metrics: List[Metric]):
 
         # Update metrics over dataloader data
-        for batch_idx, (inputs, labels, _, _) in enumerate(dataloader):
+        for batch_idx, (inputs, labels, _, _) in tqdm(enumerate(dataloader), total=len(dataloader)):
             # Slowfast inputs (list):
             # inputs[0].shape = torch.Size([32, 3, 8, 224, 224]) -> Slow net
             # inputs[1].shape =  torch.Size([32, 3, 32, 224, 224]) -> Fast net

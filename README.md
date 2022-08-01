@@ -1,8 +1,31 @@
 # Matthias Continual Learning Benchmark Project
 
+TODO: Check pretrain not running validation all the time, and how much data? Maybe we should use our train usersplit?
+
+TODO: Ego4d dataset is Iterable dataset or not? Even if iterable stil have to define len, which is hard to measure.
+TODO: FIX batch count for dataset. Are we evaluating each epoch?
+
+
 TODO: Dataloadign problem is in eval past? Maybe to do with Seq sampler
 TODO: copy final jsons to another outputdir
 TODO: restore previous layout
+
+## Pretraining on usersplit Ego4d
+See [Ego4d LTA README](forecasting/LONG_TERM_ANTICIPATION.md) for a guide on how to use pretraining in general.
+
+
+1. Make a usersplit with the script [run_usersplit_ego4d_LTA.py](forecasting/continual_ego4d/run_usersplit_ego4d_LTA.py). 
+This will generate a json split for pretraining. Use this json as input path for the config file when using pretraining for action recognition.
+2. Execute the ego4d script
+```
+  bash tools/long_term_anticipation/ego4d_recognition.sh checkpoints/recognition/
+  ```
+
+
+### Checkpoint paths
+- Model of 30 epochs on pretrain data (without NaN user):
+  /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-07-28_17-06-20_UIDe499d926-a3ff-4a28-9632-7d01054644fe/lightning_logs/version_0/checkpoints
+
 
 ## Ego4d codebase
 See [forecasting](forecasting) for our experimental codebase.
@@ -14,7 +37,7 @@ See [forecasting](forecasting) for our experimental codebase.
   - /fb-agios-acai-efs/Ego4D/ego4d_data/v1/annotations
 - LTA videos/clips: 
   - /fb-agios-acai-efs/Ego4D/lta_video_clips
-- Pre-trained Ego4D models (Kinetics + ego4d pretraining): 
+- Pre-trained Ego4D models (Kinetics + full ego4d pretraining): 
   - /home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation
 
 
@@ -161,6 +184,12 @@ For Ego4D analysis notebooks see [notebooks](notebooks) directory and README.md 
 
 # Requirements
 - Follow Ego4d requirements setup.
+- UPDATE: To avoid abundant warnings on dataloader creation `[W pthreadpool-cpp.cc:90] Warning: Leaking Caffe2 thread-pool after fork. (function pthreadpool)`.
+  Install pytorch 1.9.1 or later (no other way to suppress, see [link](https://github.com/pytorch/pytorch/issues/57273)).
+
+
+    conda install pytorch==1.9.1 torchvision==0.10.1 cudatoolkit=11.3 -c pytorch -c conda-forge
+
 - Then install Cudatoolkit to use GPUs, install specific version for required Pytorch 1.9.0:
 
 

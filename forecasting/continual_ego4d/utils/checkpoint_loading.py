@@ -116,14 +116,20 @@ def load_slowfast_backbone(ckpt_path, task):
         logger.info(f"Could not load {key} weights")
 
 
-def load_lightning_model(cfg, ckp_path, task):
+def load_lightning_model(cfg, ckp_path, task, ckpt_task_types):
     """
     Fully load pretrained model, then iterate current model and load_state_dict for all params.
     This allows to keep the hyperparams of our current model, and only adapting the weights.
     The head is loaded based on config.
     """
-    # Get pretrained model
-    pretrained = task.load_from_checkpoint(ckp_path)  # Load both model and hyperparams for PL checkpoint
+    # Get pretrained model (try valid types)
+    for CheckpointTaskType in ckpt_task_types:
+        try:
+            pretrained = CheckpointTaskType.load_from_checkpoint(ckp_path)
+        except:
+            continue
+        logger.info(f"Loading checkpoint type {CheckpointTaskType}")
+
     state_dict_for_child_module = {
         child_name: child_state_dict.state_dict()
         for child_name, child_state_dict in pretrained.model.named_children()
@@ -141,7 +147,7 @@ def load_lightning_model(cfg, ckp_path, task):
         assert len(missing_keys) + len(unexpected_keys) == 0
 
 
-def load_pretrain_model(cfg, ckp_path, task):
+def load_pretrain_model(cfg, ckp_path, task, ckpt_task_types):
     logger.info(f"LOADING PRETRAINED MODEL")
 
     # For CAFFE backbone
@@ -162,5 +168,5 @@ def load_pretrain_model(cfg, ckp_path, task):
 
     # For Lightning Checkpoint
     else:
-        load_lightning_model(cfg, ckp_path, task)
+        load_lightning_model(cfg, ckp_path, task, ckpt_task_types)
         logger.info(f"LOADED LIGHTNING PRETRAIN MODEL")
