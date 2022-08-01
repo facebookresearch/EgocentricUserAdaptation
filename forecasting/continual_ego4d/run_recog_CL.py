@@ -94,32 +94,86 @@ def main(cfg):
     else:
         processed_user_ids = []
 
-    # Iterate user datasets
-    user_result_paths = {}
-    user_ids_s = sorted([u for u in usersplit_annotations.keys()])  # Deterministic user order
-    for user_id in user_ids_s:
-        cfg.DATA.USER_ID = user_id
-        cfg.DATA.USER_DS_ENTRIES = usersplit_annotations[user_id]
+    # Sequential/parallel execution user jobs
+    device_ids = get_device_ids(cfg)
+    assert len(device_ids) >= 1
 
-        user_result_path, interrupted = online_adaptation_single_user(cfg, user_id, processed_user_ids)
+    if len(device_ids) == 1:
+        process_users_sequentially(usersplit_annotations, processed_user_ids, meta_checkpoint_path, device_ids)
+    else:
+        process_users_parallel(usersplit_annotations, processed_user_ids, meta_checkpoint_path, device_ids)
+
+
+def process_users_parallel(
+        user_datasets: dict[list[tuple]],
+        processed_user_ids: list[str],
+        meta_checkpoint_path: str,
+        device_ids: list[int]
+):
+    import concurrent.futures
+    from collections import deque
+
+    all_user_ids_s = sorted([u for u in user_datasets.keys()])  # Deterministic user order
+    users_to_process = deque([u for u in all_user_ids_s if u not in processed_user_ids])
+
+    # Multi-process env
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        # Initial devices for pool
+        futures = []
+
+        def submit_userprocesses_on_free_devices(free_device_ids):
+            for device_id in free_device_ids:
+                if len(users_to_process) == 0:
+                    logger.info(f"All users processed, skipping allocation to new devices")
+                    return
+                user_id = users_to_process.popleft()
+                logger.info(f"{'*' * 20} USER {user_id} (device_id={device_id}) {'*' * 20}")
+                futures.append(
+                    executor.submit(
+                        online_adaptation_single_user,
+                        cfg, user_id, user_datasets[user_id], [device_id]
+                    )
+                )
+
+        # Initially fill all devices with user-processes
+        submit_userprocesses_on_free_devices(device_ids)
+
+        for future in concurrent.futures.as_completed(futures):  # Firs completed in async process pool
+            interrupted, device_ids, user_id = future.result()
+
+            # Save results
+            processed_user_ids.append(user_id)
+            torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path)
+
+            # Start new user-processes on free devices
+            if len(users_to_process) > 0:
+                submit_userprocesses_on_free_devices(device_ids)
+
+
+def process_users_sequentially(user_datasets, processed_user_ids: list[str], meta_checkpoint_path, device_ids):
+    """ Sequentially iterate over users and process on single device."""
+    # Iterate user datasets
+    all_user_ids_s: list[str] = sorted([u for u in user_datasets.keys()])  # Deterministic user order
+    for user_id in all_user_ids_s:
+        if user_id in processed_user_ids:  # SKIP PROCESSED USER
+            logger.info(f"Skipping USER {user_id} as already processed, result_path={cfg.OUTPUT_DIR}")
+
+        interrupted, *_ = online_adaptation_single_user(cfg, user_id, user_datasets[user_id], device_ids)
         if interrupted:
-            logger.debug(f"Shutting down on USER {user_id}, because of Trainer being Interrupted")
+            logger.exception(f"Shutting down on USER {user_id}, because of Trainer being Interrupted")
             raise Exception()
 
         # Update and save state
-        user_result_paths[user_id] = user_result_path
         processed_user_ids.append(user_id)
         torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path)
 
-    # TODO aggregate metrics over user dumps
     logger.info(f"All results over users can be found in OUTPUT-DIR={cfg.OUTPUT_DIR}")
 
 
 def overwrite_config_continual_learning(cfg):
     overwrite_dict = {
         "SOLVER.ACCELERATOR": "gpu",
-        "NUM_GPUS": 1,
-        "NUM_SHARDS": 1,
+        "NUM_SHARDS": 1,  # no DDP supported
         "SOLVER.MAX_EPOCH": 1,
         "SOLVER.LR_POLICY": "constant",
         "CHECKPOINT_LOAD_MODEL_HEAD": True,  # From pretrain we also load model head
@@ -136,10 +190,32 @@ def overwrite_config_continual_learning(cfg):
     logger.debug(f"OVERWRITING CFG attributes for continual learning:\n{pprint.pformat(overwrite_dict)}")
 
 
-def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, bool):
+def get_device_ids(cfg) -> list[int]:
+    """
+    Make sure it's an array to define the GPU-ids. A single int indicates the number of GPUs instead.
+    :return:
+    """
+    if cfg.GPU_IDS is None:
+        device_ids = list(range(cfg.NUM_GPUS))  # Select first devices
+    else:
+        cfg.NUM_GPUS = None  # Need to disable
+        if isinstance(cfg.GPU_IDS, int):
+            device_ids = [cfg.GPU_IDS]
+        elif isinstance(cfg.GPU_IDS, str):
+            device_ids = list(map(int, cfg.GPU_IDS.split(',')))
+        else:
+            raise ValueError(f"cfg.GPU_IDS wrong format: {cfg.GPU_IDS}")
+
+    return device_ids
+
+
+def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], device_ids: list[int]) -> (str, bool):
     """ Run single user sequentially. Returns path to user results and interruption status."""
     seed_everything(cfg.RNG_SEED)
-    logger.info(f"{'*' * 20} USER {user_id} (seed={cfg.RNG_SEED}) {'*' * 20}")
+
+    # Set user configs
+    cfg.DATA.USER_ID = user_id
+    cfg.DATA.USER_DS_ENTRIES = user_dataset
 
     # Paths
     main_output_dir = cfg.OUTPUT_DIR
@@ -151,13 +227,10 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, boo
     csv_logger = CSVLogger(save_dir=main_output_dir, name="user_logs", version=experiment_version,
                            flush_logs_every_n_steps=1)
     trainer_loggers = [tb_logger, csv_logger]
+
     cfg.USER_RESULT_PATH = csv_logger.log_dir  # Use for CSV and other dumps
     cfg.USER_DUMP_FILE = osp.join(cfg.USER_RESULT_PATH, 'stream_info_dump.pth')  # Dump-path for Trainer stream info
-
-    # SKIP PROCESSED USER
-    if user_id in processed_user_ids:
-        logger.info(f"Skipping USER {user_id} as already processed, result_path={cfg.USER_RESULT_PATH}")
-        return cfg.USER_RESULT_PATH, False
+    logging.setup_logging([cfg.USER_RESULT_PATH])  # make user-specific stdout logger
 
     # Callbacks
     # Save model on end of stream for possibly ad-hoc usage of the model
@@ -177,16 +250,6 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, boo
     ckpt_task_types = [MultiTaskClassificationTask, ContinualMultiTaskClassificationTask]
     load_pretrain_model(cfg, cfg.CHECKPOINT_FILE_PATH, task, ckpt_task_types)
 
-    # GPU DEVICE
-    # Make sure it's an array to define the GPU-ids. A single int indicates the number of GPUs instead.
-    if cfg.GPU_IDS is not None:
-        cfg.NUM_GPUS = None  # Need to disable
-        # /accelerator_connector.py:266: UserWarning: The flag `devices=[7]` will be ignored, as you have set `gpus=1`
-        if isinstance(cfg.GPU_IDS, int):
-            cfg.GPU_IDS = [cfg.GPU_IDS]
-        elif isinstance(cfg.GPU_IDS, str):
-            cfg.GPU_IDS = list(map(int, cfg.GPU_IDS.split(',')))
-
     # There are no validation/testing phases!
     logger.info("Initializing Trainer")
     trainer = Trainer(
@@ -199,8 +262,8 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, boo
         fast_dev_run=False,  # For CL Should NOT define fast_dev_run in lightning! Doesn't log results then
 
         # Devices/distributed
-        devices=cfg.GPU_IDS,
-        gpus=cfg.NUM_GPUS,
+        devices=device_ids,
+        gpus=len(device_ids),
         # auto_select_gpus=True,
         # plugins=DDPPlugin(find_unused_parameters=False), # DDP specific
         num_nodes=cfg.NUM_SHARDS,  # DDP specific
@@ -213,7 +276,7 @@ def online_adaptation_single_user(cfg, user_id, processed_user_ids) -> (str, boo
     logger.info("Starting Trainer fitting")
     trainer.fit(task, val_dataloaders=None)  # Skip validation
 
-    return cfg.USER_RESULT_PATH, trainer.interrupted
+    return trainer.interrupted, device_ids, user_id  # For multiprocessing indicate which resources are free now
 
 
 if __name__ == "__main__":
