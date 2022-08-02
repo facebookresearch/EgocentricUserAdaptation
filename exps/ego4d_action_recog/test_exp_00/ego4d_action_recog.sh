@@ -74,7 +74,7 @@ OVERWRITE_CFG_ARGS+=" DATA.PATH_PREFIX ${EGO4D_VIDEOS}"
 OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
-screenname="MATT_${run_id}"
+screenname="${run_id}_MATT"
 #screen -dmS "${screenname}" \
 python -m continual_ego4d.run_recog_CL \
   --job_name "$screenname" \

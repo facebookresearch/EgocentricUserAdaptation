@@ -129,7 +129,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             if metric.reset_before_batch:
                 metric.reset()
 
-        self.eval_this_step = batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader) - 1
+        self.eval_this_step = self.trainer.logger_connector.should_update_logs
+        # batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader) - 1
 
     def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
         """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""

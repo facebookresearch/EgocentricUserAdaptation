@@ -8,6 +8,7 @@ from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, DeviceStatsMonitor, GPUStatsMonitor, Timer
 from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
+from continual_ego4d.utils.custom_logger_connector import CustomLoggerConnector
 
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
@@ -215,7 +216,8 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
                          # DeviceStatsMonitor(), # Way too detailed
                          GPUStatsMonitor(),
                          Timer(duration=None, interval='epoch')
-                         ]  # LearningRateMonitor(),
+                         # LearningRateMonitor(), # Cst LR by default
+                         ]
 
     # Choose task type based on config.
     logger.info("Starting init Task")
@@ -246,8 +248,11 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
 
         callbacks=trainer_callbacks,
         logger=trainer_loggers,
-        log_every_n_steps=1,  # Required to allow per-step log-cals for evaluation
+        log_every_n_steps=cfg.TRAIN.CONTINUAL_EVAL_FREQ,  # Required to allow per-step log-cals for evaluation
     )
+
+    # Overwrite (Always log on first step)
+    trainer.logger_connector = CustomLoggerConnector(trainer, trainer.logger_connector.log_gpu_memory)
 
     logger.info("Starting Trainer fitting")
     trainer.fit(task, val_dataloaders=None)  # Skip validation
