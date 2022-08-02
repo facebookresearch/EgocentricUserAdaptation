@@ -75,6 +75,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # State vars (single batch)
         self.last_seen_sample_idx = -1
         self.sample_idxs = None
+        self.eval_this_step = False
 
         # Metrics
         self.current_batch_metrics = [
@@ -128,6 +129,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             if metric.reset_before_batch:
                 metric.reset()
 
+        self.eval_this_step = batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader) - 1
+
     def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
         """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""
         altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
@@ -152,7 +155,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         metric_results = {**metric_results, **step_results}
 
         # Perform additional eval
-        if batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader):
+        if self.eval_this_step:
             logger.debug(f"Starting PRE-UPDATE evaluation: "
                          f"batch_idx={batch_idx}, SAMPLE IDXS={stream_sample_idxs.tolist()}")
             self.eval_current_batch_(metric_results, outputs, labels)
@@ -184,7 +187,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         stream_sample_ids = stream_sample_ids.tolist()
 
         # Do post-update evaluation of the past
-        if batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader):
+        if self.eval_this_step:
             logger.debug(f"Starting POST-UPDATE evaluation on batch_idx={batch_idx}")
             metric_results = {}
             self.eval_past_data_(metric_results, batch_idx)
@@ -251,9 +254,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def eval_future_data_(self, step_result, batch_idx):
         """Add additional metrics for future data (including current pre-update batch)
         in-place to the step_result dict."""
-        logger.debug(f"Gathering results on future data")
-        if batch_idx == len(self.train_loader):  # last batch
+        if len(self.future_metrics) == 0:
             return
+        if batch_idx == len(self.train_loader):  # last batch
+            logger.debug(f"Skipping results on future data for last batch")
+            return
+        logger.debug(f"Gathering results on future data")
 
         # Include current batch
         unseen_idxs = list(range(self.last_seen_sample_idx + 1, len(self.train_loader.dataset)))

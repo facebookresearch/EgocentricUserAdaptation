@@ -10,7 +10,7 @@ import sys
 from . import distributed as du
 
 
-def setup_logging(output_dirs=None):
+def setup_logging(output_dirs=None, host_name=None):
     """
     Sets up the logging for multiple processes. Only enable the logging for the
     master process, and suppress logging for the non-master processes.
@@ -22,8 +22,9 @@ def setup_logging(output_dirs=None):
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
+    device_info = f"{host_name} " if host_name is not None else ""
     plain_formatter = logging.Formatter(
-        "[%(asctime)s][%(levelname)s] %(name)s: %(lineno)4d: %(message)s",
+        f"[{device_info}%(asctime)s][%(levelname)s] %(name)s: %(lineno)4d: %(message)s",
         datefmt="%m/%d %H:%M:%S",
     )
 
@@ -35,7 +36,7 @@ def setup_logging(output_dirs=None):
         logger.addHandler(ch)
     else:
         # For debug, need errors from any of the processes:
-        ch = logging.StreamHandler(stream=sys.stdout)
+        ch = logging.StreamHandler(stream=sys.stderr)
         ch.setLevel(logging.WARNING)  # Warning and up from all processes
         ch.setFormatter(plain_formatter)
         logger.addHandler(ch)

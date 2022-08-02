@@ -46,8 +46,8 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS=""
-OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 16"
-OVERWRITE_CFG_ARGS+=" GPU_IDS '7'"
+OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
+OVERWRITE_CFG_ARGS+=" GPU_IDS '6,7'"
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0 TRAIN.BATCH_SIZE 10 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 16 CHECKPOINT_step_freq 300" # DEBUG
 #OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30" # DEBUG
 
@@ -65,8 +65,8 @@ BACKBONE_WTS="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthi
 
 #OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
-OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True" # Load population head
-OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE False" # Learn features as well
+OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True"      # Load population head
+OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE False"          # Learn features as well
 
 # Paths
 OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_DIR ${EGO4D_ANNOTS}"

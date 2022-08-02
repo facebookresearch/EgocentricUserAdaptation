@@ -1,44 +1,11 @@
-"""
-
-Train vs test
----------------------------------------------
-TRAIN/EVAL are separate, set via: cfg.TRAIN.ENABLE: True
-Can do both:     if cfg.TRAIN.ENABLE and cfg.TEST.ENABLE:
-
-
-
-Pretraining
----------------------------------------------
-cfg:
-    CHECKPOINT_LOAD_MODEL_HEAD False \ -> Useful for using pretrained feats.
-    MODEL.FREEZE_BACKBONE True \ -> Useful for using pretrained feat-net and freezing it
-    DATA.CHECKPOINT_MODULE_FILE_PATH "" \ -> Checkpoint for the MVIT or SlowFAST video net
-    FORECASTING.AGGREGATOR "" \
-    FORECASTING.DECODER
-
-
-Flow
----------------------------------------------
-run_lta.py: trainer.fit(task: LongTermAnticipationTask)
--> Select task (LTA/short-term recognition/...), initialize it with the config, restore checkpoint,
--> and launch pytorch ligthning trainer to fit the Task.
-
-\ego4d\tasks\long_term_anticipation.py: class LongTermAnticipationTask(VideoTask):
--> Define {train/val/test}_{step/epoch_end}
-
-\ego4d\tasks\video_task.py: class VideoTask(LightningModule)
--> The cfg is used all the way: cfg.MODEL.NUM_CLASSES
--> Build model/optimizer/dataloaders for the task/additional hooks (e.g. on_backwards)
-
-
-"""
 from continual_ego4d.utils.checkpoint_loading import load_pretrain_model
 
 import pprint
-
+import concurrent.futures
+from collections import deque
 import torch
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, DeviceStatsMonitor
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, DeviceStatsMonitor, GPUStatsMonitor, Timer
 from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
@@ -62,7 +29,7 @@ def main(cfg):
     if resuming_run:
         cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR  # Resume run if specified, and output to same output dir
 
-    logging.setup_logging(cfg.OUTPUT_DIR)
+    logging.setup_logging(cfg.OUTPUT_DIR, host_name='MASTER')
     logger.info(f"Starting main script with OUTPUT_DIR={cfg.OUTPUT_DIR}")
 
     # CFG overwrites and setup
@@ -102,6 +69,7 @@ def main(cfg):
         process_users_sequentially(usersplit_annotations, processed_user_ids, meta_checkpoint_path, device_ids)
     else:
         process_users_parallel(usersplit_annotations, processed_user_ids, meta_checkpoint_path, device_ids)
+    logger.info("Finished processing all users")
 
 
 def process_users_parallel(
@@ -110,15 +78,12 @@ def process_users_parallel(
         meta_checkpoint_path: str,
         device_ids: list[int]
 ):
-    import concurrent.futures
-    from collections import deque
-
+    """ This process is master process that spawn user-specific processes on free GPU devices once they are free. """
     all_user_ids_s = sorted([u for u in user_datasets.keys()])  # Deterministic user order
     users_to_process = deque([u for u in all_user_ids_s if u not in processed_user_ids])
 
     # Multi-process env
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        # Initial devices for pool
         futures = []
 
         def submit_userprocesses_on_free_devices(free_device_ids):
@@ -141,6 +106,10 @@ def process_users_parallel(
         for future in concurrent.futures.as_completed(futures):  # Firs completed in async process pool
             interrupted, device_ids, user_id = future.result()
 
+            if interrupted:
+                logger.exception(f"Process for USER {user_id} failed because of Trainer being Interrupted")
+                continue
+
             # Save results
             processed_user_ids.append(user_id)
             torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path)
@@ -151,7 +120,8 @@ def process_users_parallel(
 
 
 def process_users_sequentially(user_datasets, processed_user_ids: list[str], meta_checkpoint_path, device_ids):
-    """ Sequentially iterate over users and process on single device."""
+    """ Sequentially iterate over users and process on single device.
+    All processing happens in master process. """
     # Iterate user datasets
     all_user_ids_s: list[str] = sorted([u for u in user_datasets.keys()])  # Deterministic user order
     for user_id in all_user_ids_s:
@@ -196,6 +166,7 @@ def get_device_ids(cfg) -> list[int]:
     :return:
     """
     if cfg.GPU_IDS is None:
+        assert isinstance(cfg.NUM_GPUS, int) and cfg.NUM_GPUS >= 1
         device_ids = list(range(cfg.NUM_GPUS))  # Select first devices
     else:
         cfg.NUM_GPUS = None  # Need to disable
@@ -229,8 +200,9 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
     trainer_loggers = [tb_logger, csv_logger]
 
     cfg.USER_RESULT_PATH = csv_logger.log_dir  # Use for CSV and other dumps
+    os.makedirs(cfg.USER_RESULT_PATH, exist_ok=True)
     cfg.USER_DUMP_FILE = osp.join(cfg.USER_RESULT_PATH, 'stream_info_dump.pth')  # Dump-path for Trainer stream info
-    logging.setup_logging([cfg.USER_RESULT_PATH])  # make user-specific stdout logger
+    logging.setup_logging([cfg.USER_RESULT_PATH], host_name=f'GPU-{device_ids}')  # make user-specific stdout logger
 
     # Callbacks
     # Save model on end of stream for possibly ad-hoc usage of the model
@@ -239,7 +211,11 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
         dirpath=checkpoint_dirpath,
         every_n_epochs=1, save_on_train_epoch_end=True, save_last=True, save_top_k=1,
     )
-    trainer_callbacks = [checkpoint_callback, DeviceStatsMonitor()]  # LearningRateMonitor(),
+    trainer_callbacks = [checkpoint_callback,
+                         # DeviceStatsMonitor(), # Way too detailed
+                         GPUStatsMonitor(),
+                         Timer(duration=None, interval='epoch')
+                         ]  # LearningRateMonitor(),
 
     # Choose task type based on config.
     logger.info("Starting init Task")
@@ -263,7 +239,7 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
 
         # Devices/distributed
         devices=device_ids,
-        gpus=len(device_ids),
+        gpus=None,  # Determined by devices
         # auto_select_gpus=True,
         # plugins=DDPPlugin(find_unused_parameters=False), # DDP specific
         num_nodes=cfg.NUM_SHARDS,  # DDP specific
