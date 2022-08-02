@@ -24,7 +24,7 @@ DATA:
   TRAIN_CROP_SIZE: 224
   TEST_CROP_SIZE: 256
   INPUT_CHANNEL_NUM: [ 3, 3 ]
-  TASK: "classification"
+  TASK: "continual_classification"
 SLOWFAST:
   ALPHA: 4
   BETA_INV: 8
