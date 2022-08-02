@@ -12,8 +12,8 @@ from ego4d.models import losses
 from ego4d.optimizers import lr_scheduler
 from ego4d.utils import distributed as du
 from ego4d.utils import logging
-from ego4d.datasets import loader
 from ego4d.models import build_model
+from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader
 import os.path as osp
 
 from continual_ego4d.utils.meters import AverageMeter
@@ -35,7 +35,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     For all lightning hooks, see: https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html#hooks
     """
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, future_metrics=None, past_metrics=None):
         logger.debug('Starting init ContinualVideoTask')
         super().__init__()
 
@@ -53,6 +53,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         if not hasattr(cfg.MODEL, "STRIDE_TYPE"):
             cfg.EPIC_KITCHEN.STRIDE_TYPE = "constant"
 
+        # CFG checks
         self.cfg = cfg
         self.save_hyperparameters()  # Save cfg to '
         self.model = build_model(cfg)
@@ -91,13 +92,13 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.future_metrics = [
             GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
             FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
-        ]
+        ] if future_metrics is None else future_metrics
 
         self.past_metrics = [
             ConditionalOnlineForgettingMetric(),
             ReexposureForgettingMetric(self.current_batch_action_set, k=1, mode='action'),
             CollateralForgettingMetric(self.current_batch_action_set, k=1, mode='action'),
-        ]
+        ] if past_metrics is None else past_metrics
 
         logger.debug(f'Initialized {self.__class__.__name__}')
 
@@ -280,10 +281,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     @torch.no_grad()
     @_eval_in_train_decorator
     def eval_past_data_(self, step_result, batch_idx):
-        logger.debug(f"Gathering results on past data")
-        if batch_idx == 0:  # first batch
-            logger.debug(f"Skipping first batch (no observed data yet)")
+        if len(self.past_metrics) == 0:
             return
+        if batch_idx == 0:  # first batch
+            logger.debug(f"Skipping first batch past data results (no observed data yet)")
+            return
+        logger.debug(f"Gathering results on past data")
 
         seen_idxs = np.unique(self.seen_samples_idxs)
         logger.debug(f"seen_idxs interval = [{seen_idxs[0]},..., {seen_idxs[-1]}]")
@@ -374,7 +377,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         if self.cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
             du.init_distributed_groups(self.cfg)
 
-        self.train_loader = loader.construct_loader(self.cfg, "continual")
+        self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
 
     def configure_optimizers(self):
         steps_in_epoch = len(self.train_loader)

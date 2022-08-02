@@ -15,6 +15,7 @@ from ego4d.utils.parser import load_config, parse_args
 from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
 
 from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
+from continual_ego4d.tasks.iid_action_recog_task import IIDMultiTaskClassificationTask
 from continual_ego4d.datasets.continual_action_recog_dataset import get_user_to_dataset_dict
 
 from scripts.slurm import copy_and_run_with_config
@@ -82,9 +83,10 @@ def process_users_parallel(
     """ This process is master process that spawn user-specific processes on free GPU devices once they are free. """
     all_user_ids_s = sorted([u for u in user_datasets.keys()])  # Deterministic user order
     users_to_process = deque([u for u in all_user_ids_s if u not in processed_user_ids])
+    nb_available_devices = len(device_ids)
 
     # Multi-process env
-    with concurrent.futures.ProcessPoolExecutor() as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=nb_available_devices) as executor:
         futures = []
 
         def submit_userprocesses_on_free_devices(free_device_ids):
@@ -106,6 +108,7 @@ def process_users_parallel(
 
         for future in concurrent.futures.as_completed(futures):  # Firs completed in async process pool
             interrupted, device_ids, user_id = future.result()
+            logger.info(f"Finished processing user {user_id}")
 
             if interrupted:
                 logger.exception(f"Process for USER {user_id} failed because of Trainer being Interrupted")
@@ -114,9 +117,11 @@ def process_users_parallel(
             # Save results
             processed_user_ids.append(user_id)
             torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path)
+            logger.info(f"Saved meta state checkpoint to {meta_checkpoint_path}")
 
             # Start new user-processes on free devices
             if len(users_to_process) > 0:
+                logger.info(f"Submitting processes for free devices {len(device_ids)}")
                 submit_userprocesses_on_free_devices(device_ids)
 
 
@@ -145,7 +150,7 @@ def overwrite_config_continual_learning(cfg):
     overwrite_dict = {
         "SOLVER.ACCELERATOR": "gpu",
         "NUM_SHARDS": 1,  # no DDP supported
-        "SOLVER.MAX_EPOCH": 1,
+        # "SOLVER.MAX_EPOCH": 1, # Allow multiple for IID
         "SOLVER.LR_POLICY": "constant",
         "CHECKPOINT_LOAD_MODEL_HEAD": True,  # From pretrain we also load model head
     }
@@ -221,11 +226,20 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
 
     # Choose task type based on config.
     logger.info("Starting init Task")
-    assert cfg.DATA.TASK == "classification", "Only action recognition supported, no LTA"
-    task = ContinualMultiTaskClassificationTask(cfg)
+    if cfg.DATA.TASK == "continual_classification":
+        task = ContinualMultiTaskClassificationTask(cfg)
+
+    elif cfg.DATA.TASK == "iid_classification":
+        task = IIDMultiTaskClassificationTask(cfg)
+
+    else:
+        raise ValueError(f"cfg.DATA.TASK={cfg.DATA.TASK} not supported")
+    logger.info(f"Initialized task as {task}")
 
     # LOAD PRETRAINED
-    ckpt_task_types = [MultiTaskClassificationTask, ContinualMultiTaskClassificationTask]
+    ckpt_task_types = [MultiTaskClassificationTask,
+                       ContinualMultiTaskClassificationTask,
+                       IIDMultiTaskClassificationTask]
     load_pretrain_model(cfg, cfg.CHECKPOINT_FILE_PATH, task, ckpt_task_types)
 
     # There are no validation/testing phases!
@@ -257,6 +271,7 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
     logger.info("Starting Trainer fitting")
     trainer.fit(task, val_dataloaders=None)  # Skip validation
 
+    logger.info(f"Trainer interrupted signal = {trainer.interrupted}")
     return trainer.interrupted, device_ids, user_id  # For multiprocessing indicate which resources are free now
 
 
