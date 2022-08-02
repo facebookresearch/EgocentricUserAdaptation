@@ -438,6 +438,9 @@ _C.DATA.RANDOM_FLIP = True
 
 # If True, calculate the map as metric.
 _C.DATA.TASK = "single-label"
+# continual_classification: Learn in stream of data per user
+# iid_classification: Use the exact same stream but shuffled (iid).
+# classification: Standard ego4d iid setup. (one clip sampled per annotation).
 
 # Method to perform the ensemble, options include "sum" and "max".
 _C.DATA.ENSEMBLE_METHOD = "sum"
@@ -882,6 +885,13 @@ _C.EGO4D_STA.VIDEO_LOAD_BACKEND = "lmdb"  # lmdb, pytorchvideo, decord, pyav
 # TODO: STA: _C.EGO4D_STA.VIDEO_LOAD_BACKEND = "pytorchvideo" #lmdb, pytorchvideo, decord
 
 def _assert_and_infer_cfg(cfg):
+
+    # CL assertions
+    if cfg.DATA.TASK == "continual_classification":
+        assert cfg.SOLVER.MAX_EPOCH == 1, f"CL stream requires max 1 epoch, not {cfg.SOLVER.MAX_EPOCH}"
+
+
+
     # BN assertions.
     if cfg.BN.USE_PRECISE_STATS:
         assert cfg.BN.NUM_BATCHES_PRECISE >= 0

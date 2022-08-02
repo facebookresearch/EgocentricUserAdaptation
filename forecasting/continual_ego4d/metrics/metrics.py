@@ -68,11 +68,11 @@ class OnlineTopkAccMetric(Metric):
 
         # Verb/noun errors
         if self.mode in ['verb', 'noun']:
-            topk_acc: float = metrics.distributed_topk_errors(
+            topk_acc: torch.FloatTensor = metrics.distributed_topk_errors(
                 preds[self.label_idx], labels[:, self.label_idx], [self.k], acc=True
-            )[0]
+            )[0]  # Unpack self.k
         elif self.mode in ['action']:
-            topk_acc: float = metrics.distributed_twodistr_top1_errors(
+            topk_acc: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
                 preds[0], preds[1], labels[:, 0], labels[:, 1], acc=True)
 
         self.avg_meter.update(topk_acc, weight=batch_size)
@@ -174,7 +174,7 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
             subset_labels = labels[label_mask]
             labels1, labels2 = subset_labels[:, 0], subset_labels[:, 1]
 
-            topk_acc: float = metrics.distributed_twodistr_top1_errors(
+            topk_acc: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
                 preds1, preds2, labels1, labels2, acc=True)
 
         return topk_acc, subset_batch_size
@@ -300,7 +300,7 @@ class ConditionalOnlineForgettingMetric(Metric):
             subset_labels = labels[label_mask]
             labels1, labels2 = subset_labels[:, 0], subset_labels[:, 1]
 
-            action_topk_acc: float = metrics.distributed_twodistr_top1_errors(
+            action_topk_acc: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
                 preds1, preds2, labels1, labels2, acc=True)
 
             self.action_to_current_acc[action].update(action_topk_acc, weight=subset_batch_size)

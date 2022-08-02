@@ -16,7 +16,7 @@ from sklearn.metrics import average_precision_score
 logger = logging.get_logger(__name__)
 
 
-def distributed_twodistr_top1_errors(preds1, preds2, labels1, labels2, acc=False) -> float:
+def distributed_twodistr_top1_errors(preds1, preds2, labels1, labels2, acc=False) -> torch.FloatTensor:
     """
     Prediction from both distributions (verb,noun) has to be correct for a correct (action) prediction.
     Only takes top1 as top-K with K>1 results in combinatorial solutions.
@@ -41,7 +41,7 @@ def distributed_twodistr_top1_errors(preds1, preds2, labels1, labels2, acc=False
         return (top1_correct_count / batch_size) * 100.0
 
 
-def distributed_topk_errors(preds, labels, ks, acc=False):
+def distributed_topk_errors(preds, labels, ks, acc=False) -> list[torch.FloatTensor]:
     """
     Computes the top-k error for each k. Average reduces the result with all other
     distributed processes.
@@ -56,7 +56,7 @@ def distributed_topk_errors(preds, labels, ks, acc=False):
     return errors
 
 
-def topks_correct(preds, labels, ks):
+def topks_correct(preds, labels, ks) -> list[torch.FloatTensor]:
     """
     Given the predictions, labels, and a list of top-k values, compute the
     number of correct predictions for each top-k value.
@@ -65,7 +65,7 @@ def topks_correct(preds, labels, ks):
         preds (array): array of predictions. Dimension is batchsize
             N x ClassNum.
         labels (array): array of labels. Dimension is batchsize N.
-        ks (list): list of top-k values. For example, ks = [1, 5] correspods
+        ks (list[torch.FloatTensor]): list of top-k values. For example, ks = [1, 5] correspods
             to top-1 and top-5.
 
     Returns:
@@ -102,7 +102,7 @@ def _get_topk_correct_onehot_matrix(preds, labels, ks):
     return top_max_k_correct
 
 
-def topk_errors(preds, labels, ks, acc=False):
+def topk_errors(preds, labels, ks, acc=False) -> list[torch.FloatTensor]:
     """
     Computes the top-k error for each k.
     Args:

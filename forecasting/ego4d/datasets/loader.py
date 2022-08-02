@@ -63,16 +63,8 @@ def construct_loader(cfg, split):
         split (str): the split of the data loader. Options include `train`,
             `val`, and `test`.
     """
-    assert split in ["train", "val", "test", "continual"]
-    if split in ["continual"]:
-        dataset_name = cfg.TRAIN.DATASET
-        if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
-            batch_size = int(cfg.TRAIN.BATCH_SIZE / cfg.NUM_GPUS)
-        else:
-            batch_size = cfg.TRAIN.BATCH_SIZE
-        shuffle = False
-        drop_last = False
-    elif split in ["train"]:
+    assert split in ["train", "val", "test"]
+    if split in ["train"]:
         dataset_name = cfg.TRAIN.DATASET
         if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
             batch_size = int(cfg.TRAIN.BATCH_SIZE / cfg.NUM_GPUS)
