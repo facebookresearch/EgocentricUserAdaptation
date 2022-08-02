@@ -10,6 +10,24 @@ import sys
 from . import distributed as du
 
 
+class StreamToLogger(object):
+    """
+    Fake file-like stream object that redirects writes to a logger instance.
+    """
+
+    def __init__(self, logger, level):
+        self.logger = logger
+        self.level = level
+        self.linebuf = ''
+
+    def write(self, buf):
+        for line in buf.rstrip().splitlines():
+            self.logger.log(self.level, line.rstrip())
+
+    def flush(self):
+        pass
+
+
 def setup_logging(output_dirs=None, host_name=None):
     """
     Sets up the logging for multiple processes. Only enable the logging for the
@@ -22,24 +40,23 @@ def setup_logging(output_dirs=None, host_name=None):
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
-    device_info = f"{host_name} " if host_name is not None else ""
+    process_info = f"[{host_name}]" if host_name is not None else ""
     plain_formatter = logging.Formatter(
-        f"[{device_info}%(asctime)s][%(levelname)s] %(name)s: %(lineno)4d: %(message)s",
+        f"{process_info}[%(asctime)s][%(levelname)s] %(name)s: %(lineno)4d: %(message)s",
         datefmt="%m/%d %H:%M:%S",
     )
 
-    # Suppress: Only main process (rank 0)
+    # Suppress: Only main process outputs to stdout (rank 0)
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
-        ch = logging.StreamHandler(stream=sys.stdout)
+        ch = logging.StreamHandler(stream=sys.stdout)  # Output to STDOUT
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(plain_formatter)
         logger.addHandler(ch)
-    else:
-        # For debug, need errors from any of the processes:
-        ch = logging.StreamHandler(stream=sys.stderr)
-        ch.setLevel(logging.WARNING)  # Warning and up from all processes
-        ch.setFormatter(plain_formatter)
-        logger.addHandler(ch)
+
+    # Redirect ALL stderr
+    # Directly set stream output, as exceptions result in termination before anything is logged.
+    # sys.stdout = StreamToLogger(logger, logging.INFO) # Don't redirect as gives
+    sys.stderr = StreamToLogger(logger, logging.ERROR)
 
     # Can add multiple output logfiles (e.g. host-specific by rank)
     if output_dirs is not None:
