@@ -16,7 +16,7 @@ echo "RUN-ID=${run_id}"
 #-----------------------------------------------------------------------------------------------#
 # PATHS
 #-----------------------------------------------------------------------------------------------#
-CONFIG="$ego4d_code_root/continual_ego4d/configs/Ego4dContinualActionRecog/pretrain/MULTISLOWFAST_8x8_R101.yaml"
+CONFIG="$this_script_dirpath/MULTISLOWFAST_8x8_R101.yaml"
 this_script_filepath="${this_script_dirpath}/$(basename "${BASH_SOURCE[0]}")"
 
 # Logging (stdout/tensorboard) output path
