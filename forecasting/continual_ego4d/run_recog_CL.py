@@ -215,26 +215,23 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
     cfg.DATA.USER_DS_ENTRIES = user_dataset
 
     # Paths
-    main_output_dir = cfg.OUTPUT_DIR
-    experiment_version = f"user_{user_id.replace('.', '-')}"
+    ph = PathHandler(cfg, user_id)
+    cfg.USER_DUMP_FILE = ph.user_streamdump_file  # Dump-path for Trainer stream info
+    cfg.USER_RESULT_PATH = ph.user_results_dir
+    os.makedirs(cfg.USER_RESULT_PATH, exist_ok=True)
 
     # Loggers
     assert cfg.ENABLE_LOGGING, "Need CSV logging to aggregate results afterwards."
-    tb_logger = TensorBoardLogger(save_dir=main_output_dir, name=f"tb", version=experiment_version)
-    csv_logger = CSVLogger(save_dir=main_output_dir, name="user_logs", version=experiment_version,
+    tb_logger = TensorBoardLogger(save_dir=ph.main_output_dir, name=ph.tb_dirname, version=ph.experiment_version)
+    csv_logger = CSVLogger(save_dir=ph.main_output_dir, name=ph.csv_dirname, version=ph.experiment_version,
                            flush_logs_every_n_steps=1)
     trainer_loggers = [tb_logger, csv_logger]
-
-    cfg.USER_RESULT_PATH = csv_logger.log_dir  # Use for CSV and other dumps
-    os.makedirs(cfg.USER_RESULT_PATH, exist_ok=True)
-    cfg.USER_DUMP_FILE = osp.join(cfg.USER_RESULT_PATH, 'stream_info_dump.pth')  # Dump-path for Trainer stream info
-    logging.setup_logging([cfg.USER_RESULT_PATH], host_name=f'GPU-{device_ids}|USER-{user_id}')  # Stdout logging
+    logging.setup_logging([ph.user_results_dir], host_name=f'GPU-{device_ids}|USER-{user_id}')  # Stdout logging
 
     # Callbacks
     # Save model on end of stream for possibly ad-hoc usage of the model
-    checkpoint_dirpath = os.path.join(main_output_dir, 'checkpoints', experiment_version)
     checkpoint_callback = ModelCheckpoint(
-        dirpath=checkpoint_dirpath,
+        dirpath=ph.user_checkpoints_dir,
         every_n_epochs=1, save_on_train_epoch_end=True, save_last=True, save_top_k=1,
     )
     trainer_callbacks = [checkpoint_callback,
@@ -305,6 +302,37 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
         logger.info(f"Trainer interrupted signal during testing = {interrupted}")
 
     return interrupted, device_ids, user_id  # For multiprocessing indicate which resources are free now
+
+
+class PathHandler:
+
+    def __init__(self, cfg, user_id: str):
+        # Subdirs
+        self.results_dirname = 'user_logs'  # CSV/stdout
+        self.tb_dirname = 'tb'
+        self.csv_dirname = self.results_dirname
+        self.stdout_dirname = self.results_dirname
+        self.checkpoint_dirname = 'checkpoints'
+
+        # subsubdir
+        self.experiment_version = self.userid_to_userdir(user_id)
+
+        # Filenames
+        self.user_streamdump_filename = 'stream_info_dump.pth'
+
+        # Full paths
+        self.main_output_dir = cfg.OUTPUT_DIR  # Main dir
+        self.user_checkpoints_dir = osp.join(self.main_output_dir, self.checkpoint_dirname, self.experiment_version)
+        self.user_results_dir = osp.join(self.main_output_dir, self.results_dirname, self.experiment_version)
+        self.user_streamdump_file = osp.join(self.user_results_dir, self.user_streamdump_filename)
+
+    @staticmethod
+    def userid_to_userdir(user_id: str):
+        return f"user_{user_id.replace('.', '-')}"
+
+    @staticmethod
+    def userdir_to_userid(user_dirname):
+        return user_dirname.replace('user_', '').replace('-', '.')
 
 
 if __name__ == "__main__":
