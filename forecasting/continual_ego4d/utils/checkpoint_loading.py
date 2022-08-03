@@ -4,8 +4,33 @@ import torch
 
 from ego4d.utils import logging
 from ego4d.utils.c2_model_loading import get_name_convert_func
+import os.path as osp
 
 logger = logging.get_logger(__name__)
+
+def save_meta_state(meta_checkpoint_path, user_id):
+    # For easy debug
+    meta_exists = osp.isfile(meta_checkpoint_path)
+    with open(meta_checkpoint_path, 'a+') as meta_file:
+        pretext = "\n" if meta_exists else ""
+        meta_file.write(f"{pretext}{user_id}")
+    logger.info(f"Saved meta state checkpoint to {meta_checkpoint_path}")
+    # sys.stdout.flush()
+    # logger.flush()
+
+    # torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path, pickle_protocol=0)
+
+
+def load_meta_state(meta_checkpoint_path):
+    user_ids = []
+    with open(meta_checkpoint_path, 'r') as meta_file:
+        for line in meta_file.readlines():
+            line_s = line.strip()
+            if len(line_s) > 0:
+                user_ids.append(line_s)
+
+    # torch.load(meta_checkpoint_path)
+    return {'processed_user_ids': user_ids}
 
 
 def load_caffe_checkpoint(cfg, ckp_path, task):

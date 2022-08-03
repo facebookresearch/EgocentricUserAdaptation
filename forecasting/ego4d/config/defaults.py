@@ -885,12 +885,10 @@ _C.EGO4D_STA.VIDEO_LOAD_BACKEND = "lmdb"  # lmdb, pytorchvideo, decord, pyav
 # TODO: STA: _C.EGO4D_STA.VIDEO_LOAD_BACKEND = "pytorchvideo" #lmdb, pytorchvideo, decord
 
 def _assert_and_infer_cfg(cfg):
-
     # CL assertions
     if cfg.DATA.TASK == "continual_classification":
         assert cfg.SOLVER.MAX_EPOCH == 1, f"CL stream requires max 1 epoch, not {cfg.SOLVER.MAX_EPOCH}"
-
-
+        assert not cfg.TEST.ENABLE, "CL pytorch lightning testing is not supported"
 
     # BN assertions.
     if cfg.BN.USE_PRECISE_STATS:

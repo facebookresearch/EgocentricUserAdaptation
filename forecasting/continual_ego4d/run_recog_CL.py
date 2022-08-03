@@ -1,4 +1,6 @@
-from continual_ego4d.utils.checkpoint_loading import load_pretrain_model
+import sys
+
+from continual_ego4d.utils.checkpoint_loading import load_pretrain_model, load_meta_state, save_meta_state
 
 import pprint
 import concurrent.futures
@@ -48,29 +50,42 @@ def main(cfg):
     }
     data_path = data_paths[cfg.DATA.USER_SUBSET]
 
-    usersplit_annotations = get_user_to_dataset_dict(data_path)
+    user_datasets = get_user_to_dataset_dict(data_path)
+    all_user_ids_s = sorted([u for u in user_datasets.keys()])  # Deterministic user order
     logger.info(f'Running JSON USER SPLIT "{cfg.DATA.USER_SUBSET}" in path: {data_path}')
 
     # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
-    meta_checkpoint_path = osp.join(cfg.OUTPUT_DIR, 'meta_checkpoint.pth')
+    processed_user_ids = []
+    meta_checkpoint_path = osp.join(cfg.OUTPUT_DIR, 'meta_checkpoint.pt')
     if resuming_run:
         logger.info(f"Resuming run from {cfg.OUTPUT_DIR}")
         assert osp.isfile(meta_checkpoint_path), \
             f"Can't resume run, because no meta checkpoint missing: {meta_checkpoint_path}"
-        meta_checkpoint = torch.load(meta_checkpoint_path)
+
+        meta_checkpoint = load_meta_state(meta_checkpoint_path)
         processed_user_ids = meta_checkpoint['processed_user_ids']
         logger.debug(f"LOADED META CHECKPOINT: {meta_checkpoint}, from path: {meta_checkpoint_path}")
-    else:
-        processed_user_ids = []
+
+        # If ONLY TESTING, then assume all users have been processed
+        if cfg.TEST.ENABLE and not cfg.TRAIN.ENABLE:
+            logger.info(f"TEST-ONLY MODE: assuming all users have been processed")
+
+            # Checks
+            assert len(processed_user_ids) == len(all_user_ids_s), \
+                f"Only {len(processed_user_ids)}/{len(all_user_ids_s)} users processed for test: {processed_user_ids}"
+            assert len(cfg.CHECKPOINT_FILE_PATH) > 0, "Need a model path to load for testing"
+            assert cfg.CHECKPOINT_LOAD_MODEL_HEAD, f"Need to load head for testing mode"
+
+            processed_user_ids = []  # For testing, all still have to be processed
 
     # Sequential/parallel execution user jobs
     device_ids = get_device_ids(cfg)
     assert len(device_ids) >= 1
 
     if len(device_ids) == 1:
-        process_users_sequentially(usersplit_annotations, processed_user_ids, meta_checkpoint_path, device_ids)
+        process_users_sequentially(user_datasets, processed_user_ids, meta_checkpoint_path, device_ids, all_user_ids_s)
     else:
-        process_users_parallel(usersplit_annotations, processed_user_ids, meta_checkpoint_path, device_ids)
+        process_users_parallel(user_datasets, processed_user_ids, meta_checkpoint_path, device_ids, all_user_ids_s)
     logger.info("Finished processing all users")
 
 
@@ -78,11 +93,11 @@ def process_users_parallel(
         user_datasets: dict[list[tuple]],
         processed_user_ids: list[str],
         meta_checkpoint_path: str,
-        device_ids: list[int]
+        device_ids: list[int],
+        all_user_ids: list[str],
 ):
     """ This process is master process that spawn user-specific processes on free GPU devices once they are free. """
-    all_user_ids_s = sorted([u for u in user_datasets.keys()])  # Deterministic user order
-    users_to_process = deque([u for u in all_user_ids_s if u not in processed_user_ids])
+    users_to_process = deque([u for u in all_user_ids if u not in processed_user_ids])
     nb_available_devices = len(device_ids)
 
     # Multi-process env
@@ -116,8 +131,7 @@ def process_users_parallel(
 
             # Save results
             processed_user_ids.append(user_id)
-            torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path)
-            logger.info(f"Saved meta state checkpoint to {meta_checkpoint_path}")
+            save_meta_state(meta_checkpoint_path, user_id)
 
             # Start new user-processes on free devices
             if len(users_to_process) > 0:
@@ -125,12 +139,18 @@ def process_users_parallel(
                 submit_userprocesses_on_free_devices(device_ids)
 
 
-def process_users_sequentially(user_datasets, processed_user_ids: list[str], meta_checkpoint_path, device_ids):
+def process_users_sequentially(
+        user_datasets: dict[list[tuple]],
+        processed_user_ids: list[str],
+        meta_checkpoint_path: str,
+        device_ids: list[int],
+        all_user_ids: list[str],
+):
     """ Sequentially iterate over users and process on single device.
     All processing happens in master process. """
+
     # Iterate user datasets
-    all_user_ids_s: list[str] = sorted([u for u in user_datasets.keys()])  # Deterministic user order
-    for user_id in all_user_ids_s:
+    for user_id in all_user_ids:
         if user_id in processed_user_ids:  # SKIP PROCESSED USER
             logger.info(f"Skipping USER {user_id} as already processed, result_path={cfg.OUTPUT_DIR}")
 
@@ -141,7 +161,7 @@ def process_users_sequentially(user_datasets, processed_user_ids: list[str], met
 
         # Update and save state
         processed_user_ids.append(user_id)
-        torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path)
+        save_meta_state(meta_checkpoint_path, user_id)
 
     logger.info(f"All results over users can be found in OUTPUT-DIR={cfg.OUTPUT_DIR}")
 
@@ -208,7 +228,7 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
     cfg.USER_RESULT_PATH = csv_logger.log_dir  # Use for CSV and other dumps
     os.makedirs(cfg.USER_RESULT_PATH, exist_ok=True)
     cfg.USER_DUMP_FILE = osp.join(cfg.USER_RESULT_PATH, 'stream_info_dump.pth')  # Dump-path for Trainer stream info
-    logging.setup_logging([cfg.USER_RESULT_PATH], host_name=f'GPU-{device_ids}')  # make user-specific stdout logger
+    logging.setup_logging([cfg.USER_RESULT_PATH], host_name=f'GPU-{device_ids}|USER-{user_id}')  # Stdout logging
 
     # Callbacks
     # Save model on end of stream for possibly ad-hoc usage of the model
@@ -268,11 +288,23 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
     # Overwrite (Always log on first step)
     trainer.logger_connector = CustomLoggerConnector(trainer, trainer.logger_connector.log_gpu_memory)
 
-    logger.info("Starting Trainer fitting")
-    trainer.fit(task, val_dataloaders=None)  # Skip validation
+    interrupted = False
+    if cfg.TRAIN.ENABLE:
+        logger.info("Starting Trainer fitting")
 
-    logger.info(f"Trainer interrupted signal = {trainer.interrupted}")
-    return trainer.interrupted, device_ids, user_id  # For multiprocessing indicate which resources are free now
+        trainer.fit(task, val_dataloaders=None)  # Skip validation
+
+        interrupted = trainer.interrupted
+        logger.info(f"Trainer interrupted signal = {interrupted}")
+
+    if not interrupted and cfg.TEST.ENABLE:
+        logger.info("Starting Trainer testing")  # Logs test-metrics using the same loggers
+        trainer.test(task)
+
+        interrupted = trainer.interrupted
+        logger.info(f"Trainer interrupted signal during testing = {interrupted}")
+
+    return interrupted, device_ids, user_id  # For multiprocessing indicate which resources are free now
 
 
 if __name__ == "__main__":
