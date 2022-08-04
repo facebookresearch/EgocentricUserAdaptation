@@ -1,6 +1,6 @@
 import sys
 
-from continual_ego4d.utils.checkpoint_loading import load_pretrain_model, load_meta_state, save_meta_state
+from continual_ego4d.utils.checkpoint_loading import load_pretrain_model, load_meta_state, save_meta_state, PathHandler
 
 import pprint
 import concurrent.futures
@@ -23,6 +23,7 @@ from continual_ego4d.datasets.continual_action_recog_dataset import get_user_to_
 from scripts.slurm import copy_and_run_with_config
 import os
 import os.path as osp
+import shutil
 
 logger = logging.get_logger(__name__)
 
@@ -32,14 +33,19 @@ def main(cfg):
     resuming_run = len(cfg.RESUME_OUTPUT_DIR) > 0
     if resuming_run:
         cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR  # Resume run if specified, and output to same output dir
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
-    logging.setup_logging(cfg.OUTPUT_DIR, host_name='MASTER')
+    logging.setup_logging(cfg.OUTPUT_DIR, host_name='MASTER', overwrite_logfile=False)
     logger.info(f"Starting main script with OUTPUT_DIR={cfg.OUTPUT_DIR}")
 
     # CFG overwrites and setup
     overwrite_config_continual_learning(cfg)
     logger.info("Run with config:")
     logger.info(pprint.pformat(cfg))
+
+    # Copy files to output dir for reproducing
+    for reproduce_path in [cfg.PARENT_SCRIPT_FILE_PATH, cfg.CONFIG_FILE_PATH]:
+        shutil.copy2(reproduce_path, cfg.OUTPUT_DIR)
 
     # Select user-split file based on config: Either train or test:
     assert cfg.DATA.USER_SUBSET in ['train', 'test'], \
@@ -56,15 +62,11 @@ def main(cfg):
 
     # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
     processed_user_ids = []
-    meta_checkpoint_path = osp.join(cfg.OUTPUT_DIR, 'meta_checkpoint.pt')
+    path_handler = PathHandler(cfg)
     if resuming_run:
         logger.info(f"Resuming run from {cfg.OUTPUT_DIR}")
-        assert osp.isfile(meta_checkpoint_path), \
-            f"Can't resume run, because no meta checkpoint missing: {meta_checkpoint_path}"
-
-        meta_checkpoint = load_meta_state(meta_checkpoint_path)
-        processed_user_ids = meta_checkpoint['processed_user_ids']
-        logger.debug(f"LOADED META CHECKPOINT: {meta_checkpoint}, from path: {meta_checkpoint_path}")
+        processed_user_ids = path_handler.get_processed_users_from_final_dumps()
+        logger.debug(f"LOADED META CHECKPOINT: Processed users = {processed_user_ids}")
 
         # If ONLY TESTING, then assume all users have been processed
         if cfg.TEST.ENABLE and not cfg.TRAIN.ENABLE:
@@ -83,16 +85,16 @@ def main(cfg):
     assert len(device_ids) >= 1
 
     if len(device_ids) == 1:
-        process_users_sequentially(user_datasets, processed_user_ids, meta_checkpoint_path, device_ids, all_user_ids_s)
+        process_users_sequentially(user_datasets, processed_user_ids, path_handler, device_ids, all_user_ids_s)
     else:
-        process_users_parallel(user_datasets, processed_user_ids, meta_checkpoint_path, device_ids, all_user_ids_s)
+        process_users_parallel(user_datasets, processed_user_ids, path_handler, device_ids, all_user_ids_s)
     logger.info("Finished processing all users")
 
 
 def process_users_parallel(
         user_datasets: dict[list[tuple]],
         processed_user_ids: list[str],
-        meta_checkpoint_path: str,
+        path_handler: PathHandler,
         device_ids: list[int],
         all_user_ids: list[str],
 ):
@@ -114,7 +116,7 @@ def process_users_parallel(
                 futures.append(
                     executor.submit(
                         online_adaptation_single_user,
-                        cfg, user_id, user_datasets[user_id], [device_id]
+                        cfg, user_id, user_datasets[user_id], [device_id], path_handler
                     )
                 )
 
@@ -130,8 +132,8 @@ def process_users_parallel(
                 continue
 
             # Save results
-            processed_user_ids.append(user_id)
-            save_meta_state(meta_checkpoint_path, user_id)
+            # processed_user_ids.append(user_id)
+            # save_meta_state(path_handler.meta_checkpoint_path, user_id)
 
             # Start new user-processes on free devices
             if len(users_to_process) > 0:
@@ -142,7 +144,7 @@ def process_users_parallel(
 def process_users_sequentially(
         user_datasets: dict[list[tuple]],
         processed_user_ids: list[str],
-        meta_checkpoint_path: str,
+        path_handler: PathHandler,
         device_ids: list[int],
         all_user_ids: list[str],
 ):
@@ -154,14 +156,20 @@ def process_users_sequentially(
         if user_id in processed_user_ids:  # SKIP PROCESSED USER
             logger.info(f"Skipping USER {user_id} as already processed, result_path={cfg.OUTPUT_DIR}")
 
-        interrupted, *_ = online_adaptation_single_user(cfg, user_id, user_datasets[user_id], device_ids)
+        interrupted, *_ = online_adaptation_single_user(
+            cfg,
+            user_id,
+            user_datasets[user_id],
+            device_ids,
+            path_handler
+        )
         if interrupted:
             logger.exception(f"Shutting down on USER {user_id}, because of Trainer being Interrupted")
             raise Exception()
 
         # Update and save state
-        processed_user_ids.append(user_id)
-        save_meta_state(meta_checkpoint_path, user_id)
+        # processed_user_ids.append(user_id)
+        # save_meta_state(path_handler.meta_checkpoint_path, user_id)
 
     logger.info(f"All results over users can be found in OUTPUT-DIR={cfg.OUTPUT_DIR}")
 
@@ -206,7 +214,13 @@ def get_device_ids(cfg) -> list[int]:
     return device_ids
 
 
-def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], device_ids: list[int]) -> (str, bool):
+def online_adaptation_single_user(
+        cfg,
+        user_id: str,
+        user_dataset: list[tuple],
+        device_ids: list[int],
+        path_handler: PathHandler
+) -> (str, bool):
     """ Run single user sequentially. Returns path to user results and interruption status."""
     seed_everything(cfg.RNG_SEED)
 
@@ -215,31 +229,45 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
     cfg.DATA.USER_DS_ENTRIES = user_dataset
 
     # Paths
-    ph = PathHandler(cfg, user_id)
-    cfg.USER_DUMP_FILE = ph.user_streamdump_file  # Dump-path for Trainer stream info
-    cfg.USER_RESULT_PATH = ph.user_results_dir
+    # path_handler = PathHandler(cfg)
+    cfg.USER_DUMP_FILE = path_handler.get_user_streamdump_file(user_id)  # Dump-path for Trainer stream info
+    cfg.USER_RESULT_PATH = path_handler.get_user_results_dir(user_id)
     os.makedirs(cfg.USER_RESULT_PATH, exist_ok=True)
 
     # Loggers
+    logging.setup_logging(  # Stdout logging
+        [path_handler.get_user_results_dir(user_id)],
+        host_name=f'GPU-{device_ids}|USER-{user_id}',
+        overwrite_logfile=False,
+    )
+
     assert cfg.ENABLE_LOGGING, "Need CSV logging to aggregate results afterwards."
-    tb_logger = TensorBoardLogger(save_dir=ph.main_output_dir, name=ph.tb_dirname, version=ph.experiment_version)
-    csv_logger = CSVLogger(save_dir=ph.main_output_dir, name=ph.csv_dirname, version=ph.experiment_version,
-                           flush_logs_every_n_steps=1)
+    tb_logger = TensorBoardLogger(
+        save_dir=path_handler.main_output_dir,
+        name=path_handler.tb_dirname,
+        version=path_handler.get_experiment_version(user_id)
+    )
+    csv_logger = CSVLogger(
+        save_dir=path_handler.main_output_dir,
+        name=path_handler.csv_dirname,
+        version=path_handler.get_experiment_version(user_id),
+        flush_logs_every_n_steps=1
+    )
     trainer_loggers = [tb_logger, csv_logger]
-    logging.setup_logging([ph.user_results_dir], host_name=f'GPU-{device_ids}|USER-{user_id}')  # Stdout logging
 
     # Callbacks
     # Save model on end of stream for possibly ad-hoc usage of the model
     checkpoint_callback = ModelCheckpoint(
-        dirpath=ph.user_checkpoints_dir,
+        dirpath=path_handler.get_user_checkpoints_dir(user_id),
         every_n_epochs=1, save_on_train_epoch_end=True, save_last=True, save_top_k=1,
     )
-    trainer_callbacks = [checkpoint_callback,
-                         # DeviceStatsMonitor(), # Way too detailed
-                         GPUStatsMonitor(),
-                         Timer(duration=None, interval='epoch')
-                         # LearningRateMonitor(), # Cst LR by default
-                         ]
+    trainer_callbacks = [
+        checkpoint_callback,
+        # DeviceStatsMonitor(), # Way too detailed
+        GPUStatsMonitor(),
+        Timer(duration=None, interval='epoch')
+        # LearningRateMonitor(), # Cst LR by default
+    ]
 
     # Choose task type based on config.
     logger.info("Starting init Task")
@@ -302,37 +330,6 @@ def online_adaptation_single_user(cfg, user_id: str, user_dataset: list[tuple], 
         logger.info(f"Trainer interrupted signal during testing = {interrupted}")
 
     return interrupted, device_ids, user_id  # For multiprocessing indicate which resources are free now
-
-
-class PathHandler:
-
-    def __init__(self, cfg, user_id: str):
-        # Subdirs
-        self.results_dirname = 'user_logs'  # CSV/stdout
-        self.tb_dirname = 'tb'
-        self.csv_dirname = self.results_dirname
-        self.stdout_dirname = self.results_dirname
-        self.checkpoint_dirname = 'checkpoints'
-
-        # subsubdir
-        self.experiment_version = self.userid_to_userdir(user_id)
-
-        # Filenames
-        self.user_streamdump_filename = 'stream_info_dump.pth'
-
-        # Full paths
-        self.main_output_dir = cfg.OUTPUT_DIR  # Main dir
-        self.user_checkpoints_dir = osp.join(self.main_output_dir, self.checkpoint_dirname, self.experiment_version)
-        self.user_results_dir = osp.join(self.main_output_dir, self.results_dirname, self.experiment_version)
-        self.user_streamdump_file = osp.join(self.user_results_dir, self.user_streamdump_filename)
-
-    @staticmethod
-    def userid_to_userdir(user_id: str):
-        return f"user_{user_id.replace('.', '-')}"
-
-    @staticmethod
-    def userdir_to_userid(user_dirname):
-        return user_dirname.replace('user_', '').replace('-', '.')
 
 
 if __name__ == "__main__":

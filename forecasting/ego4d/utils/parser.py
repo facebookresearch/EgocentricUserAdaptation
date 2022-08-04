@@ -43,6 +43,13 @@ def parse_args():
         type=str,
     )
     parser.add_argument(
+        "--parent_script",
+        dest="parent_script",
+        help="Path to the parent script file",
+        default=None,
+        type=str,
+    )
+    parser.add_argument(
         "opts",
         help="See ego4d/config/defaults.py for all options",
         default=None,
@@ -65,6 +72,11 @@ def load_config(args):
     # Load config from cfg.
     if args.cfg_file is not None:
         cfg.merge_from_file(args.cfg_file)
+        cfg.CONFIG_FILE_PATH = args.cfg_file
+
+    if args.parent_script is not None:
+        cfg.PARENT_SCRIPT_FILE_PATH = args.parent_script
+
     # Load config from command line, overwrite config from opts.
     if args.opts is not None:
         cfg.merge_from_list(args.opts)

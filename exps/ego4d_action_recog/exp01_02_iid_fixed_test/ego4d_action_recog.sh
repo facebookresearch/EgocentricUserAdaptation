@@ -23,9 +23,6 @@ this_script_filepath="${this_script_dirpath}/$(basename "${BASH_SOURCE[0]}")"
 p_dirname="$(basename "${this_script_dirpath}")"
 pp_dirname="$(basename "$(dirname -- "${this_script_dirpath}")")"
 OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${run_id}" # Alternative:/home/matthiasdelange/data/ego4d/continual_ego4d_pretrained_models_usersplit
-mkdir -p "${OUTPUT_DIR}"
-cp "${CONFIG}" "${OUTPUT_DIR}"               # Make a copy of the config file (if we want to rerun later)
-cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script file (if we want to rerun later)
 
 # Data paths
 EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations/
@@ -80,6 +77,7 @@ python -m continual_ego4d.run_recog_CL \
   --job_name "$screenname" \
   --working_directory "${OUTPUT_DIR}" \
   --cfg "${CONFIG}" \
+  --parent_script "${this_script_filepath}" \
   ${OVERWRITE_CFG_ARGS}
 
 #-----------------------------------------------------------------------------------------------#

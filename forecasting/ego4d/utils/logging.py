@@ -28,7 +28,7 @@ class StreamToLogger(object):
         pass
 
 
-def setup_logging(output_dirs=None, host_name=None):
+def setup_logging(output_dirs=None, host_name=None, overwrite_logfile=False):
     """
     Sets up the logging for multiple processes. Only enable the logging for the
     master process, and suppress logging for the non-master processes.
@@ -63,7 +63,16 @@ def setup_logging(output_dirs=None, host_name=None):
         if not isinstance(output_dirs, list):
             output_dirs = [output_dirs]
         for output_dir in output_dirs:
-            filename = os.path.join(output_dir, f"stdout_{du.get_rank()}.log")
+            log_filename = "stdout_{}{}.log"
+            if overwrite_logfile:
+                filename = os.path.join(output_dir, log_filename.format('host', du.get_rank()))
+            else:
+                counter = 0
+                filename = os.path.join(output_dir, log_filename.format('v', counter))
+                while os.path.exists(filename):
+                    counter += 1
+                    filename = os.path.join(output_dir, log_filename.format('v', counter))
+
             fh = logging.FileHandler(filename)
             fh.setLevel(logging.DEBUG)
             fh.setFormatter(plain_formatter)

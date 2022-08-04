@@ -75,7 +75,7 @@ class OnlineTopkAccMetric(Metric):
             topk_acc: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
                 preds[0], preds[1], labels[:, 0], labels[:, 1], acc=True)
 
-        self.avg_meter.update(topk_acc, weight=batch_size)
+        self.avg_meter.update(topk_acc.item(), weight=batch_size)
 
     @torch.no_grad()
     def reset(self):
@@ -132,7 +132,7 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
             raise NotImplementedError()
 
         # Update
-        self.avg_meter.update(topk_acc, weight=subset_batch_size)
+        self.avg_meter.update(topk_acc.item(), weight=subset_batch_size)
 
     def _get_verbnoun_topk_acc(self, preds, labels):
         target_preds = preds[self.label_idx]
@@ -144,12 +144,12 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
 
         subset_batch_size = sum(label_mask)
         if subset_batch_size <= 0:  # No selected
-            topk_acc = 0
+            topk_acc = torch.FloatTensor(0)
         else:
             subset_preds = target_preds[label_mask]
             subset_labels = target_labels[label_mask]
 
-            topk_acc: float = metrics.distributed_topk_errors(
+            topk_acc: torch.FloatTensor = metrics.distributed_topk_errors(
                 subset_preds, subset_labels, [self.k], acc=True)[0]
 
         return topk_acc, subset_batch_size
@@ -167,7 +167,7 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
 
         subset_batch_size = sum(label_mask)
         if subset_batch_size <= 0:  # No selected
-            topk_acc = 0
+            topk_acc = torch.FloatTensor(0)
         else:
             # Subset
             preds1, preds2 = preds[0][label_mask], preds[1][label_mask]
@@ -303,7 +303,7 @@ class ConditionalOnlineForgettingMetric(Metric):
             action_topk_acc: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
                 preds1, preds2, labels1, labels2, acc=True)
 
-            self.action_to_current_acc[action].update(action_topk_acc, weight=subset_batch_size)
+            self.action_to_current_acc[action].update(action_topk_acc.item(), weight=subset_batch_size)
 
     @torch.no_grad()
     def reset(self):

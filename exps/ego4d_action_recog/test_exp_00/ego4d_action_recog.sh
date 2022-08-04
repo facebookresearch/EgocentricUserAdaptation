@@ -23,9 +23,6 @@ this_script_filepath="${this_script_dirpath}/$(basename "${BASH_SOURCE[0]}")"
 p_dirname="$(basename "${this_script_dirpath}")"
 pp_dirname="$(basename "$(dirname -- "${this_script_dirpath}")")"
 OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${run_id}" # Alternative:/home/matthiasdelange/data/ego4d/continual_ego4d_pretrained_models_usersplit
-mkdir -p "${OUTPUT_DIR}"
-cp "${CONFIG}" "${OUTPUT_DIR}"               # Make a copy of the config file (if we want to rerun later)
-cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script file (if we want to rerun later)
 
 # Data paths
 EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations/
@@ -47,7 +44,7 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS '1,3,4,5,6'"
+OVERWRITE_CFG_ARGS+=" GPU_IDS '3,4,5'"
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0 TRAIN.BATCH_SIZE 10 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 16 CHECKPOINT_step_freq 300" # DEBUG
 #OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30" # DEBUG
 
@@ -80,6 +77,7 @@ python -m continual_ego4d.run_recog_CL \
   --job_name "$screenname" \
   --working_directory "${OUTPUT_DIR}" \
   --cfg "${CONFIG}" \
+  --parent_script "${this_script_filepath}" \
   ${OVERWRITE_CFG_ARGS}
 
 #-----------------------------------------------------------------------------------------------#

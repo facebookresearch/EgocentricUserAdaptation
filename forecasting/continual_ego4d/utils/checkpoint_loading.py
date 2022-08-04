@@ -1,3 +1,4 @@
+import os
 import pickle
 import numpy as np
 import torch
@@ -7,6 +8,71 @@ from ego4d.utils.c2_model_loading import get_name_convert_func
 import os.path as osp
 
 logger = logging.get_logger(__name__)
+
+
+class PathHandler:
+
+    def __init__(self, cfg):
+        # Full paths (user agnostic)
+        self.main_output_dir = cfg.OUTPUT_DIR  # Main dir
+        self.meta_checkpoint_path = osp.join(self.main_output_dir, 'meta_checkpoint.pt')
+
+        # USER DEPENDENT
+        # Subdirnames
+        self.results_dirname = 'user_logs'  # CSV/stdout
+        self.tb_dirname = 'tb'
+        self.csv_dirname = self.results_dirname
+        self.stdout_dirname = self.results_dirname
+        self.checkpoint_dirname = 'checkpoints'
+
+        # Filenames
+        self.user_streamdump_filename = 'stream_info_dump.pth'
+
+    def get_experiment_version(self, user_id):
+        return self.userid_to_userdir(user_id)
+
+    def get_user_checkpoints_dir(self, user_id=None):
+        p = osp.join(self.main_output_dir, self.checkpoint_dirname)
+        if user_id is not None:
+            p = osp.join(p, self.get_experiment_version(user_id))
+        return p
+
+    def get_user_results_dir(self, user_id=None):
+        p = osp.join(self.main_output_dir, self.results_dirname)
+        if user_id is not None:
+            p = osp.join(p, self.get_experiment_version(user_id))
+        return p
+
+    def get_user_streamdump_file(self, user_id):
+        return osp.join(self.get_user_results_dir(user_id), self.user_streamdump_filename)
+
+    @staticmethod
+    def userid_to_userdir(user_id: str):
+        return f"user_{user_id.replace('.', '-')}"
+
+    @staticmethod
+    def userdir_to_userid(user_dirname):
+        return user_dirname.replace('user_', '').replace('-', '.')
+
+    def get_processed_users_from_final_dumps(self):
+        """Scan user result dirs and find the ones that made the final dumpfile."""
+        processed_user_ids = []
+
+        for user_subdir in os.scandir(self.get_user_results_dir(user_id=None)):
+            if not user_subdir.is_dir():
+                continue
+            user_dirname = user_subdir.name
+
+            for user_file in os.scandir(user_subdir.path):
+                if not user_file.is_file():
+                    continue
+
+                if user_file.name == self.user_streamdump_filename:
+                    processed_user_ids.append(self.userdir_to_userid(user_dirname))
+                    break
+
+        return processed_user_ids
+
 
 def save_meta_state(meta_checkpoint_path, user_id):
     # For easy debug

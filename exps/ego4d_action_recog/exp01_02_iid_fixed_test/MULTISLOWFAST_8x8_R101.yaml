@@ -6,7 +6,7 @@ CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
 METHOD:
   METHOD_NAME: "Finetuning"
 TRAIN:
-  ENABLE: True
+  ENABLE: False
   DATASET: Ego4dContinualRecognition
   BATCH_SIZE: 10 # Process 1 new video-subsequence a time (Online)
   CONTINUAL_EVAL_BATCH_SIZE: 64
