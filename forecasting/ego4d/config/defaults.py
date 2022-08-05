@@ -380,7 +380,7 @@ _C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = ""
 
 # CL: Stride for next observed frame in sequential data stream (in a single sequential clip-video)
 #  If batch size > STRIDE, then next step will contain seen samples (Although shifted)
-# _C.DATA.SEQ_OBSERVED_FRAME_STRIDE = 1 # BY DEFAULT specified as None: a full new batch is observed
+_C.DATA.SEQ_OBSERVED_FRAME_STRIDE = None # BY DEFAULT specified as None: a full new batch is observed
 
 # Custom data path names for Ego4d
 _C.DATA.PATH_TO_DATA_FILE = CfgNode()
