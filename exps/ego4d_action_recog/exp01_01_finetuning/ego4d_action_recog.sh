@@ -44,7 +44,7 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS '0,1,2,3,7'"
+OVERWRITE_CFG_ARGS+=" GPU_IDS '1,2,5,7'"
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0 TRAIN.BATCH_SIZE 10 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 16 CHECKPOINT_step_freq 300" # DEBUG
 #OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30" # DEBUG
 
