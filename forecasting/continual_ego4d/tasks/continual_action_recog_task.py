@@ -78,6 +78,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.sample_idxs = None
         self.eval_this_step = False
 
+        # Dataloader
+        self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
+
         # Metrics
         self.current_batch_metrics = [
             [OnlineTopkAccMetric(k=k, mode=m), RunningAvgOnlineTopkAccMetric(k=k, mode=m)]
@@ -370,14 +373,11 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         return self.model(inputs)
 
     def setup(self, stage):
+        """For distributed processes, init anything shared outside nn.Modules here. """
         # Setup is called immediately after the distributed processes have been
         # registered. We can now setup the distributed process groups for each machine
         # and create the distributed data loaders.
-        # if not self.cfg.FBLEARNER:
-        if self.cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
-            du.init_distributed_groups(self.cfg)
-
-        self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
+        pass
 
     def configure_optimizers(self):
         steps_in_epoch = len(self.train_loader)

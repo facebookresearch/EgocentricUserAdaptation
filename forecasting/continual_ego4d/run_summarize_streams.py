@@ -1,6 +1,7 @@
 import sys
 
 from continual_ego4d.utils.checkpoint_loading import load_pretrain_model, load_meta_state, save_meta_state, PathHandler
+import pickle
 
 import pprint
 import concurrent.futures
@@ -65,8 +66,9 @@ def main(cfg):
             datasets[user_id] = collect_user_dataset(cfg, user_id, user_datasets[user_id], path_handler)
         print(f"Collected all user datasets, USERS={list(datasets.keys())}")
 
-        torch.save(datasets, checkpoint_path)
-
+        # torch.save(datasets, checkpoint_path)
+        with open(checkpoint_path, 'wb') as f:
+            pickle.dump(datasets, f)
 
 
 def collect_user_dataset(
@@ -102,21 +104,6 @@ def collect_user_dataset(
     dataset_entries = [t[1] for t in dataset_tuple_entries]
 
     return dataset_entries
-
-
-# import pandas as pd
-# def plot_user_summary(user_id: str, user_entries: list):
-#     """"""
-#     # Do all for actions/verbs/nouns
-#     user_df = pd.json_normalize(user_entries)  # Convert to DF
-#
-#     # Plot accum 2s-clips per action + total length over all actions
-#     # plot_total_action_length_histogram()
-#
-#     # Plot Number of actions instead of length + mention max per-clip length (e.g. 2s)
-#
-#     # Plot like EPIC KITCHENS a normalized bar with same action same color
-#     # Also do for verbs/nouns separately
 
 
 if __name__ == "__main__":

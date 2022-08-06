@@ -1,6 +1,5 @@
 """ Split in train and test sets and generate summary. """
 
-# TODO use notebooks
 
 import pandas as pd
 import numpy as np
@@ -254,7 +253,7 @@ def generate_usersplit_from_trainval(
 
     # PRETRAIN JSON (USER + USER-AGNOSTIC ENTRIES in 'users' and 'clips' keys)
     # The 'clips' key allows to use the Ego4d code directly, making the json compatible with the codebase
-    split = 'pretrain'
+    split = 'pretrain_incl_nanusers'
     json_test_filepath = osp.join(output_dir, json_filename.format(split, nb_pretrain_users_subset))
     save_json(trainval_joined_df, user_id_col, pretrain_user_ids, json_col_names, json_test_filepath, split,
               flatten=True, include_nan_user=True)
