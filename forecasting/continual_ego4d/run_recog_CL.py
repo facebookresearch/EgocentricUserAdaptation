@@ -219,7 +219,7 @@ def online_adaptation_single_user(
         user_id: str,
         user_dataset: list[tuple],
         device_ids: list[int],
-        path_handler: PathHandler
+        path_handler: PathHandler,
 ) -> (str, bool):
     """ Run single user sequentially. Returns path to user results and interruption status."""
     seed_everything(cfg.RNG_SEED)
@@ -229,10 +229,7 @@ def online_adaptation_single_user(
     cfg.DATA.USER_DS_ENTRIES = user_dataset
 
     # Paths
-    # path_handler = PathHandler(cfg)
     cfg.USER_DUMP_FILE = path_handler.get_user_streamdump_file(user_id)  # Dump-path for Trainer stream info
-    cfg.USER_RESULT_PATH = path_handler.get_user_results_dir(user_id)
-    os.makedirs(cfg.USER_RESULT_PATH, exist_ok=True)
 
     # Loggers
     logging.setup_logging(  # Stdout logging

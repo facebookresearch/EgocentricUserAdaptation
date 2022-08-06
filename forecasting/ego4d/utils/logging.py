@@ -63,6 +63,7 @@ def setup_logging(output_dirs=None, host_name=None, overwrite_logfile=False):
         if not isinstance(output_dirs, list):
             output_dirs = [output_dirs]
         for output_dir in output_dirs:
+            os.makedirs(output_dir, exist_ok=True)
             log_filename = "stdout_{}{}.log"
             if overwrite_logfile:
                 filename = os.path.join(output_dir, log_filename.format('host', du.get_rank()))
