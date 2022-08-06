@@ -144,7 +144,7 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
 
         subset_batch_size = sum(label_mask)
         if subset_batch_size <= 0:  # No selected
-            topk_acc = torch.FloatTensor(0)
+            topk_acc = torch.FloatTensor([0])
         else:
             subset_preds = target_preds[label_mask]
             subset_labels = target_labels[label_mask]
@@ -167,7 +167,7 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
 
         subset_batch_size = sum(label_mask)
         if subset_batch_size <= 0:  # No selected
-            topk_acc = torch.FloatTensor(0)
+            topk_acc = torch.FloatTensor([0])
         else:
             # Subset
             preds1, preds2 = preds[0][label_mask], preds[1][label_mask]
