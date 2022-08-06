@@ -80,8 +80,11 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
         # Clip sampling
         clip_duration = Fraction((self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE), self.cfg.DATA.TARGET_FPS)
-        # clip_stride_seconds = Fraction(self.cfg.DATA.SEQ_OBSERVED_FRAME_STRIDE, self.cfg.DATA.TARGET_FPS)  # Seconds
-        clip_stride_seconds = None  # No overlap by default
+        if self.cfg.DATA.SEQ_OBSERVED_FRAME_STRIDE is not None and \
+                self.cfg.DATA.SEQ_OBSERVED_FRAME_STRIDE >= 1:
+            clip_stride_seconds = Fraction(self.cfg.DATA.SEQ_OBSERVED_FRAME_STRIDE, self.cfg.DATA.TARGET_FPS)  # Seconds
+        else:
+            clip_stride_seconds = None  # No overlap by default
 
         logger.debug(f"CLIP SAMPLER: Clip duration={clip_duration}, clip_stride_seconds={clip_stride_seconds}")
         clip_sampler = EnhancedUntrimmedClipSampler(UniformClipSampler(

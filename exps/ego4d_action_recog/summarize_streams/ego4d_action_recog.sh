@@ -38,7 +38,7 @@ OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
 
 # Resume previous run (use ckpts)
-OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/summarize_streams/../../..//results/ego4d_action_recog/summarize_streams/logs/2022-08-04_18-05-40_UID8f0427cb-8048-47d5-b70e-bc3878a1cb3a"
+#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/summarize_streams/../../..//results/ego4d_action_recog/summarize_streams/logs/2022-08-04_18-05-40_UID8f0427cb-8048-47d5-b70e-bc3878a1cb3a"
 
 # TODO: Define your paths here to summarize
 OVERWRITE_CFG_ARGS+=" DATA.USER_SUBSET 'train'" # Check train or test set
