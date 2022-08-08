@@ -1,6 +1,5 @@
 """ Split in train and test sets and generate summary. """
 
-
 import pandas as pd
 import numpy as np
 from collections import Counter
@@ -260,22 +259,79 @@ def generate_usersplit_from_trainval(
 
 
 def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_filepath, split,
-              flatten=False, include_nan_user=False):
-    """Filter json dataframe, parse to json-compatible object. Dump to json file."""
-    train_df = trainval_joined_df.loc[trainval_joined_df[user_id_col].isin(user_ids)]  # Get train datatframe
+              flatten=False, include_nan_user=False,
+              include_action_sets=True):
+    """Filter json dataframe, parse to json-compatible object. Dump to json file.
+
+    flatten: Add a separate 'clips'-key that contains all entries over all users in a single list for direct Ego4d usage.
+    include_nan_user: Include the NaN user as well (unassigned entries)
+    include_action_sets: If specified, include the set of all actions/verbs/nouns in the json.
+    """
+    pre_train_df = trainval_joined_df.loc[trainval_joined_df[user_id_col].isin(user_ids)]  # Get train datatframe
 
     if include_nan_user:
         nan_user_df = trainval_joined_df[trainval_joined_df[user_id_col].isnull()]
-        train_df = pd.concat([nan_user_df, train_df], ignore_index=True, sort=False)
+        pre_train_df = pd.concat([nan_user_df, pre_train_df], ignore_index=True, sort=False)
 
-    train_df = train_df[json_col_names]
-    train_df = train_df.rename(columns={"scenarios": "parent_video_scenarios"})
+    train_format_df = pre_train_df[json_col_names]
+    train_format_df = train_format_df.rename(columns={"scenarios": "parent_video_scenarios"})
 
-    train_json = df_to_formatted_json(train_df, user_ids, split, user_id_col)  # Convert to json
+    train_json = df_to_formatted_json(train_format_df, user_ids, split, user_id_col)  # Convert to json
+
+    # Additional level-1 entries besides 'users'
     if flatten:  # Generate flat list (user-agnostic) in clips-key
-        flat_train_json = train_json
         flatten_clips = [el for user_id, user_entry_list in train_json['users'].items() for el in user_entry_list]
-        flat_train_json['clips'] = flatten_clips
+        train_json['clips'] = flatten_clips
+
+    if include_action_sets:
+        add_action_columns(pre_train_df)
+
+        def get_action_sets(df, title: str):
+            """Get mapping of action/verb/noun label-index, to their name and count.
+            As the mapping is a dict, the keys also represent the unique elements.
+            """
+            verb_to_name_dict = dict(zip(df['verb_label'], df['verb']))
+            noun_to_name_dict = dict(zip(df['noun_label'], df['noun']))
+            action_to_name_dict = dict(zip(df['action_label'], df['action']))
+
+            # Get counts per action
+            verb_cnt = Counter(df['verb_label'].tolist())
+            noun_cnt = Counter(df['noun_label'].tolist())
+            action_cnt = Counter(df['action_label'].tolist())
+
+            # Add count to dict
+            for refdict, refcnt in [(verb_to_name_dict, verb_cnt),
+                                    (noun_to_name_dict, noun_cnt),
+                                    (action_to_name_dict, action_cnt)]:
+                for label, name in refdict.items():
+                    refdict[label] = {'name': name, 'count': refcnt[label]}
+
+            print(f"{title} UNIQUE verbs={len(verb_to_name_dict)},"
+                  f"nouns={len(noun_to_name_dict)},"
+                  f"actions={len(action_to_name_dict)}")
+            return verb_to_name_dict, noun_to_name_dict, action_to_name_dict
+
+        # User-agnostic actions
+        # Same as 'keep_last=True' using zip for duplicates
+        train_json['user_action_sets'] = {}
+        train_json['user_action_sets']['user_agnostic'] = {}
+        refdict = train_json['user_action_sets']['user_agnostic']
+
+        verb_to_name_dict, noun_to_name_dict, action_to_name_dict = get_action_sets(pre_train_df, title='User-agnostic')
+        refdict['verb_to_name_dict'] = verb_to_name_dict
+        refdict['noun_to_name_dict'] = noun_to_name_dict
+        refdict['action_to_name_dict'] = action_to_name_dict
+
+        for user_id in train_json['users'].keys():
+            user_subset_df = pre_train_df.loc[pre_train_df['fb_participant_id'] == user_id]
+            verb_to_name_dict, noun_to_name_dict, action_to_name_dict = get_action_sets(
+                user_subset_df, title=f'USER {user_id} - ')
+
+            train_json['user_action_sets'][user_id] = {}
+            refdict = train_json['user_action_sets'][user_id]
+            refdict['verb_to_name_dict'] = verb_to_name_dict
+            refdict['noun_to_name_dict'] = noun_to_name_dict
+            refdict['action_to_name_dict'] = action_to_name_dict
 
     with open(json_filepath, 'w', encoding='utf-8') as f:
         json.dump(train_json, f, ensure_ascii=False, indent=4)
@@ -286,6 +342,19 @@ def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_fi
         json_obj = json.load(f)
     df = pd.json_normalize(json_obj['users'])
     print(f"Loaded json, head=\n{df.head(n=10)}\n")
+
+
+def add_action_columns(df):
+    def label_fn(x):
+        assert len(x) == 2, "Need two columns to merge"
+        if not isinstance(x[0], list):
+            assert not isinstance(x[1], list)
+            return f"{x[0]}-{x[1]}"
+
+        return [f"{l}-{r}" for l, r in zip(x[0], x[1])]
+
+    df['action_label'] = df.loc[:, ('verb_label', 'noun_label')].apply(label_fn, axis=1)
+    df['action'] = df.loc[:, ('verb', 'noun')].apply(label_fn, axis=1)
 
 
 def print_summary(user_sort_values, nb_users_subset, nb_total_users, title: str):
