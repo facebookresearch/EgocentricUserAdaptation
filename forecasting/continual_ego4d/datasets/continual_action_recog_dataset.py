@@ -247,10 +247,7 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         )
 
 
-def get_user_to_dataset_dict(data_path):
-    """
-    :return: Dictionary that holds the annotation entries in a list per user. <User,Dataset-entry-list>
-    """
+def extract_json(data_path):
     # Set json path for dataloader
     assert os.path.exists(data_path), f'Please run user datasplit script first to create: {data_path}'
 
@@ -261,6 +258,14 @@ def get_user_to_dataset_dict(data_path):
         except Exception:
             raise FileNotFoundError(f"{data_path} must be json for Ego4D dataset")
 
+    return dict_holder
+
+
+def get_user_to_dataset_dict(data_path):
+    """
+    :return: Dictionary that holds the annotation entries in a list per user. <User,Dataset-entry-list>
+    """
+    dict_holder = extract_json(data_path)
     usersplit_annotations = dict_holder['users']
     logger.debug(f"Got usersplit with users: {list(usersplit_annotations.keys())}")
     return usersplit_annotations
