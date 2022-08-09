@@ -3,7 +3,7 @@ import os
 
 import torch
 import torch.utils.data
-from pytorchvideo.data import make_clip_sampler, UniformClipSampler
+from pytorchvideo.data import make_clip_sampler
 from pytorchvideo.transforms import (
     ApplyTransformToKey,
     Normalize,
@@ -38,9 +38,8 @@ class Ego4dRecognition(torch.utils.data.Dataset):
             sampler = DistributedSampler
 
         clip_sampler_type = "uniform" if mode == "test" else "random"
-        clip_duration = (
-                                self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE
-                        ) / self.cfg.DATA.TARGET_FPS
+        clip_duration = (self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE
+                         ) / self.cfg.DATA.TARGET_FPS
         clip_sampler = make_clip_sampler(clip_sampler_type, clip_duration)
 
         if len(self.cfg.DATA.PATH_TO_DATA_FILE) == 0:  # Ego4d defaults
@@ -53,6 +52,7 @@ class Ego4dRecognition(torch.utils.data.Dataset):
                 data_path = self.cfg.DATA.PATH_TO_DATA_FILE.VAL
             elif mode == 'test':
                 data_path = self.cfg.DATA.PATH_TO_DATA_FILE.TEST
+        logger.info(f"Evaluating from json in path: {data_path}")
 
         self.dataset = ptv_dataset_helper.clip_recognition_dataset(
             data_path=data_path,

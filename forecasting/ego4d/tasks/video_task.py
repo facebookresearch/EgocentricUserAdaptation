@@ -62,8 +62,8 @@ class VideoTask(LightningModule):
         if self.cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
             du.init_distributed_groups(self.cfg)
 
-        self.train_loader = loader.construct_loader(self.cfg, "train")
-        self.val_loader = loader.construct_loader(self.cfg, "val")
+        self.train_loader = loader.construct_loader(self.cfg, "train") if self.cfg.TRAIN.ENABLE else None
+        self.val_loader = loader.construct_loader(self.cfg, "val") if self.cfg.TRAIN.ENABLE else None
         self.test_loader = loader.construct_loader(self.cfg, "test") if self.cfg.TEST.ENABLE else None
 
     def configure_optimizers(self):

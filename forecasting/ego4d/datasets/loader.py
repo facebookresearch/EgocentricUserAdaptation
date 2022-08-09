@@ -13,6 +13,10 @@ import itertools
 from .build import build_dataset
 from collections import defaultdict
 
+from ego4d.utils import logging
+
+logger = logging.get_logger(__name__)
+
 
 def detection_collate(batch):
     """
@@ -109,10 +113,13 @@ def construct_loader(cfg, split):
         elif cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"] and cfg.NUM_GPUS > 1:
             sampler = DistributedSampler(dataset)
 
+    shuffle = (False if sampler else shuffle)
+    logger.info(f"Creating with shuffle={shuffle}, sampler={sampler}")
+
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=(False if sampler else shuffle),
+        shuffle=shuffle,
         sampler=sampler,
         num_workers=cfg.DATA_LOADER.NUM_WORKERS,
         pin_memory=cfg.DATA_LOADER.PIN_MEMORY,

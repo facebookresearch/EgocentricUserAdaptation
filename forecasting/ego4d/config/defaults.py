@@ -375,6 +375,7 @@ _C.DATA = CfgNode()
 # User data splits
 _C.DATA.USER_SUBSET = 'train'  # train or test split for users.
 _C.DATA.PATH_TO_DATA_SPLIT_JSON = CfgNode()
+_C.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT = ""
 _C.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT = ""
 _C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = ""
 

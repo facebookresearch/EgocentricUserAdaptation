@@ -31,7 +31,7 @@ from ego4d.utils.c2_model_loading import get_name_convert_func
 from ego4d.utils.misc import gpu_mem_usage
 from ego4d.utils.parser import load_config, parse_args
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, DeviceStatsMonitor
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, GPUStatsMonitor
 from pytorch_lightning.plugins import DDPPlugin
 
 import copy
@@ -229,9 +229,9 @@ def main(cfg):
         save_last=True, save_top_k=1
     )
     if cfg.ENABLE_LOGGING:
-        args = {"callbacks": [LearningRateMonitor(), checkpoint_callback, DeviceStatsMonitor()]}
+        args = {"callbacks": [LearningRateMonitor(), checkpoint_callback, GPUStatsMonitor()]}
     else:
-        args = {"logger": False, "callbacks": [checkpoint_callback, DeviceStatsMonitor()]}
+        args = {"logger": False, "callbacks": [checkpoint_callback, GPUStatsMonitor()]}
 
     trainer = Trainer(
         gpus=cfg.NUM_GPUS,

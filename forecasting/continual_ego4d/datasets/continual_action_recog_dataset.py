@@ -31,7 +31,7 @@ from torchvision.transforms import (
 from ego4d.datasets.build import DATASET_REGISTRY
 from ego4d.utils import logging, video_transformer
 from ego4d.datasets.build import build_dataset
-
+from ego4d.datasets.ptv_dataset_helper import EnhancedUntrimmedClipSampler
 import gc
 
 import json
@@ -261,16 +261,6 @@ def extract_json(data_path):
     return dict_holder
 
 
-def get_user_to_dataset_dict(data_path):
-    """
-    :return: Dictionary that holds the annotation entries in a list per user. <User,Dataset-entry-list>
-    """
-    dict_holder = extract_json(data_path)
-    usersplit_annotations = dict_holder['users']
-    logger.debug(f"Got usersplit with users: {list(usersplit_annotations.keys())}")
-    return usersplit_annotations
-
-
 def get_seq_annotated_clip_input_list(
         user_id: str,  # Ego4d 'fb_participant_id'
         user_annotations: List,
@@ -468,41 +458,3 @@ def get_formatted_entry(entry, video_path_prefix, user_id):
             "user_id": user_id,  # Grouped by user
         }
     )
-
-
-class EnhancedUntrimmedClipSampler:
-    """
-    A wrapper for adapting untrimmed annotated clips from the json_dataset to the
-    standard `pytorchvideo.data.ClipSampler` expected format. Specifically, for each
-    clip it uses the provided `clip_sampler` to sample between "clip_start_sec" and
-    "clip_end_sec" from the json_dataset clip annotation.
-    """
-
-    def __init__(self, clip_sampler: ClipSampler) -> None:
-        """
-        Args:
-            clip_sampler (`pytorchvideo.data.ClipSampler`): Strategy used for sampling
-                between the untrimmed clip boundary.
-        """
-        self._trimmed_clip_sampler = clip_sampler
-        self._clip_duration = clip_sampler._clip_duration
-
-    def __call__(
-            self, untrim_last_clip_time: float, video_duration: float, clip_info: Dict[str, Any]
-    ) -> ClipInfo:
-        clip_start_boundary = clip_info["clip_start_sec"]
-        clip_end_boundary = clip_info["clip_end_sec"]
-        duration = clip_end_boundary - clip_start_boundary
-
-        # Important to avoid out-of-bounds when sampling multiple times (when untrim_last_clip_time>0)
-        trim_last_clip_time = untrim_last_clip_time - clip_start_boundary
-
-        # Sample between 0 and duration of untrimmed clip, then add back start boundary.
-        clip_info = self._trimmed_clip_sampler(trim_last_clip_time, duration, clip_info)
-        return ClipInfo(
-            clip_info.clip_start_sec + clip_start_boundary,
-            clip_info.clip_end_sec + clip_start_boundary,
-            clip_info.clip_index,
-            clip_info.aug_index,
-            clip_info.is_last_clip,
-        )

@@ -20,6 +20,78 @@ from pytorchvideo.data.utils import MultiProcessSampler
 logger = logging.getLogger(__name__)
 
 
+class UntrimmedClipSampler:
+    """
+    A wrapper for adapting untrimmed annotated clips from the json_dataset to the
+    standard `pytorchvideo.data.ClipSampler` expected format. Specifically, for each
+    clip it uses the provided `clip_sampler` to sample between "clip_start_sec" and
+    "clip_end_sec" from the json_dataset clip annotation.
+    """
+
+    def __init__(self, clip_sampler: ClipSampler) -> None:
+        """
+        Args:
+            clip_sampler (`pytorchvideo.data.ClipSampler`): Strategy used for sampling
+                between the untrimmed clip boundary.
+        """
+        self._trimmed_clip_sampler = clip_sampler
+
+    def __call__(
+            self, last_clip_time: float, video_duration: float, clip_info: Dict[str, Any]
+    ) -> ClipInfo:
+        clip_start_boundary = clip_info["clip_start_sec"]
+        clip_end_boundary = clip_info["clip_end_sec"]
+        duration = clip_end_boundary - clip_start_boundary
+
+        # Sample between 0 and duration of untrimmed clip, then add back start boundary.
+        clip_info = self._trimmed_clip_sampler(last_clip_time, duration, clip_info)
+        return ClipInfo(
+            clip_info.clip_start_sec + clip_start_boundary,
+            clip_info.clip_end_sec + clip_start_boundary,
+            clip_info.clip_index,
+            clip_info.aug_index,
+            clip_info.is_last_clip,
+        )
+
+
+class EnhancedUntrimmedClipSampler:
+    """
+    A wrapper for adapting untrimmed annotated clips from the json_dataset to the
+    standard `pytorchvideo.data.ClipSampler` expected format. Specifically, for each
+    clip it uses the provided `clip_sampler` to sample between "clip_start_sec" and
+    "clip_end_sec" from the json_dataset clip annotation.
+    """
+
+    def __init__(self, clip_sampler: ClipSampler) -> None:
+        """
+        Args:
+            clip_sampler (`pytorchvideo.data.ClipSampler`): Strategy used for sampling
+                between the untrimmed clip boundary.
+        """
+        self._trimmed_clip_sampler = clip_sampler
+        self._clip_duration = clip_sampler._clip_duration
+
+    def __call__(
+            self, untrim_last_clip_time: float, video_duration: float, clip_info: Dict[str, Any]
+    ) -> ClipInfo:
+        clip_start_boundary = clip_info["clip_start_sec"]
+        clip_end_boundary = clip_info["clip_end_sec"]
+        duration = clip_end_boundary - clip_start_boundary
+
+        # Important to avoid out-of-bounds when sampling multiple times (when untrim_last_clip_time>0)
+        trim_last_clip_time = untrim_last_clip_time - clip_start_boundary
+
+        # Sample between 0 and duration of untrimmed clip, then add back start boundary.
+        clip_info = self._trimmed_clip_sampler(trim_last_clip_time, duration, clip_info)
+        return ClipInfo(
+            clip_info.clip_start_sec + clip_start_boundary,
+            clip_info.clip_end_sec + clip_start_boundary,
+            clip_info.clip_index,
+            clip_info.aug_index,
+            clip_info.is_last_clip,
+        )
+
+
 class LabeledVideoDataset(torch.utils.data.IterableDataset):
     """
     LabeledVideoDataset handles the storage, loading, decoding and clip sampling for a
@@ -37,6 +109,7 @@ class LabeledVideoDataset(torch.utils.data.IterableDataset):
             transform: Optional[Callable[[dict], Any]] = None,
             decode_audio: bool = True,
             decoder: str = "pyav",
+            sample_all_clips_per_annotation=False
     ) -> None:
         """
         Args:
@@ -67,6 +140,7 @@ class LabeledVideoDataset(torch.utils.data.IterableDataset):
         self._labeled_videos = labeled_video_paths
         self._decoder = decoder
         self.path_handler = VideoPathHandler()
+        self.sample_all_clips_per_annotation = sample_all_clips_per_annotation
 
         # If a RandomSampler is used we need to pass in a custom random generator that
         # ensures all PyTorch multiprocess workers have the same random seed.
@@ -87,6 +161,7 @@ class LabeledVideoDataset(torch.utils.data.IterableDataset):
         self._loaded_video_label = None
         self._loaded_clips = None
         self._next_clip_start_time = 0.0
+        self.video_index = None
 
     @property
     def video_sampler(self):
@@ -125,13 +200,16 @@ class LabeledVideoDataset(torch.utils.data.IterableDataset):
         """
         if not self._video_sampler_iter:
             # Setup MultiProcessSampler here - after PyTorch DataLoader workers are spawned.
+            # Each node processes different annotation entry (Slicing the iterator per process)
             self._video_sampler_iter = iter(MultiProcessSampler(self._video_sampler))
 
-        video_index = next(self._video_sampler_iter)
+        # Each item comes from a new annotation entry
+        if self.video_index is None or not self.sample_all_clips_per_annotation:
+            self.video_index = next(self._video_sampler_iter)  # Next annotation entry
 
         for i_try in range(self._MAX_CONSECUTIVE_FAILURES):
             try:
-                video_path, info_dict = self._labeled_videos[video_index]
+                video_path, info_dict = self._labeled_videos[self.video_index]
                 video = self.path_handler.video_from_path(
                     video_path,
                     decode_audio=self._decode_audio,
@@ -159,7 +237,11 @@ class LabeledVideoDataset(torch.utils.data.IterableDataset):
                     break
                 decoded_clips.append(clip)
 
-            self._next_clip_start_time = clip_end
+            # logger.debug(f"clips={clips}, \ninfo_dict={info_dict}, \nvideo={video}")
+
+            # Increase next-clip time only if next will be subsequent clip for same annotation
+            if self.sample_all_clips_per_annotation:
+                self._next_clip_start_time = clip_end  # Only works for uniform/sequential if same annotation is
 
             if is_last_clip or video_is_null:
                 # Close the loaded encoded video and reset the last sampled clip time ready
@@ -195,7 +277,7 @@ class LabeledVideoDataset(torch.utils.data.IterableDataset):
             sample_dict = {
                 "video": frames,
                 "video_name": video.name,
-                "video_index": video_index,
+                "video_index": self.video_index,
                 "clip_index": clip_index,
                 "aug_index": aug_index,
                 **info_dict,
@@ -203,6 +285,10 @@ class LabeledVideoDataset(torch.utils.data.IterableDataset):
             }
             if self._transform is not None:
                 sample_dict = self._transform(sample_dict)
+
+            # Go to next annotation entry only if all have been sampled in its timerange
+            if is_last_clip and self.sample_all_clips_per_annotation:
+                self.video_index = next(self._video_sampler_iter)  # Next annotation entry
 
             return sample_dict
         else:
@@ -280,40 +366,6 @@ def labeled_video_dataset(
     return dataset
 
 
-class UntrimmedClipSampler:
-    """
-    A wrapper for adapting untrimmed annotated clips from the json_dataset to the
-    standard `pytorchvideo.data.ClipSampler` expected format. Specifically, for each
-    clip it uses the provided `clip_sampler` to sample between "clip_start_sec" and
-    "clip_end_sec" from the json_dataset clip annotation.
-    """
-
-    def __init__(self, clip_sampler: ClipSampler) -> None:
-        """
-        Args:
-            clip_sampler (`pytorchvideo.data.ClipSampler`): Strategy used for sampling
-                between the untrimmed clip boundary.
-        """
-        self._trimmed_clip_sampler = clip_sampler
-
-    def __call__(
-            self, last_clip_time: float, video_duration: float, clip_info: Dict[str, Any]
-    ) -> ClipInfo:
-        clip_start_boundary = clip_info["clip_start_sec"]
-        clip_end_boundary = clip_info["clip_end_sec"]
-        duration = clip_end_boundary - clip_start_boundary
-
-        # Sample between 0 and duration of untrimmed clip, then add back start boundary.
-        clip_info = self._trimmed_clip_sampler(last_clip_time, duration, clip_info)
-        return ClipInfo(
-            clip_info.clip_start_sec + clip_start_boundary,
-            clip_info.clip_end_sec + clip_start_boundary,
-            clip_info.clip_index,
-            clip_info.aug_index,
-            clip_info.is_last_clip,
-        )
-
-
 class ForecastingClipSampler:
     def __init__(self, clip_sampler: ClipSampler) -> None:
         self._trimmed_clip_sampler = clip_sampler
@@ -381,7 +433,7 @@ def clip_recognition_dataset(
 
     dataset = LabeledVideoDataset(
         untrimmed_clip_annotations,
-        UntrimmedClipSampler(clip_sampler),
+        EnhancedUntrimmedClipSampler(clip_sampler),  # UntrimmedClipSampler
         video_sampler,
         transform,
         decode_audio=decode_audio,
