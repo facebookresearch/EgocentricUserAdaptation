@@ -32,7 +32,9 @@ class MultiTaskClassificationTask(VideoTask):
 
         step_result = {
             "loss": loss,
-            "train_loss": loss.item(),
+            "train_action_loss": loss.item(),
+            "train_verb_loss": loss1.item(),
+            "train_noun_loss": loss2.item(),
             "train_top1_verb_err": top1_err_verb.item(),
             "train_top5_verb_err": top5_err_verb.item(),
             "train_top1_noun_err": top1_err_noun.item(),
@@ -61,6 +63,12 @@ class MultiTaskClassificationTask(VideoTask):
     def validation_step(self, batch, batch_idx):
         inputs, labels, _, _ = batch
         preds = self.forward(inputs)
+
+        # Log losses as well
+        loss1 = self.loss_fun(preds[0], labels[:, 0])
+        loss2 = self.loss_fun(preds[1], labels[:, 1])
+        loss = loss1 + loss2
+
         top1_err_verb, top5_err_verb = metrics.distributed_topk_errors(
             preds[0], labels[:, 0], (1, 5)
         )
@@ -68,6 +76,9 @@ class MultiTaskClassificationTask(VideoTask):
             preds[1], labels[:, 1], (1, 5)
         )
         return {
+            "val_action_loss": loss.item(),
+            "val_verb_loss": loss1.item(),
+            "val_noun_loss": loss2.item(),
             "val_top1_verb_err": top1_err_verb.item(),
             "val_top5_verb_err": top5_err_verb.item(),
             "val_top1_noun_err": top1_err_noun.item(),

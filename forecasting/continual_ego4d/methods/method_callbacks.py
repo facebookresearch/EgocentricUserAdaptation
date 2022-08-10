@@ -25,9 +25,9 @@ class Method:
         loss = loss1 + loss2  # Avg losses
 
         log_results = {
-            "train_loss": loss.item(),
-            "verb_loss": loss1.item(),
-            "noun_loss": loss2.item(),
+            "train_action_loss": loss.item(),
+            "train_verb_loss": loss1.item(),
+            "train_noun_loss": loss2.item(),
         }
         return loss, preds, log_results
 
