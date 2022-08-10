@@ -20,7 +20,7 @@ from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
 from continual_ego4d.metrics.metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
-    GeneralizationTopkAccMetric, FWTTopkAccMetric, ConditionalOnlineForgettingMetric, ReexposureForgettingMetric, \
+    GeneralizationTopkAccMetric, FWTTopkAccMetric, FullOnlineForgettingMetric, ReexposureForgettingMetric, \
     CollateralForgettingMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 
@@ -63,7 +63,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Store vars (Don't reassign, use ref)
         self.seen_samples_idxs = []
-        self.current_batch_action_set = set()
         self.seen_action_set = set()
         self.seen_verb_set = set()
         self.seen_noun_set = set()
@@ -82,6 +81,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
 
         # Metrics
+        # CURRENT BATCH METRICS
         self.current_batch_metrics = [
             [OnlineTopkAccMetric(k=k, mode=m), RunningAvgOnlineTopkAccMetric(k=k, mode=m)]
             for k, m in product([1, 5], ['verb', 'noun'])]
@@ -92,16 +92,42 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             ])
         self.current_batch_metrics = [m for metric_list in self.current_batch_metrics for m in metric_list]
 
-        self.future_metrics = [
-            GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
-            FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
-        ] if future_metrics is None else future_metrics
+        # FUTURE METRICS
+        self.future_metrics = future_metrics
+        if self.future_metrics is None:  # None = default
+            action_metrics = [
+                GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
+                FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
+            ]
+            verb_metrics = [
+                GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='verb'),
+                FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='verb'),
+            ]
+            noun_metrics = [
+                GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='noun'),
+                FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='noun'),
+            ]
+            self.future_metrics = action_metrics + verb_metrics + noun_metrics
 
-        self.past_metrics = [
-            ConditionalOnlineForgettingMetric(),
-            ReexposureForgettingMetric(self.current_batch_action_set, k=1, mode='action'),
-            CollateralForgettingMetric(self.current_batch_action_set, k=1, mode='action'),
-        ] if past_metrics is None else past_metrics
+        # PAST METRICS
+        self.past_metrics = past_metrics
+        if self.past_metrics is None:  # None = default
+            action_metrics = [
+                FullOnlineForgettingMetric(k=1, mode='action'),
+                ReexposureForgettingMetric(k=1, mode='action'),
+                CollateralForgettingMetric(k=1, mode='action'),
+            ]
+            verb_metrics = [
+                FullOnlineForgettingMetric(k=1, mode='verb'),
+                ReexposureForgettingMetric(k=1, mode='verb'),
+                CollateralForgettingMetric(k=1, mode='verb'),
+            ]
+            noun_metrics = [
+                FullOnlineForgettingMetric(k=1, mode='noun'),
+                ReexposureForgettingMetric(k=1, mode='noun'),
+                CollateralForgettingMetric(k=1, mode='noun'),
+            ]
+            self.past_metrics = action_metrics + verb_metrics + noun_metrics
 
         logger.debug(f'Initialized {self.__class__.__name__}')
 
@@ -147,13 +173,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # PREDICTIONS + LOSS
         inputs, labels, video_names, stream_sample_idxs = batch
-
-        # Keep current-batch refs for Metrics (e.g. Exposure-based forgetting)
-        self.current_batch_action_set.clear()  # Clear set, but keep reference
-        for (verb, noun) in labels.tolist():
-            action = verbnoun_to_action(verb, noun)
-            self.current_batch_action_set.add(action)
-        # metric_results['actions_on_step'] = '|'.join([f"{x[0]}-{x[1]}" for x in labels.tolist()])  # For logging
 
         # Do method callback (Get losses etc)
         loss, outputs, step_results = self.method.training_step(inputs, labels)
