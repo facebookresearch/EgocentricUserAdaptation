@@ -67,7 +67,7 @@ def main(cfg: CfgNode):
 
     # Pretraining stats (e.g. action sets), cfg requires COMPUTED_ for dynamically added nodes
     pretrain_dataset_holder = extract_json(data_paths['pretrain'])
-    cfg.COMPUTED_PRETRAIN_ACTION_SETS = copy.deepcopy(pretrain_dataset_holder['user_action_sets'])
+    cfg.COMPUTED_PRETRAIN_ACTION_SETS = copy.deepcopy(pretrain_dataset_holder['user_action_sets']['user_agnostic'])
     del pretrain_dataset_holder
 
     # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
