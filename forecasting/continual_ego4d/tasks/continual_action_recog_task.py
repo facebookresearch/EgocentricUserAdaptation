@@ -19,8 +19,9 @@ import os.path as osp
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
-from continual_ego4d.metrics.metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
-    GeneralizationTopkAccMetric, FWTTopkAccMetric, FullOnlineForgettingMetric, ReexposureForgettingMetric, \
+from continual_ego4d.metrics.batch_metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric
+from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric
+from continual_ego4d.metrics.past_metrics import FullOnlineForgettingMetric, ReexposureForgettingMetric, \
     CollateralForgettingMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 
@@ -231,6 +232,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         for (verb, noun), stream_sample_id in zip(labels.tolist(), stream_sample_ids):
             action = verbnoun_to_action(verb, noun)
             self.seen_action_set.add(action)
+            self.seen_verb_set.add(verb)
+            self.seen_noun_set.add(noun)
             self.action_to_batches[action].append(batch_idx)  # Possibly add multiple time batch_idx
             self.batch_to_actions[batch_idx].append(action)
 
