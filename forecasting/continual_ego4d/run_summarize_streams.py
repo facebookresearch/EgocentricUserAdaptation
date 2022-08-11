@@ -19,7 +19,7 @@ from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
 
 from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
 from continual_ego4d.tasks.iid_action_recog_task import IIDMultiTaskClassificationTask
-from continual_ego4d.datasets.continual_action_recog_dataset import get_user_to_dataset_dict
+from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 
 from scripts.slurm import copy_and_run_with_config
 import os
@@ -48,7 +48,7 @@ def main(cfg):
     }
     data_path = data_paths[cfg.DATA.USER_SUBSET]
 
-    user_datasets = get_user_to_dataset_dict(data_path)
+    user_datasets = extract_json(data_path)['users']
     all_user_ids_s = sorted([u for u in user_datasets.keys()])  # Deterministic user order
     print(f'Running JSON USER SPLIT "{cfg.DATA.USER_SUBSET}" in path: {data_path}')
 
@@ -81,10 +81,10 @@ def collect_user_dataset(
     seed_everything(cfg.RNG_SEED)
 
     # Set user configs
-    cfg.DATA.USER_ID = user_id
-    cfg.DATA.USER_DS_ENTRIES = user_dataset
-    cfg.USER_DUMP_FILE = path_handler.get_user_streamdump_file(user_id)  # Dump-path for Trainer stream info
-    cfg.USER_RESULT_PATH = path_handler.get_user_results_dir(user_id)
+    cfg.DATA.COMPUTED_USER_ID = user_id
+    cfg.DATA.COMPUTED_USER_DS_ENTRIES = user_dataset
+    cfg.COMPUTED_USER_DUMP_FILE = path_handler.get_user_streamdump_file(user_id)  # Dump-path for Trainer stream info
+    # cfg.USER_RESULT_PATH = path_handler.get_user_results_dir(user_id)
 
     # Choose task type based on config.
     if cfg.DATA.TASK == "continual_classification":

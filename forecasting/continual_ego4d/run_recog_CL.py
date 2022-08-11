@@ -245,7 +245,7 @@ def online_adaptation_single_user(
     cfg.DATA.COMPUTED_USER_DS_ENTRIES = user_dataset
 
     # Paths
-    cfg.USER_DUMP_FILE = path_handler.get_user_streamdump_file(user_id)  # Dump-path for Trainer stream info
+    cfg.COMPUTED_USER_DUMP_FILE = path_handler.get_user_streamdump_file(user_id)  # Dump-path for Trainer stream info
 
     # Loggers
     logging.setup_logging(  # Stdout logging

@@ -71,7 +71,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.seen_noun_set = set()
 
         # For data stream info dump
-        self.dumpfile = self.cfg.USER_DUMP_FILE
+        self.dumpfile = self.cfg.COMPUTED_USER_DUMP_FILE
         self.action_to_batches = defaultdict(list)  # On-the-fly: For each action keep all ids when it was observed
         self.batch_to_actions = defaultdict(list)
 
