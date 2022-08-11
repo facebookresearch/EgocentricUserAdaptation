@@ -177,7 +177,7 @@ def process_users_sequentially(
             logger.info(f"Skipping USER {user_id} as already processed, result_path={cfg.OUTPUT_DIR}")
 
         interrupted, *_ = online_adaptation_single_user(
-            cfg,
+            copy.deepcopy(cfg),  # Cfg doesn't allow resetting COMPUTED_ attributes
             user_id,
             user_datasets[user_id],
             scheduler_cfg.available_device_ids,
