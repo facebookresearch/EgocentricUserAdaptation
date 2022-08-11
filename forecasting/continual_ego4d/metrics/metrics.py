@@ -138,7 +138,11 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
         target_preds = preds[self.label_idx]
         target_labels = labels[:, self.label_idx]
 
-        label_mask = sum(target_labels == el for el in self.cond_set).bool()
+        if len(self.cond_set) == 0:
+            label_mask = torch.zeros_like(target_labels).bool()
+        else:
+            label_mask = sum(target_labels == el for el in self.cond_set).bool()
+
         if not self.in_cond_set:  # Reverse
             label_mask = ~label_mask
 
@@ -230,7 +234,6 @@ class ConditionalOnlineForgettingMetric(Metric):
             name_prefix = f"{name_prefix}_"
         self.name = f"{name_prefix}top{self.k}_{mode}_forg"
 
-        assert mode == 'action', f"Only action mode supported for now"
         self.mode = mode
         assert self.mode in self.modes
         if self.mode == 'verb':
