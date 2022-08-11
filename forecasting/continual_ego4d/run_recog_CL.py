@@ -1,3 +1,4 @@
+import copy
 import sys
 
 from continual_ego4d.utils.checkpoint_loading import load_pretrain_model, load_meta_state, save_meta_state, PathHandler
@@ -18,17 +19,18 @@ from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
 
 from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
 from continual_ego4d.tasks.iid_action_recog_task import IIDMultiTaskClassificationTask
-from continual_ego4d.datasets.continual_action_recog_dataset import get_user_to_dataset_dict
+from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 
 from scripts.slurm import copy_and_run_with_config
 import os
-import os.path as osp
 import shutil
+
+from fvcore.common.config import CfgNode
 
 logger = logging.get_logger(__name__)
 
 
-def main(cfg):
+def main(cfg: CfgNode):
     """ Iterate users and aggregate. """
     resuming_run = len(cfg.RESUME_OUTPUT_DIR) > 0
     if resuming_run:
@@ -52,13 +54,21 @@ def main(cfg):
         "Choose either 'train' or 'test' mode, TRAIN is the user-subset for hyperparam tuning, TEST is held-out final eval"
     data_paths = {
         'train': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT,
-        'test': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT
+        'test': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT,
+        'pretrain': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT,
     }
     data_path = data_paths[cfg.DATA.USER_SUBSET]
-
-    user_datasets = get_user_to_dataset_dict(data_path)
-    all_user_ids_s = sorted([u for u in user_datasets.keys()])  # Deterministic user order
     logger.info(f'Running JSON USER SPLIT "{cfg.DATA.USER_SUBSET}" in path: {data_path}')
+
+    # Current training data (for all users)
+    datasets_holder = extract_json(data_path)
+    user_datasets = datasets_holder['users']  # user-specific datasets
+    all_user_ids = sorted([u for u in user_datasets.keys()])  # Deterministic user order
+
+    # Pretraining stats (e.g. action sets), cfg requires COMPUTED_ for dynamically added nodes
+    pretrain_dataset_holder = extract_json(data_paths['pretrain'])
+    cfg.COMPUTED_PRETRAIN_ACTION_SETS = copy.deepcopy(pretrain_dataset_holder['user_action_sets'])
+    del pretrain_dataset_holder
 
     # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
     processed_user_ids = []
@@ -73,34 +83,49 @@ def main(cfg):
             logger.info(f"TEST-ONLY MODE: assuming all users have been processed")
 
             # Checks
-            assert len(processed_user_ids) == len(all_user_ids_s), \
-                f"Only {len(processed_user_ids)}/{len(all_user_ids_s)} users processed for test: {processed_user_ids}"
+            assert len(processed_user_ids) == len(all_user_ids), \
+                f"Only {len(processed_user_ids)}/{len(all_user_ids)} " \
+                f"users processed for test: {processed_user_ids}"
             assert len(cfg.CHECKPOINT_FILE_PATH) > 0, "Need a model path to load for testing"
             assert cfg.CHECKPOINT_LOAD_MODEL_HEAD, f"Need to load head for testing mode"
 
             processed_user_ids = []  # For testing, all still have to be processed
 
     # Sequential/parallel execution user jobs
-    device_ids = get_device_ids(cfg)
-    assert len(device_ids) >= 1
+    available_device_ids = get_device_ids(cfg)
+    assert len(available_device_ids) >= 1
 
-    if len(device_ids) == 1:
-        process_users_sequentially(user_datasets, processed_user_ids, path_handler, device_ids, all_user_ids_s)
+    scheduler_cfg = SchedulerConfig(
+        available_device_ids=available_device_ids,
+        all_user_ids=all_user_ids,
+        processed_user_ids=processed_user_ids,
+    )
+
+    if len(scheduler_cfg.available_device_ids) == 1:
+        process_users_sequentially(cfg, scheduler_cfg, user_datasets, path_handler)
     else:
-        process_users_parallel(user_datasets, processed_user_ids, path_handler, device_ids, all_user_ids_s)
+        process_users_parallel(cfg, scheduler_cfg, user_datasets, path_handler)
     logger.info("Finished processing all users")
 
 
+class SchedulerConfig:
+    """ Config attributes used for scheduling the job either sequentially or parallel."""
+
+    def __init__(self, all_user_ids, processed_user_ids, available_device_ids):
+        self.all_user_ids: list[str] = all_user_ids
+        self.processed_user_ids: list[str] = processed_user_ids
+        self.available_device_ids: list[int] = available_device_ids
+
+
 def process_users_parallel(
-        user_datasets: dict[list[tuple]],
-        processed_user_ids: list[str],
+        cfg: CfgNode,
+        scheduler_cfg: SchedulerConfig,
+        user_datasets: dict[str, list[tuple]],
         path_handler: PathHandler,
-        device_ids: list[int],
-        all_user_ids: list[str],
 ):
     """ This process is master process that spawn user-specific processes on free GPU devices once they are free. """
-    users_to_process = deque([u for u in all_user_ids if u not in processed_user_ids])
-    nb_available_devices = len(device_ids)
+    users_to_process = deque([u for u in scheduler_cfg.all_user_ids if u not in scheduler_cfg.processed_user_ids])
+    nb_available_devices = len(scheduler_cfg.available_device_ids)
 
     # Multi-process env
     with concurrent.futures.ProcessPoolExecutor(max_workers=nb_available_devices) as executor:
@@ -121,7 +146,7 @@ def process_users_parallel(
                 )
 
         # Initially fill all devices with user-processes
-        submit_userprocesses_on_free_devices(device_ids)
+        submit_userprocesses_on_free_devices(scheduler_cfg.available_device_ids)
 
         for future in concurrent.futures.as_completed(futures):  # Firs completed in async process pool
             interrupted, device_ids, user_id = future.result()
@@ -131,10 +156,6 @@ def process_users_parallel(
                 logger.exception(f"Process for USER {user_id} failed because of Trainer being Interrupted")
                 continue
 
-            # Save results
-            # processed_user_ids.append(user_id)
-            # save_meta_state(path_handler.meta_checkpoint_path, user_id)
-
             # Start new user-processes on free devices
             if len(users_to_process) > 0:
                 logger.info(f"Submitting processes for free devices {len(device_ids)}")
@@ -142,34 +163,29 @@ def process_users_parallel(
 
 
 def process_users_sequentially(
-        user_datasets: dict[list[tuple]],
-        processed_user_ids: list[str],
+        cfg: CfgNode,
+        scheduler_cfg: SchedulerConfig,
+        user_datasets: dict[str, list[tuple]],
         path_handler: PathHandler,
-        device_ids: list[int],
-        all_user_ids: list[str],
 ):
     """ Sequentially iterate over users and process on single device.
     All processing happens in master process. """
 
     # Iterate user datasets
-    for user_id in all_user_ids:
-        if user_id in processed_user_ids:  # SKIP PROCESSED USER
+    for user_id in scheduler_cfg.all_user_ids:
+        if user_id in scheduler_cfg.processed_user_ids:  # SKIP PROCESSED USER
             logger.info(f"Skipping USER {user_id} as already processed, result_path={cfg.OUTPUT_DIR}")
 
         interrupted, *_ = online_adaptation_single_user(
             cfg,
             user_id,
             user_datasets[user_id],
-            device_ids,
+            scheduler_cfg.available_device_ids,
             path_handler
         )
         if interrupted:
             logger.exception(f"Shutting down on USER {user_id}, because of Trainer being Interrupted")
             raise Exception()
-
-        # Update and save state
-        # processed_user_ids.append(user_id)
-        # save_meta_state(path_handler.meta_checkpoint_path, user_id)
 
     logger.info(f"All results over users can be found in OUTPUT-DIR={cfg.OUTPUT_DIR}")
 
@@ -215,18 +231,18 @@ def get_device_ids(cfg) -> list[int]:
 
 
 def online_adaptation_single_user(
-        cfg,
+        cfg: CfgNode,
         user_id: str,
         user_dataset: list[tuple],
         device_ids: list[int],
         path_handler: PathHandler,
-) -> (str, bool):
+) -> (bool, str, str):
     """ Run single user sequentially. Returns path to user results and interruption status."""
     seed_everything(cfg.RNG_SEED)
 
     # Set user configs
-    cfg.DATA.USER_ID = user_id
-    cfg.DATA.USER_DS_ENTRIES = user_dataset
+    cfg.DATA.COMPUTED_USER_ID = user_id
+    cfg.DATA.COMPUTED_USER_DS_ENTRIES = user_dataset
 
     # Paths
     cfg.USER_DUMP_FILE = path_handler.get_user_streamdump_file(user_id)  # Dump-path for Trainer stream info
@@ -331,21 +347,21 @@ def online_adaptation_single_user(
 
 if __name__ == "__main__":
     args = parse_args()
-    cfg = load_config(args)
+    parsed_cfg = load_config(args)
     if args.on_cluster:
         copy_and_run_with_config(
             main,
-            cfg,
+            parsed_cfg,
             args.working_directory,
             job_name=args.job_name,
             time="72:00:00",
             partition="devlab,learnlab,learnfair",
-            gpus_per_node=cfg.NUM_GPUS,
-            ntasks_per_node=cfg.NUM_GPUS,
+            gpus_per_node=parsed_cfg.NUM_GPUS,
+            ntasks_per_node=parsed_cfg.NUM_GPUS,
             cpus_per_task=10,
             mem="470GB",
-            nodes=cfg.NUM_SHARDS,
+            nodes=parsed_cfg.NUM_SHARDS,
             constraint="volta32gb",
         )
     else:  # local
-        main(cfg)
+        main(parsed_cfg)

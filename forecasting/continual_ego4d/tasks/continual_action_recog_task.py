@@ -61,6 +61,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.method: Method = build_method(cfg, self)
         self.continual_eval_freq = cfg.TRAIN.CONTINUAL_EVAL_FREQ
 
+        # Pretraining stats
+        self.pretrain_action_sets = cfg.COMPUTED_PRETRAIN_ACTION_SETS
+
         # Store vars (Don't reassign, use ref)
         self.seen_samples_idxs = []
         self.seen_action_set = set()

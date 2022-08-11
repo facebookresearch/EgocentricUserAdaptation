@@ -93,8 +93,8 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         ))
 
         self.seq_input_list: list = get_seq_annotated_clip_input_list(
-            user_id=cfg.DATA.USER_ID,
-            user_annotations=cfg.DATA.USER_DS_ENTRIES,
+            user_id=cfg.DATA.COMPUTED_USER_ID,
+            user_annotations=cfg.DATA.COMPUTED_USER_DS_ENTRIES,
             clip_sampler=clip_sampler,
             video_sampler=video_sampler,
             video_path_prefix=self.cfg.DATA.PATH_PREFIX,
