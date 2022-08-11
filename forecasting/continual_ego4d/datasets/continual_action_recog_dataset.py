@@ -52,7 +52,11 @@ logger = logging.get_logger(__name__)
 
 
 def verbnoun_to_action(verb: Union[str, int], noun: Union[str, int]) -> tuple[int, int]:
-    return tuple((int(verb), int(noun)))
+    return tuple((verbnoun_format(verb), verbnoun_format(noun)))
+
+
+def verbnoun_format(verbnoun: Union[str, int]):
+    return int(verbnoun)
 
 
 @DATASET_REGISTRY.register()
@@ -114,8 +118,8 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         self.verb_freq_dict, self.noun_freq_dict, self.action_freq_dict = \
             defaultdict(int), defaultdict(int), defaultdict(int)
         for entry in self.seq_input_list:
-            self.verb_freq_dict[entry[1]['verb_label']] += 1
-            self.noun_freq_dict[entry[1]['noun_label']] += 1
+            self.verb_freq_dict[verbnoun_format(entry[1]['verb_label'])] += 1
+            self.noun_freq_dict[verbnoun_format(entry[1]['noun_label'])] += 1
             self.action_freq_dict[verbnoun_to_action(entry[1]['verb_label'], entry[1]['noun_label'])] += 1
 
         # Summarize

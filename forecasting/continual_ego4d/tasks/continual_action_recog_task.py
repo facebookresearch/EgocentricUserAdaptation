@@ -23,7 +23,7 @@ from continual_ego4d.metrics.batch_metrics import Metric, OnlineTopkAccMetric, R
 from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric
 from continual_ego4d.metrics.past_metrics import FullOnlineForgettingMetric, ReexposureForgettingMetric, \
     CollateralForgettingMetric
-from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
+from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
 
 from pytorch_lightning.core import LightningModule
 from typing import List, Tuple, Union, Any, Optional, Dict
@@ -85,13 +85,17 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
 
-        # Count-sets
+        # Count-sets: Current stream
         user_verb_freq_dict = self.train_loader.dataset.verb_freq_dict
         user_noun_freq_dict = self.train_loader.dataset.noun_freq_dict
         user_action_freq_dict = self.train_loader.dataset.action_freq_dict
-        pretrain_verb_set = self.pretrain_action_sets['verb_to_name_dict']
-        pretrain_noun_set = self.pretrain_action_sets['noun_to_name_dict']
-        pretrain_action_set = self.pretrain_action_sets['action_to_name_dict']
+
+        # Count-sets: Pretrain stream
+        # From JSON: {'ACTION_LABEL': {'name': "ACTION_NAME", 'count': "ACTION_COUNT"}}
+        pretrain_verb_set = {verbnoun_format(x) for x in self.pretrain_action_sets['verb_to_name_dict'].keys()}
+        pretrain_noun_set = {verbnoun_format(x) for x in self.pretrain_action_sets['noun_to_name_dict'].keys()}
+        pretrain_action_set = {verbnoun_to_action(*str(action).split('-'))  # Json format to tuple for actions
+                               for action in self.pretrain_action_sets['action_to_name_dict'].keys()}
 
         # Metrics
         # CURRENT BATCH METRICS
@@ -106,19 +110,19 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         count_metrics = [
             [  # Seen actions (history part of stream) vs full user stream actions
-                CountMetric(observed_set_name="seen", observed_set=self.seen_action_set,
+                CountMetric(observed_set_name="seen", observed_set=seen_set,
                             ref_set_name="user", ref_set=user_ref_set,
                             mode=mode
                             ),
                 # Seen actions (history part of stream) vs all actions seen during pretraining phase
-                CountMetric(observed_set_name="seen", observed_set=self.seen_action_set,
+                CountMetric(observed_set_name="seen", observed_set=seen_set,
                             ref_set_name="pretrain", ref_set=pretrain_ref_set,
                             mode=mode
                             ),
-            ] for mode, user_ref_set, pretrain_ref_set in [
-                ('action', user_action_freq_dict, pretrain_action_set),
-                ('verb', user_verb_freq_dict, pretrain_verb_set),
-                ('noun', user_noun_freq_dict, pretrain_noun_set),
+            ] for mode, seen_set, user_ref_set, pretrain_ref_set in [
+                ('action', self.seen_action_set, user_action_freq_dict, pretrain_action_set),
+                ('verb', self.seen_verb_set, user_verb_freq_dict, pretrain_verb_set),
+                ('noun', self.seen_noun_set, user_noun_freq_dict, pretrain_noun_set),
             ]
         ]
         count_metrics = [metric for metric_list in count_metrics for metric in metric_list]  # Flatten
