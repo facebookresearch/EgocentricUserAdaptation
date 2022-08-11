@@ -131,32 +131,41 @@ class CountMetric(Metric):
     @torch.no_grad()
     def result(self) -> Dict:
         """Get the metric(s) with name in dict format."""
+        ret = []
 
         # Count in observed set
-        ret = {
-            f"{self.observed_set_name}_{self.mode}_count": len(self.observed_set)
-        }
+        ret.append(
+            (f"{self.observed_set_name}_{self.mode}_count",
+             len(self.observed_set))
+        )
 
         if self.ref_set is not None:
             intersect_set = {x for x in self.observed_set if x in self.ref_set}
-            ret = {
-                **ret,
-                **{
-                    # Count in reference set
-                    f"{self.ref_set_name}_{self.mode}_count": len(self.ref_set),
 
-                    # Count of intersection
-                    f"intersect_{self.observed_set_name}_VS_{self.ref_set_name}_{self.mode}_count":
-                        len(intersect_set),
+            # Count in reference set
+            ret.append(
+                (f"{self.ref_set_name}_{self.mode}_count",
+                 len(self.ref_set))
+            )
 
-                    # Fraction intersection/observed set
-                    f"intersect_{self.observed_set_name}_VS_{self.ref_set_name}_{self.mode}_{self.observed_set_name}-fract":
-                        len(intersect_set) / len(self.observed_set),
+            # Count of intersection
+            ret.append(
+                (f"intersect_{self.observed_set_name}_VS_{self.ref_set_name}_{self.mode}_count",
+                 len(intersect_set))
+            )
 
-                    # Fraction intersection/ref set
-                    f"intersect_{self.observed_set_name}_VS_{self.ref_set_name}_{self.mode}_{self.ref_set_name}-fract":
-                        len(intersect_set) / len(self.ref_set),
-                }
-            }
+            # Fraction intersection/observed set
+            if len(self.observed_set) > 0:
+                ret.append((
+                    f"intersect_{self.observed_set_name}_VS_{self.ref_set_name}_{self.mode}_{self.observed_set_name}-fract",
+                    len(intersect_set) / len(self.observed_set)
+                ))
 
-        return ret
+            # Fraction intersection/ref set
+            if len(self.ref_set) > 0:
+                ret.append((
+                    f"intersect_{self.observed_set_name}_VS_{self.ref_set_name}_{self.mode}_{self.ref_set_name}-fract",
+                    len(intersect_set) / len(self.ref_set)
+                ))
+
+        return {k: v for k, v in ret}
