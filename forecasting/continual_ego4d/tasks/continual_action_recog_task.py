@@ -66,24 +66,24 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Pretraining stats
         self.pretrain_action_sets = cfg.COMPUTED_PRETRAIN_ACTION_SETS
 
+        # Dataloader
+        self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
+        self.total_stream_sample_count = len(self.train_loader.dataset)
+
         # Store vars (Don't reassign, use ref)
         self.seen_samples_idxs = []
         self.seen_action_set = set()
         self.seen_verb_set = set()
         self.seen_noun_set = set()
 
+        # State vars (single batch)
+        self.current_batch_sample_idxs = None
+        self.eval_this_step = False
+
         # For data stream info dump
         self.dumpfile = self.cfg.COMPUTED_USER_DUMP_FILE
         self.action_to_batches = defaultdict(list)  # On-the-fly: For each action keep all ids when it was observed
         self.batch_to_actions = defaultdict(list)
-
-        # State vars (single batch)
-        self.last_seen_sample_idx = -1
-        self.sample_idxs = None
-        self.eval_this_step = False
-
-        # Dataloader
-        self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
 
         # Count-sets: Current stream
         user_verb_freq_dict = self.train_loader.dataset.verb_freq_dict
@@ -197,7 +197,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 metric.reset()
 
         self.eval_this_step = self.trainer.logger_connector.should_update_logs
-        # batch_idx % self.continual_eval_freq == 0 or batch_idx == len(self.train_loader) - 1
 
     def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
         """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""
@@ -211,14 +210,21 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # PREDICTIONS + LOSS
         inputs, labels, video_names, stream_sample_idxs = batch
 
+        # Observed idxs update
+        self.current_batch_sample_idxs = stream_sample_idxs.tolist()
+        logger.debug(f"current_batch_sample_idxs={self.current_batch_sample_idxs}")
+        metric_results = {**metric_results, **{
+            "history_sample_count": len(self.seen_samples_idxs),
+            "future_sample_count": self.total_stream_sample_count - len(self.seen_samples_idxs)
+        }}
+
         # Do method callback (Get losses etc)
         loss, outputs, step_results = self.method.training_step(inputs, labels)
         metric_results = {**metric_results, **step_results}
 
         # Perform additional eval
         if self.eval_this_step:
-            logger.debug(f"Starting PRE-UPDATE evaluation: "
-                         f"batch_idx={batch_idx}, SAMPLE IDXS={stream_sample_idxs.tolist()}")
+            logger.debug(f"Starting PRE-UPDATE evaluation: batch_idx={batch_idx}")
             self.eval_current_batch_(metric_results, outputs, labels)
             self.eval_future_data_(metric_results, batch_idx)
 
@@ -244,8 +250,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                         )
 
     def on_train_batch_end(self, outputs, batch: Any, batch_idx: int, unused: Optional[int] = 0) -> None:
-        inputs, labels, video_names, stream_sample_ids = batch
-        stream_sample_ids = stream_sample_ids.tolist()
+        inputs, labels, video_names, _ = batch
 
         # Do post-update evaluation of the past
         if self.eval_this_step:
@@ -262,7 +267,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 metric.save_result_to_history()
 
         # Derive action from verbs,nouns
-        for (verb, noun), stream_sample_id in zip(labels.tolist(), stream_sample_ids):
+        for (verb, noun) in labels.tolist():
             action = verbnoun_to_action(verb, noun)
             self.seen_action_set.add(action)
             self.seen_verb_set.add(verb)
@@ -271,9 +276,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             self.batch_to_actions[batch_idx].append(action)
 
         # Update Task states
-        self.last_seen_sample_idx = max(stream_sample_ids)  # Last unseen idx
-        self.seen_samples_idxs.extend(stream_sample_ids)
-        logger.debug(f"last_seen_sample_idx={self.last_seen_sample_idx}")
+        self.seen_samples_idxs.extend(self.current_batch_sample_idxs)
         assert len(self.seen_samples_idxs) == len(np.unique(self.seen_samples_idxs)), \
             f"Duplicate visited samples in {self.seen_samples_idxs}"
 
@@ -325,7 +328,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         logger.debug(f"Gathering results on future data")
 
         # Include current batch
-        unseen_idxs = list(range(self.last_seen_sample_idx + 1, len(self.train_loader.dataset)))
+        unseen_idxs = list(range(min(self.current_batch_sample_idxs), len(self.train_loader.dataset)))
         logger.debug(f"unseen_idxs interval = [{unseen_idxs[0]},..., {unseen_idxs[-1]}]")
 
         # Create new dataloader
