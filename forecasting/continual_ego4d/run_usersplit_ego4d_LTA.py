@@ -151,7 +151,7 @@ def generate_usersplit_from_trainval(
         pretrain_sort_values = trainval_user_df[args.nb_users_thresh:][args.sort_by_col].tolist()
 
         # Add NaN user
-        pretrain_user_ids.append("NaN")
+        pretrain_user_ids.append(None)
         pretrain_sort_values.extend(nan_user_df[args.sort_by_col].tolist())
 
     elif args.user_videotime_min_thresh is not None:
@@ -267,16 +267,21 @@ def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_fi
     include_nan_user: Include the NaN user as well (unassigned entries)
     include_action_sets: If specified, include the set of all actions/verbs/nouns in the json.
     """
+    print(f"Saving json with user_ids={user_ids}, including nan user={include_nan_user}")
     pre_train_df = trainval_joined_df.loc[trainval_joined_df[user_id_col].isin(user_ids)]  # Get train datatframe
 
     if include_nan_user:
+        # user_ids = user_ids + [None]
+        assert None in user_ids, "None-user represent NaN user and should be present!"
         nan_user_df = trainval_joined_df[trainval_joined_df[user_id_col].isnull()]
         pre_train_df = pd.concat([nan_user_df, pre_train_df], ignore_index=True, sort=False)
+    else:
+        assert None not in user_ids, "None in user_ids represents Nan user, must include_nan_user=True"
 
     train_format_df = pre_train_df[json_col_names]
     train_format_df = train_format_df.rename(columns={"scenarios": "parent_video_scenarios"})
 
-    train_json = df_to_formatted_json(train_format_df, user_ids, split, user_id_col)  # Convert to json
+    train_json = df_to_per_user_formatted_json(train_format_df, user_ids, split, user_id_col)  # Convert to json
 
     # Additional level-1 entries besides 'users'
     if flatten:  # Generate flat list (user-agnostic) in clips-key
@@ -323,7 +328,11 @@ def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_fi
         refdict['action_to_name_dict'] = action_to_name_dict
 
         for user_id in train_json['users'].keys():
-            user_subset_df = pre_train_df.loc[pre_train_df['fb_participant_id'] == user_id]
+            if user_id is None:
+                user_subset_df = pre_train_df.loc[pre_train_df['fb_participant_id'].isna()]
+            else:
+                user_subset_df = pre_train_df.loc[pre_train_df['fb_participant_id'] == user_id]
+
             verb_to_name_dict, noun_to_name_dict, action_to_name_dict = get_action_sets(
                 user_subset_df, title=f'USER {user_id} - ')
 
@@ -475,15 +484,24 @@ def plot_barchart(x_axis: list[list], y_vals: list[list], title, ylabel, xlabel,
     plt.clf()
 
 
-def df_to_formatted_json(df, user_id_list, split, user_id_col_name):
+def df_to_per_user_formatted_json(df, user_id_list, split, user_id_col_name):
     """Convert to a json with at
     L1: users, split
     L2: per user parse the annotation entries.
+
+    if user_id_list contains None, we translate it too look for NaN values.
     """
     result = {'users': defaultdict(list), 'split': split}
 
     for user_id in user_id_list:  # iterate users
-        user_df = df.loc[df[user_id_col_name] == user_id]
+
+        if user_id is None:
+            user_df = df.loc[df[user_id_col_name].isna()]
+            print(f"JSON includes NAN user, len={len(user_df)}")
+        else:
+            user_df = df.loc[df[user_id_col_name] == user_id]
+            print(f"JSON includes user {user_id}, len={len(user_df)}")
+
         for _, row in user_df.iterrows():  # Iterate annotations for the user
             parsed_row = {}
             for idx, val in row.iteritems():  # Convert col values to dict style
