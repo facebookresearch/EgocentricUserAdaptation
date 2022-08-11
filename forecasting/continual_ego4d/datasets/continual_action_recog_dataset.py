@@ -111,15 +111,12 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
         # Get all unique verbs,nouns,actions and their counts
         # This should be PER INPUT-CLIP, as PER-ANNOTATION can have various time ranges
-        verbs, nouns, actions = defaultdict(int), defaultdict(int), defaultdict(int)
+        self.verb_freq_dict, self.noun_freq_dict, self.action_freq_dict = \
+            defaultdict(int), defaultdict(int), defaultdict(int)
         for entry in self.seq_input_list:
-            verbs[entry[1]['verb_label']] += 1
-            nouns[entry[1]['noun_label']] += 1
-            actions[verbnoun_to_action(entry[1]['verb_label'], entry[1]['noun_label'])] += 1
-
-        self.unique_verbs = list(verbs.keys())
-        self.unique_nouns = list(nouns.keys())
-        self.unique_actions = list(actions.keys())
+            self.verb_freq_dict[entry[1]['verb_label']] += 1
+            self.noun_freq_dict[entry[1]['noun_label']] += 1
+            self.action_freq_dict[verbnoun_to_action(entry[1]['verb_label'], entry[1]['noun_label'])] += 1
 
         # Summarize
         logger.info(
@@ -127,11 +124,11 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             f"\tNum Dataset clip entries = {self.__len__()}\n"
             f"\tminiclip_sampler = {self.miniclip_sampler}\n"
             f"\tdecode_audio = {self._decode_audio}\n"
-            f"\tunique actions = {len(actions)}\n"
-            f"\tunique verbs = {len(verbs)}\n"
-            f"\tunique nouns = {len(nouns)}\n" +
+            f"\tunique actions = {len(self.action_freq_dict)}\n"
+            f"\tunique verbs = {len(self.verb_freq_dict)}\n"
+            f"\tunique nouns = {len(self.noun_freq_dict)}\n" +
             "\taction input counts sorted = \n{}".format(
-                pprint.pformat(sorted(actions.items(), key=lambda x: x[1], reverse=True)))
+                pprint.pformat(sorted(self.action_freq_dict.items(), key=lambda x: x[1], reverse=True)))
         )
 
     @property

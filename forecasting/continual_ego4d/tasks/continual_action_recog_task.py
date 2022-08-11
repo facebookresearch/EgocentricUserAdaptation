@@ -11,7 +11,6 @@ from ego4d.utils import misc
 from ego4d.models import losses
 from ego4d.optimizers import lr_scheduler
 from ego4d.utils import distributed as du
-from ego4d.utils import logging
 from ego4d.models import build_model
 from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader
 import os.path as osp
@@ -19,7 +18,8 @@ import os.path as osp
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
-from continual_ego4d.metrics.batch_metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric
+from continual_ego4d.metrics.batch_metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
+    CountMetric
 from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric
 from continual_ego4d.metrics.past_metrics import FullOnlineForgettingMetric, ReexposureForgettingMetric, \
     CollateralForgettingMetric
@@ -27,6 +27,7 @@ from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_
 
 from pytorch_lightning.core import LightningModule
 from typing import List, Tuple, Union, Any, Optional, Dict
+from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)
 
@@ -84,17 +85,45 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
 
+        # Count-sets
+        user_verb_freq_dict = self.train_loader.dataset.verb_freq_dict
+        user_noun_freq_dict = self.train_loader.dataset.noun_freq_dict
+        user_action_freq_dict = self.train_loader.dataset.action_freq_dict
+        pretrain_verb_set = self.pretrain_action_sets['verb_to_name_dict']
+        pretrain_noun_set = self.pretrain_action_sets['noun_to_name_dict']
+        pretrain_action_set = self.pretrain_action_sets['action_to_name_dict']
+
         # Metrics
         # CURRENT BATCH METRICS
-        self.current_batch_metrics = [
-            [OnlineTopkAccMetric(k=k, mode=m), RunningAvgOnlineTopkAccMetric(k=k, mode=m)]
-            for k, m in product([1, 5], ['verb', 'noun'])]
-        self.current_batch_metrics.append(
-            [
-                OnlineTopkAccMetric(k=1, mode='action'),
-                RunningAvgOnlineTopkAccMetric(k=1, mode='action')
-            ])
-        self.current_batch_metrics = [m for metric_list in self.current_batch_metrics for m in metric_list]
+        verbnoun_metrics = [[OnlineTopkAccMetric(k=k, mode=m), RunningAvgOnlineTopkAccMetric(k=k, mode=m)]
+                            for k, m in product([1, 5], ['verb', 'noun'])]
+        verbnoun_metrics = [metric for metric_list in verbnoun_metrics for metric in metric_list]
+
+        action_metrics = [
+            OnlineTopkAccMetric(k=1, mode='action'),
+            RunningAvgOnlineTopkAccMetric(k=1, mode='action')
+        ]
+
+        count_metrics = [
+            [  # Seen actions (history part of stream) vs full user stream actions
+                CountMetric(observed_set_name="seen", observed_set=self.seen_action_set,
+                            ref_set_name="user", ref_set=user_ref_set,
+                            mode=mode
+                            ),
+                # Seen actions (history part of stream) vs all actions seen during pretraining phase
+                CountMetric(observed_set_name="seen", observed_set=self.seen_action_set,
+                            ref_set_name="pretrain", ref_set=pretrain_ref_set,
+                            mode=mode
+                            ),
+            ] for mode, user_ref_set, pretrain_ref_set in [
+                ('action', user_action_freq_dict, pretrain_action_set),
+                ('verb', user_verb_freq_dict, pretrain_verb_set),
+                ('noun', user_noun_freq_dict, pretrain_noun_set),
+            ]
+        ]
+        count_metrics = [metric for metric_list in count_metrics for metric in metric_list]  # Flatten
+
+        self.current_batch_metrics = [*verbnoun_metrics, *action_metrics, *count_metrics]
 
         # FUTURE METRICS
         self.future_metrics = future_metrics

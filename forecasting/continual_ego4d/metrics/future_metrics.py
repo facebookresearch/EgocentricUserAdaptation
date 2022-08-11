@@ -7,7 +7,9 @@ from ego4d.evaluation import lta_metrics as metrics
 from collections import defaultdict
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 from continual_ego4d.metrics.batch_metrics import OnlineTopkAccMetric
+from ego4d.utils import logging
 
+logger = logging.get_logger(__name__)
 
 class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
     reset_before_batch = True
@@ -57,9 +59,11 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
             else:
                 label_mask = sum(target_labels == el for el in self.cond_set).bool()
         except Exception as e:
-            print(e)
-            import pdb;
-            pdb.set_trace()
+            import pdb
+            import traceback
+            logger.debug(traceback.format_exc())
+            logger.debug(f"target_labels={target_labels}, cond_set={self.cond_set}")
+            logger.debug(f"expr={sum(target_labels == el for el in self.cond_set)}")
 
         if not self.in_cond_set:  # Reverse
             label_mask = ~label_mask

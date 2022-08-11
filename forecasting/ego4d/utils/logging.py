@@ -37,6 +37,7 @@ def setup_logging(output_dirs=None, host_name=None, overwrite_logfile=False):
     _logger.handlers = []
 
     logger = logging.getLogger()
+    logger.handlers = []  # Reset
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
