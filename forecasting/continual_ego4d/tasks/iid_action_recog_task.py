@@ -23,9 +23,12 @@ class IIDMultiTaskClassificationTask(ContinualMultiTaskClassificationTask):
         for pretrain model: model test directly (no trainer.fit())
     """
 
+
+
     def __init__(self, cfg):
         super().__init__(cfg, future_metrics=[], past_metrics=[])  # No future/past metrics
         self.test_mode = "train_stream"  # Can configure later
+        self.run_predict_before_train = False
 
     def setup(self, stage):
         # Setup is called immediately after the distributed processes have been

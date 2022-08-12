@@ -328,8 +328,12 @@ def online_adaptation_single_user(
 
     interrupted = False
     if cfg.TRAIN.ENABLE:
-        logger.info("Starting Trainer fitting")
+        # Dependent on task: Might need to run prediction first (gather per-sample results for init model)
+        if task.run_predict_before_train:
+            logger.info("Starting Trainer Prediction round before fitting")
+            trainer.predict(task)  # Skip validation
 
+        logger.info("Starting Trainer fitting")
         trainer.fit(task, val_dataloaders=None)  # Skip validation
 
         interrupted = trainer.interrupted

@@ -18,10 +18,16 @@ class Method:
     def training_step(self, inputs, labels) -> Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
+        return self._get_loss_preds(inputs, labels, loss_fun=self.lightning_module.loss_fun)
 
+    def prediction_step(self, inputs, labels) -> Tuple[Tensor, List[Tensor], Dict]:
+        """ Default: Get all info we also get during training."""
+        return self._get_loss_preds(inputs, labels, loss_fun=self.lightning_module.loss_fun_pred)
+
+    def _get_loss_preds(self, inputs, labels, loss_fun):
         preds: list = self.lightning_module.forward(inputs)
-        loss1 = self.lightning_module.loss_fun(preds[0], labels[:, 0])  # Verbs
-        loss2 = self.lightning_module.loss_fun(preds[1], labels[:, 1])  # Nouns
+        loss1 = loss_fun(preds[0], labels[:, 0])  # Verbs
+        loss2 = loss_fun(preds[1], labels[:, 1])  # Nouns
         loss = loss1 + loss2  # Avg losses
 
         log_results = {

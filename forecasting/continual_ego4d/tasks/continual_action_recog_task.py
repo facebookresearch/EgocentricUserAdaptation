@@ -34,6 +34,11 @@ logger = logging.get_logger(__name__)
 
 class ContinualMultiTaskClassificationTask(LightningModule):
     """
+    Training mode: Visit samples in stream sequentially, update, and evaluate per update.
+    Validation mode: Disabled.
+    Test mode: Disabled (No held-out test sets available for online learning)
+    Predict mode: Visit the stream and collect per-sample stats such as the loss. No learning is performed.
+
     For all lightning hooks, see: https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html#hooks
     """
 
@@ -59,12 +64,18 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.cfg = cfg
         self.save_hyperparameters()  # Save cfg to '
         self.model = build_model(cfg)
-        self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")
+        self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")  # Training
+        self.loss_fun_pred = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="none")  # Prediction
         self.method: Method = build_method(cfg, self)
         self.continual_eval_freq = cfg.TRAIN.CONTINUAL_EVAL_FREQ
 
         # Pretraining stats
         self.pretrain_action_sets = cfg.COMPUTED_PRETRAIN_ACTION_SETS
+
+        # Predict phase:
+        # If we first run predict phase, we can fill this dict with the results, this can then be used in trainphase
+        self.run_predict_before_train = True
+        self.sample_to_pretrain_loss = {}
 
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
@@ -428,6 +439,18 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         return avg_metric_result_dict
 
     # ---------------------
+    # PREDICTION FLOW CALLBACKS
+    # ---------------------
+    @torch.no_grad()
+    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: Optional[int] = None):
+        """ Collect per-sample stats such as the loss. """
+        inputs, labels, video_names, stream_sample_idxs = batch
+        losses, outputs, step_results = self.method.prediction_step(inputs, labels)
+
+        for sample_idx, sample_loss in zip(stream_sample_idxs.tolist(), losses.tolist()):
+            self.sample_to_pretrain_loss[sample_idx] = sample_loss
+
+    # ---------------------
     # TRAINING SETUP
     # ---------------------
     def forward(self, inputs):
@@ -449,20 +472,18 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def train_dataloader(self):
         return self.train_loader
 
+    def predict_dataloader(self):
+        """Gather predictions for train stream."""
+        return self.train_loader
+
     def val_dataloader(self):
         return None
 
     def test_dataloader(self):
         return None
 
-    def test_step(self, batch, batch_idx):
-        raise NotImplementedError(
-            """We have no test 'phase' in user-specific action-recognition.
-        Rerun the continual 'train' experiments with the testing user-subset."""
-        )
+    def validation_step(self, *args, **kwargs):
+        raise NotImplementedError()
 
-    def test_epoch_end(self, outputs):
-        raise NotImplementedError(
-            """We have no test 'phase' in user-specific action-recognition.
-        Rerun the continual 'train' experiments with the testing user-subset."""
-        )
+    def test_step(self, batch, batch_idx):
+        raise NotImplementedError()
