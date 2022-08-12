@@ -166,7 +166,11 @@ class MultiTaskClassificationTask(VideoTask):
         top1_noun_err, top5_noun_err = metrics.topk_errors(
             video_noun_preds, video_labels[:, 1], (1, 5)
         )
+        top1_err_action: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
+            video_verb_preds, video_noun_preds, labels[:, 0], labels[:, 1]
+        )
         errors = {
+            "top1_action_err": top1_err_action,
             "top1_verb_err": top1_verb_err,
             "top5_verb_err": top5_verb_err,
             "top1_noun_err": top1_noun_err,
