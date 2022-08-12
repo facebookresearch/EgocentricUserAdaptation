@@ -15,7 +15,7 @@ class Metric(ABC):
 
     @abstractmethod
     @torch.no_grad()
-    def update(self, preds: list, labels):
+    def update(self, preds: list, labels, *args, **kwargs):
         """Update metric from predictions and labels.
         preds: (2 x batch_size x input_shape) -> first dim = verb/noun
         labels: (batch_size x 2) -> second dim = verb/noun
@@ -59,7 +59,7 @@ class OnlineTopkAccMetric(Metric):
             raise NotImplementedError()
 
     @torch.no_grad()
-    def update(self, preds, labels):
+    def update(self, preds, labels, *args, **kwargs):
         """Update metric from predictions and labels."""
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
         batch_size = labels.shape[0]
@@ -119,7 +119,7 @@ class CountMetric(Metric):
         assert self.mode in self.modes
 
     @torch.no_grad()
-    def update(self, preds, labels):
+    def update(self, preds, labels, *args, **kwargs):
         """Update metric from predictions and labels."""
         pass
 

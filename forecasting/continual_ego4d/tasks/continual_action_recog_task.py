@@ -75,7 +75,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Predict phase:
         # If we first run predict phase, we can fill this dict with the results, this can then be used in trainphase
         self.run_predict_before_train = True
-        self.sample_to_pretrain_loss = {}
+        self.sample_idx_to_pretrain_loss = {}
 
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
@@ -317,7 +317,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Update metrics
         for metric in self.current_batch_metrics:
-            metric.update(outputs, labels)
+            metric.update(outputs, labels, self.current_batch_sample_idxs)
 
         # Gather results from metrics
         results = {}
@@ -445,10 +445,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: Optional[int] = None):
         """ Collect per-sample stats such as the loss. """
         inputs, labels, video_names, stream_sample_idxs = batch
-        losses, outputs, step_results = self.method.prediction_step(inputs, labels)
+        _, _, sample_to_results = self.method.prediction_step(inputs, labels, stream_sample_idxs.tolist())
 
-        for sample_idx, sample_loss in zip(stream_sample_idxs.tolist(), losses.tolist()):
-            self.sample_to_pretrain_loss[sample_idx] = sample_loss
+        self.sample_idx_to_pretrain_loss = {**self.sample_idx_to_pretrain_loss, **sample_to_results}
 
     # ---------------------
     # TRAINING SETUP

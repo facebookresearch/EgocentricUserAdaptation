@@ -28,7 +28,7 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
         self.in_cond_set = in_cond_set
 
     @torch.no_grad()
-    def update(self, preds, labels):
+    def update(self, preds, labels, *args, **kwargs):
         """Update metric from predictions and labels."""
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
 

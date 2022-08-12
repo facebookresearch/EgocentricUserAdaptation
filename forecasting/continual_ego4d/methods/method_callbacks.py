@@ -15,27 +15,42 @@ class Method:
     def on_before_batch_transfer(self, batch, dataloader_idx):
         return batch
 
-    def training_step(self, inputs, labels) -> Tuple[Tensor, List[Tensor], Dict]:
+    def training_step(self, inputs, labels, result_prefix='train') -> Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
-        return self._get_loss_preds(inputs, labels, loss_fun=self.lightning_module.loss_fun)
+        loss_fun = self.lightning_module.loss_fun
 
-    def prediction_step(self, inputs, labels) -> Tuple[Tensor, List[Tensor], Dict]:
-        """ Default: Get all info we also get during training."""
-        return self._get_loss_preds(inputs, labels, loss_fun=self.lightning_module.loss_fun_pred)
-
-    def _get_loss_preds(self, inputs, labels, loss_fun):
         preds: list = self.lightning_module.forward(inputs)
         loss1 = loss_fun(preds[0], labels[:, 0])  # Verbs
         loss2 = loss_fun(preds[1], labels[:, 1])  # Nouns
         loss = loss1 + loss2  # Avg losses
 
         log_results = {
-            "train_action_loss": loss.item(),
-            "train_verb_loss": loss1.item(),
-            "train_noun_loss": loss2.item(),
+            f"{result_prefix}_action_loss": loss.item(),
+            f"{result_prefix}_verb_loss": loss1.item(),
+            f"{result_prefix}_noun_loss": loss2.item(),
         }
         return loss, preds, log_results
+
+    def prediction_step(self, inputs, labels, stream_sample_idxs: list, result_prefix='pred') \
+            -> Tuple[Tensor, List[Tensor], Dict]:
+        """ Default: Get all info we also get during training."""
+        loss_fun = self.lightning_module.loss_fun_pred  # Unreduced loss
+
+        preds: list = self.lightning_module.forward(inputs)
+        loss_verb = loss_fun(preds[0], labels[:, 0])  # Verbs
+        loss_noun = loss_fun(preds[1], labels[:, 1])  # Nouns
+        loss_action = loss_verb + loss_noun  # Avg losses
+
+        sample_to_results = {}
+        for batch_idx, stream_sample_idx in enumerate(stream_sample_idxs):
+            sample_to_results[stream_sample_idx] = {
+                f"{result_prefix}_action_loss": loss_action[batch_idx].item(),
+                f"{result_prefix}_verb_loss": loss_verb[batch_idx].item(),
+                f"{result_prefix}_noun_loss": loss_noun[batch_idx].item(),
+            }
+
+        return loss_action, preds, sample_to_results
 
 
 @METHOD_REGISTRY.register()

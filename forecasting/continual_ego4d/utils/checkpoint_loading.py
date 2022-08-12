@@ -217,7 +217,7 @@ def load_lightning_model(cfg, ckp_path, task, ckpt_task_types):
     for CheckpointTaskType in ckpt_task_types:
         try:
             pretrained = CheckpointTaskType.load_from_checkpoint(ckp_path)
-        except:
+        except:  # Try the different valid checkpointing types
             continue
         logger.info(f"Loading checkpoint type {CheckpointTaskType}")
 

@@ -59,7 +59,7 @@ class ConditionalOnlineForgettingMetric(Metric):
         self.current_batch_cond_set = current_batch_cond_set
 
     @torch.no_grad()
-    def update(self, preds, labels):
+    def update(self, preds, labels, *args, **kwargs):
         """
         ASSUMPTION: The preds,labels are all from the history stream only, forwarded on the CURRENT model.
         Update per-action accuracy metric from predictions and labels.
