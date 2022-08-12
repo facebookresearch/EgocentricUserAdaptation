@@ -7,6 +7,9 @@ import itertools
 
 from ego4d.datasets.build import build_dataset
 from collections import defaultdict
+from ego4d.utils import logging
+
+logger = logging.get_logger(__name__)
 
 
 def construct_trainstream_loader(cfg, shuffle=False):
@@ -23,6 +26,7 @@ def construct_trainstream_loader(cfg, shuffle=False):
         batch_size = int(cfg.TRAIN.BATCH_SIZE / cfg.NUM_GPUS)
     else:
         batch_size = cfg.TRAIN.BATCH_SIZE
+    logger.info(f"Train stream dataloader has batch_size: {batch_size}")
     drop_last = False  # Always false
 
     # Construct the dataset
@@ -36,6 +40,30 @@ def construct_trainstream_loader(cfg, shuffle=False):
         num_workers=cfg.DATA_LOADER.NUM_WORKERS,
         pin_memory=cfg.DATA_LOADER.PIN_MEMORY,
         drop_last=drop_last,
+        collate_fn=None,
+    )
+    return loader
+
+
+def construct_predictstream_loader(trainloader, cfg):
+    """
+    Constructs data loader similar to trainloader, but using max batch_size.
+    """
+    total_mem_batch_size = cfg.TRAIN.BATCH_SIZE + cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE
+    if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
+        batch_size = int(total_mem_batch_size / cfg.NUM_GPUS)
+    else:
+        batch_size = total_mem_batch_size
+    logger.info(f"Prediction dataloader has batch_size: {batch_size}")
+
+    loader = torch.utils.data.DataLoader(
+        trainloader.dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        sampler=None,
+        num_workers=trainloader.num_workers,
+        pin_memory=trainloader.pin_memory,
+        drop_last=trainloader.drop_last,
         collate_fn=None,
     )
     return loader
