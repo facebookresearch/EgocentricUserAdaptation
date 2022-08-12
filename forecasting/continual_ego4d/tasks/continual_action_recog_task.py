@@ -1,3 +1,6 @@
+import copy
+import pprint
+
 import torch
 from fvcore.nn.precise_bn import get_bn_modules
 
@@ -12,7 +15,7 @@ from ego4d.models import losses
 from ego4d.optimizers import lr_scheduler
 from ego4d.utils import distributed as du
 from ego4d.models import build_model
-from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader
+from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader, construct_predictstream_loader
 import os.path as osp
 
 from continual_ego4d.utils.meters import AverageMeter
@@ -20,6 +23,8 @@ from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
 from continual_ego4d.metrics.batch_metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
     CountMetric
+from continual_ego4d.metrics.adapt_metrics import OnlineAdaptationGainMetric, RunningAvgOnlineAdaptationGainMetric, \
+    CumulativeOnlineAdaptationGainMetric
 from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric
 from continual_ego4d.metrics.past_metrics import FullOnlineForgettingMetric, ReexposureForgettingMetric, \
     CollateralForgettingMetric
@@ -42,7 +47,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     For all lightning hooks, see: https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html#hooks
     """
 
-    def __init__(self, cfg, future_metrics=None, past_metrics=None):
+    def __init__(self, cfg, future_metrics=None, past_metrics=None, shuffle_stream=False):
         logger.debug('Starting init ContinualVideoTask')
         super().__init__()
 
@@ -78,7 +83,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.sample_idx_to_pretrain_loss = {}
 
         # Dataloader
-        self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
+        self.train_loader = construct_trainstream_loader(self.cfg, shuffle=shuffle_stream)
+        self.predict_loader = construct_predictstream_loader(self.train_loader, self.cfg)
         self.total_stream_sample_count = len(self.train_loader.dataset)
 
         # Store vars (Don't reassign, use ref)
@@ -119,6 +125,18 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             RunningAvgOnlineTopkAccMetric(k=1, mode='action')
         ]
 
+        adapt_metrics = [
+            [
+                OnlineAdaptationGainMetric(
+                    self.loss_fun_pred, self.sample_idx_to_pretrain_loss, loss_mode=loss_mode),
+                RunningAvgOnlineAdaptationGainMetric(
+                    self.loss_fun_pred, self.sample_idx_to_pretrain_loss, loss_mode=loss_mode),
+                CumulativeOnlineAdaptationGainMetric(
+                    self.loss_fun_pred, self.sample_idx_to_pretrain_loss, loss_mode=loss_mode),
+            ] for loss_mode in ['action', 'verb', 'noun']
+        ]
+        adapt_metrics = [metric for metric_list in adapt_metrics for metric in metric_list]  # Flatten
+
         count_metrics = [
             [  # Seen actions (history part of stream) vs full user stream actions
                 CountMetric(observed_set_name="seen", observed_set=seen_set,
@@ -138,7 +156,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         ]
         count_metrics = [metric for metric_list in count_metrics for metric in metric_list]  # Flatten
 
-        self.current_batch_metrics = [*verbnoun_metrics, *action_metrics, *count_metrics]
+        self.current_batch_metrics = [*verbnoun_metrics, *action_metrics, *adapt_metrics, *count_metrics]
 
         # FUTURE METRICS
         self.future_metrics = future_metrics
@@ -447,7 +465,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         inputs, labels, video_names, stream_sample_idxs = batch
         _, _, sample_to_results = self.method.prediction_step(inputs, labels, stream_sample_idxs.tolist())
 
-        self.sample_idx_to_pretrain_loss = {**self.sample_idx_to_pretrain_loss, **sample_to_results}
+        for k, v in sample_to_results.items():
+            # self.sample_idx_to_pretrain_loss = {**self.sample_idx_to_pretrain_loss, **sample_to_results} # FIXME MAIN BUG!! Changes reference of dict each time, but need the reference!
+            self.sample_idx_to_pretrain_loss[k] = v
+
+    def on_predict_end(self) -> None:
+        logger.info(f"Predict collected over stream: {pprint.pformat(self.sample_idx_to_pretrain_loss)}")
 
     # ---------------------
     # TRAINING SETUP
@@ -473,7 +496,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def predict_dataloader(self):
         """Gather predictions for train stream."""
-        return self.train_loader
+        return self.predict_loader
 
     def val_dataloader(self):
         return None

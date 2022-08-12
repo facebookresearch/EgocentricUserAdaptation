@@ -10,6 +10,8 @@ TODO: Dataloadign problem is in eval past? Maybe to do with Seq sampler
 TODO: copy final jsons to another outputdir
 TODO: restore previous layout
 
+
+
 ## Pretraining on usersplit Ego4d
 See [Ego4d LTA README](forecasting/LONG_TERM_ANTICIPATION.md) for a guide on how to use pretraining in general.
 
@@ -23,12 +25,42 @@ This will generate a json split for pretraining. Use this json as input path for
 
 
 ### Checkpoint paths
+- All pretrained models are copied and backed up at:
+  - /fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit
 - Model of 30 epochs on pretrain data (without NaN user):
-  /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-07-28_17-06-20_UIDe499d926-a3ff-4a28-9632-7d01054644fe/lightning_logs/version_0/checkpoints
+  - /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-07-28_17-06-20_UIDe499d926-a3ff-4a28-9632-7d01054644fe/lightning_logs/version_0/checkpoints
+- Model of 30 epochs on pretrain data WITH NaN user:
+  - /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-08-07_10-58-41_UIDb107f026-abad-42bc-a66e-77442d07ef0a/lightning_logs/version_0/
 
+
+### Data paths
+- Usersplit including NaN-user + action sets:
+  - /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-09_16-02-54_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json
+
+### Loggin multiple TB-dirs:
+You can log multiple dirs in command but need to specifiy the directories directly containing the logs (not the parent as for a single log dir).
+    tensorboard --logdir=noNAN:/fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit/pretrain_147usersplit_excl_nan/2022-0
+,NAN:/fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit/pretrain_148usersplit_incl_nan/2022-08-07_10-58-41_UIDb107f026-abad-42bc-a66e-77442d07ef0a/lightning_logs/version_0
+
+### JSON structure
+
+Tree of keys in the json structure:
+- user_action_sets
+  - user_agnostic: over all users
+  - "USER-ID": single user
+    - verb_to_name_dict
+    - noun_to_name_dict
+    - action_to_name_dict
+      - {'name': "ACTION_NAME", 'count': "ACTION_COUNT"}
+- users
+  - "USER-ID": Flattened user-specific list of dict-entries. Each clip is an annotation entry.
+- clips: Flattened user-agnostic list of dict-entries. Each clip is an annotation entry.
 
 ## Ego4d codebase
 See [forecasting](forecasting) for our experimental codebase.
+
+### Bugs
+- UntrimmedClipSampler is replaced with EnhancedUntrimmedClipSampler for major bugfix. The UntrimmedClipSampler assumes the clip-end of previous o
 
 ### Data paths
 - Meta-data: 
@@ -206,3 +238,83 @@ For Ego4D analysis notebooks see [notebooks](notebooks) directory and README.md 
   - https://pytorchvideo.readthedocs.io/en/latest/index.html
 - Pytorch Lightning:
   - p
+
+
+
+# TMP
+def plot_user_histogram_grid_highlight_seen_actions_pretrain(dfs):
+    """Plot grid of overview plots"""
+    cols = ['verb_label','noun_label','action_label']
+    col_action_sets = [verb_to_name_dict ,noun_to_name_dict,action_to_name_dict,]
+    
+    nb_users = len(dfs)
+    fig, ax = plt.subplots(nb_users, len(cols), figsize=(15, 30), dpi=600)
+
+    
+    for row_idx, (user_id, user_df) in enumerate(dfs.items()):
+        for col_idx, col in enumerate(cols):
+            cnt = Counter(user_df[col].tolist())
+            col_action_set = col_action_sets[col_idx]
+
+            col_sorted = sorted([(k,v) for k,v in cnt.items() ] ,key=lambda x: x[1], reverse=True)
+            vals_sorted = [x[0] for x in col_sorted]
+            cnts_sorted = [x[1] for x in col_sorted]
+            
+            indices_in_actionset = [idx for idx,val in enumerate(vals_sorted) if val in col_action_set]
+            print(f"Seen actions = {len(indices_in_actionset)}")
+            
+            if len(indices_in_actionset) ==0:
+                import pdb;
+                pdb.set_trace()
+
+
+            print(f"Freqs for {col}: {cnts_sorted}")
+            print(f"Labels for {col}: {vals_sorted}")
+
+            y_axis= cnts_sorted
+            x_axis= list(range(len(cnts_sorted)))
+            nb_samples = sum(cnts_sorted)
+            nb_mins = int(nb_samples*2.1/60)
+            plot_subplot_highlight(ax[row_idx,col_idx], x_axis, y_axis, 
+                                   title=f'USER {user_id} - {col}| #={nb_samples}|mins={nb_mins}',
+                                  highlight_idxs=indices_in_actionset)
+#     plt.suptitle(f'Stream sample histogram plot: Verb/noun/action freq {user_id}')
+    
+    fig.tight_layout() 
+    plt.show()
+    plt.clf()
+
+    
+# Barchart API: https://matplotlib.org/stable/api/_as_gen/matplotlib.pyplot.bar.html#matplotlib.pyplot.bar
+def plot_subplot_highlight(sub_ax, x_axis, y_vals, title,ylabel=None,xlabel=None, 
+                  grid=False,yerror=None,xerror=None, y_labels=None, x_labels=None,bar_align='edge',barh=False,
+                 figsize=(12, 6), log=False, interactive=False,x_minor_ticks=None,highlight_idxs=None):
+    max_val = max(y_vals)
+    my_cmap = plt.get_cmap("plasma")
+#     fig = plt.figure(figsize=figsize, dpi=600) # So all bars are visible!
+#     ax=plt.subplot()
+    
+    barlist = sub_ax.bar(x_axis, height=y_vals,color=my_cmap.colors, align=bar_align,yerr=yerror,width=0.9,log=log)
+    
+    if highlight_idxs is not None:
+        for idx in highlight_idxs:
+            barlist[idx].set_color('r')
+            
+        
+
+    if x_minor_ticks is not None:
+        sub_ax.set_xticks(x_minor_ticks, minor=True)
+
+
+    if x_labels:
+        plt.xticks(x_axis, x_labels, rotation='vertical')
+    if y_labels:
+        plt.yticks(y_vals, y_labels)
+    
+    sub_ax.set_ylim(None,max_val*1.01)
+    sub_ax.set_xlim(None,None)
+#     sub_ax.set_xlabel(xlabel)
+#     sub_ax.set_ylabel(ylabel)
+#     plt.title(title)
+    sub_ax.set_title(title)
+    sub_ax.grid(grid, which='both')
