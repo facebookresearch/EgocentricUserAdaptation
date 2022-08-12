@@ -30,11 +30,16 @@ class MultiTaskClassificationTask(VideoTask):
             preds[1], labels[:, 1], (1, 5)
         )
 
+        top1_err_action: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
+            preds[0], preds[1], labels[:, 0], labels[:, 1]
+        )
+
         step_result = {
             "loss": loss,
             "train_action_loss": loss.item(),
             "train_verb_loss": loss1.item(),
             "train_noun_loss": loss2.item(),
+            "train_top1_action_err": top1_err_action.item(),
             "train_top1_verb_err": top1_err_verb.item(),
             "train_top5_verb_err": top5_err_verb.item(),
             "train_top1_noun_err": top1_err_noun.item(),
@@ -75,10 +80,14 @@ class MultiTaskClassificationTask(VideoTask):
         top1_err_noun, top5_err_noun = metrics.distributed_topk_errors(
             preds[1], labels[:, 1], (1, 5)
         )
+        top1_err_action: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
+            preds[0], preds[1], labels[:, 0], labels[:, 1]
+        )
         return {
             "val_action_loss": loss.item(),
             "val_verb_loss": loss1.item(),
             "val_noun_loss": loss2.item(),
+            "val_top1_action_err": top1_err_action.item(),
             "val_top1_verb_err": top1_err_verb.item(),
             "val_top5_verb_err": top5_err_verb.item(),
             "val_top1_noun_err": top1_err_noun.item(),
