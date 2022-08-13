@@ -16,7 +16,6 @@ echo "RUN-ID=${run_id}"
 #-----------------------------------------------------------------------------------------------#
 # PATHS
 #-----------------------------------------------------------------------------------------------#
-CONFIG="$this_script_dirpath/MULTISLOWFAST_8x8_R101.yaml"
 this_script_filepath="${this_script_dirpath}/$(basename "${BASH_SOURCE[0]}")"
 
 # Logging (stdout/tensorboard) output path
@@ -28,42 +27,28 @@ OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${run_id}" # Alte
 EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations/
 EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
 
-# Checkpoint path (Make unique)
-#if [ $# -eq 0 ]; then # Default checkpoint path is based on 2 parent dirs + Unique id
-#  parent_parent_dir="$(basename "$(dirname "$this_script_dirpath")")"
-#  parent_dir="$(basename "$this_script_dirpath")"
-#  CHECKPOINT_DIR="${root_path}/checkpoints/${parent_parent_dir}/${parent_dir}/${run_id}"
-#else # When RESUMING
-#  CHECKPOINT_DIR=$1
-#fi
-#mkdir -p "$CHECKPOINT_DIR"
-#echo "CHECKPOINT_DIR=${CHECKPOINT_DIR}"
-
 #-----------------------------------------------------------------------------------------------#
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
+
+# All that matters for this script is to define which config (data paths in config) to summarize
+CONFIG="$this_script_dirpath/MULTISLOWFAST_8x8_R101.yaml"
+
 OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS '1,3,4,5,6'"
-#OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0 TRAIN.BATCH_SIZE 10 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 16 CHECKPOINT_step_freq 300" # DEBUG
-#OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30" # DEBUG
 
-# RESUME
-OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/test_exp_00/logs/2022-08-02_10-46-07_UIDed095550-f431-4c1e-ae62-b072fc4c9a87"
+# Resume previous run (use ckpts)
+#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/summarize_streams/../../..//results/ego4d_action_recog/summarize_streams/logs/2022-08-04_18-05-40_UID8f0427cb-8048-47d5-b70e-bc3878a1cb3a"
 
-# Architecture: aggregator/decoder only for LTA, SlowFast model directly performs Action Classification
-#OVERWRITE_CFG_ARGS+=" FORECASTING.AGGREGATOR TransformerAggregator"
-#OVERWRITE_CFG_ARGS+=" FORECASTING.DECODER MultiHeadDecoder"
-
-# Checkpoint loading
-#BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/k400_slowfast8x8.ckpt"
-#BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/ego4d_slowfast8x8.ckpt" # Tmp debug with ego4d
-BACKBONE_WTS="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-07-28_17-06-20_UIDe499d926-a3ff-4a28-9632-7d01054644fe/lightning_logs/version_0/checkpoints/last.ckpt"
+# TODO: Define your paths here to summarize
+OVERWRITE_CFG_ARGS+=" DATA.USER_SUBSET 'train'" # Check train or test set
+OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'"
+OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'"
 
 #OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
-OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
-OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True"      # Load population head
-OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE False"          # Learn features as well
+OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ''"         # Start from Kinetics model
+OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True" # Load population head
+OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE True"      # Learn features as well
 
 # Paths
 OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_DIR ${EGO4D_ANNOTS}"
@@ -72,8 +57,8 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="${run_id}_MATT"
-screen -dmS "${screenname}" \
-python -m continual_ego4d.run_recog_CL \
+#screen -dmS "${screenname}" \
+  python -m continual_ego4d.run_summarize_streams \
   --job_name "$screenname" \
   --working_directory "${OUTPUT_DIR}" \
   --cfg "${CONFIG}" \

@@ -43,10 +43,10 @@ OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8"
 
 # Checkpoint loading
 # START FROM KINETICS400 pretrained model
-#BACKBONE_WTS="/home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation/kinetics_slowfast8x8.ckpt"
+#BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/kinetics_slowfast8x8.ckpt"
 BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/ego4d_slowfast8x8.ckpt"
-OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model (Direclty state-dict)
-#OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS}" # Start from a Lightning checkpoint
+#OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # IMPORTANT NOT TO LOAD FROM THIS, THIS WONT LOAD THE HEAD
+OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS}" # Start from a Lightning checkpoint
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True"
 OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE True"
 
