@@ -166,12 +166,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
             ]
             verb_metrics = [
-                GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='verb'),
-                FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='verb'),
+                GeneralizationTopkAccMetric(seen_action_set=self.seen_verb_set, k=1, mode='verb'),
+                FWTTopkAccMetric(seen_action_set=self.seen_verb_set, k=1, mode='verb'),
             ]
             noun_metrics = [
-                GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='noun'),
-                FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='noun'),
+                GeneralizationTopkAccMetric(seen_action_set=self.seen_noun_set, k=1, mode='noun'),
+                FWTTopkAccMetric(seen_action_set=self.seen_noun_set, k=1, mode='noun'),
             ]
             self.future_metrics = action_metrics + verb_metrics + noun_metrics
 
@@ -248,7 +248,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         }}
 
         # Do method callback (Get losses etc)
-        loss, outputs, step_results = self.method.training_step(inputs, labels)
+        loss, outputs, step_results = self.method.training_step(
+            inputs, labels, current_batch_sample_idxs=self.current_batch_sample_idxs
+        )
         metric_results = {**metric_results, **step_results}
 
         # Perform additional eval
@@ -258,7 +260,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             self.eval_future_data_(metric_results, batch_idx)
 
         # LOG results
-        self.log_metrics(metric_results)
+        self.log_step_metrics(metric_results)
         logger.debug(f"PRE-UPDATE Results for batch_idx={batch_idx}: {metric_results}")
 
         # Only loss should be used and stored for entire epoch (stream)
@@ -288,7 +290,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             self.eval_past_data_(metric_results, batch_idx)
 
             # LOG results
-            self.log_metrics(metric_results)
+            self.log_step_metrics(metric_results)
             logger.debug(f"POST-UPDATE Results for batch_idx={batch_idx}: {metric_results}")
 
             # (optionally) Save metrics after batch
@@ -322,7 +324,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # ---------------------
     # PER-STEP EVALUATION
     # ---------------------
-    def log_metrics(self, log_dict):
+    def log_step_metrics(self, log_dict):
         # logger.debug(f"LOGGING: {log_dict}")
         for logname, logval in log_dict.items():
             self.log(logname, float(logval), on_step=True, on_epoch=False)

@@ -11,6 +11,7 @@ from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)
 
+
 class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
     reset_before_batch = True
 
@@ -54,10 +55,12 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
         target_labels = labels[:, self.label_idx]
 
         try:
-            if len(self.cond_set) == 0:
-                label_mask = torch.zeros_like(target_labels).bool()
+            # Type check
+            if len(self.cond_set) > 0:
+                assert isinstance(next(iter(self.cond_set)), int)
+                label_mask = sum(target_labels == el for el in self.cond_set).bool()  # Match tensors
             else:
-                label_mask = sum(target_labels == el for el in self.cond_set).bool()
+                label_mask = torch.zeros_like(target_labels).bool()
         except Exception as e:
             import pdb
             import traceback
