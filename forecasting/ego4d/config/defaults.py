@@ -18,6 +18,9 @@ _C.PARENT_SCRIPT_FILE_PATH = ""
 _C.METHOD = CfgNode()
 _C.METHOD.METHOD_NAME = "Finetuning"
 
+_C.METHOD.REPLAY = CfgNode()
+_C.METHOD.REPLAY.MEMORY_SIZE_SAMPLES = "1000"
+_C.METHOD.REPLAY.IS_ACTION_BALANCED = True
 # ---------------------------------------------------------------------------- #
 # Batch norm options
 # ---------------------------------------------------------------------------- #
