@@ -61,6 +61,7 @@ class Ego4dRecognition(torch.utils.data.Dataset):
             decode_audio=False,
             transform=self._make_transform(mode, cfg),
             video_path_prefix=self.cfg.DATA.PATH_PREFIX,
+            fast_dev_data_cutoff=cfg.FAST_DEV_DATA_CUTOFF if cfg.FAST_DEV_RUN else None
         )
         self._dataset_iter = itertools.chain.from_iterable(
             itertools.repeat(iter(self.dataset), 2)

@@ -401,6 +401,7 @@ def clip_recognition_dataset(
         video_path_prefix: str = "",
         decode_audio: bool = True,
         decoder: str = "pyav",
+        fast_dev_data_cutoff:int = None,
 ):
     assert os.path.exists(data_path), 'Please run data/parse_ego4d_json.py first. Will change this later'
 
@@ -430,6 +431,11 @@ def clip_recognition_dataset(
             )
     else:
         raise FileNotFoundError(f"{data_path} not found.")
+
+    if fast_dev_data_cutoff is not None:
+        logger.debug(f"FAST-DEV DEBUG: cutting off user data "
+                     f"from {len(untrimmed_clip_annotations)} to {fast_dev_data_cutoff}")
+        untrimmed_clip_annotations = untrimmed_clip_annotations[:fast_dev_data_cutoff]
 
     dataset = LabeledVideoDataset(
         untrimmed_clip_annotations,

@@ -233,6 +233,10 @@ def main(cfg):
     else:
         args = {"logger": False, "callbacks": [checkpoint_callback, GPUStatsMonitor()]}
 
+    plugins = []
+    if cfg.SOLVER.ACCELERATOR == "ddp":
+        plugins.append(DDPPlugin(find_unused_parameters=False))
+
     trainer = Trainer(
         gpus=cfg.NUM_GPUS,
         num_nodes=cfg.NUM_SHARDS,
@@ -246,7 +250,7 @@ def main(cfg):
         log_every_n_steps=1,
 
         default_root_dir=cfg.OUTPUT_DIR,
-        plugins=DDPPlugin(find_unused_parameters=False),
+        plugins=plugins,
         **args,
     )
 

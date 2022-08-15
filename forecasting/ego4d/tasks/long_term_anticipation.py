@@ -59,7 +59,7 @@ class MultiTaskClassificationTask(VideoTask):
         _ = misc.aggregate_split_bn_stats(self.model)
 
         logger.debug(f"Starting Logging")
-        keys = [x for x in outputs[0].keys() if x is not "loss"]
+        keys = [x for x in outputs[0].keys() if x != "loss"]
         for key in keys:
             metric = torch.tensor([x[key] for x in outputs]).mean()
             self.log(key, metric)
@@ -102,7 +102,10 @@ class MultiTaskClassificationTask(VideoTask):
             logger.info(f"END VAL EPOCH {self.current_epoch}: {key}={metric}")
 
     def test_step(self, batch, batch_idx):
+        logger.debug(f"Testing, batch {batch_idx}")
         inputs, labels, clip_id, _ = batch
+        logger.debug(f"labels={labels.shape}")
+        logger.debug(f"batch_size=2x{inputs[0].shape},")
         preds = self.forward(inputs)
         return {
             "preds_verb": preds[0],
@@ -112,6 +115,9 @@ class MultiTaskClassificationTask(VideoTask):
         }
 
     def test_epoch_end(self, outputs):
+        """Gathers from different spatial views and aggregates.
+        When using multiple GPUs, each will sample the same due to uniform clip-sampling.
+        However, each can have different spatial crop due to 'random_scale_crop_flip', these are then aggregated. """
         preds_verbs = torch.cat([x["preds_verb"] for x in outputs])
         preds_nouns = torch.cat([x["preds_noun"] for x in outputs])
         labels = torch.cat([x["labels"] for x in outputs])
@@ -160,6 +166,9 @@ class MultiTaskClassificationTask(VideoTask):
         video_verb_preds = torch.stack(list(video_verb_preds.values()), dim=0)
         video_noun_preds = torch.stack(list(video_noun_preds.values()), dim=0)
         video_labels = torch.stack(list(video_labels.values()), dim=0)
+
+        logger.debug(
+            f"video_verb_preds={video_verb_preds.shape}, video_noun_preds={video_noun_preds.shape}, video_labels={video_labels.shape}")
         top1_verb_err, top5_verb_err = metrics.topk_errors(
             video_verb_preds, video_labels[:, 0], (1, 5)
         )
