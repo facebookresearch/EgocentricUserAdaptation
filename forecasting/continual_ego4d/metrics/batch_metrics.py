@@ -1,12 +1,10 @@
-import logging
-from abc import ABC, abstractmethod
 import torch
 from typing import Dict, Set, Union, Tuple
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.metrics.metric import AvgMeterMetric, Metric, get_metric_tag
 from ego4d.evaluation import lta_metrics as metrics
 
-BATCH_TAG = 'batch'
+TAG_BATCH = 'batch'
 
 
 class OnlineTopkAccMetric(AvgMeterMetric):
@@ -15,7 +13,7 @@ class OnlineTopkAccMetric(AvgMeterMetric):
     def __init__(self, k: int = 1, mode="action"):
         super().__init__(mode=mode)
         self.k = k
-        self.name = get_metric_tag(parent_tag=BATCH_TAG, action_mode=mode, base_metric_name=f"top{self.k}_acc")
+        self.name = get_metric_tag(parent_tag=TAG_BATCH, action_mode=mode, base_metric_name=f"top{self.k}_acc")
         self.avg_meter = AverageMeter()
 
         # Checks
@@ -89,7 +87,7 @@ class CountMetric(Metric):
 
         # Count in observed set
         ret.append(
-            (get_metric_tag(BATCH_TAG, action_mode=self.mode, base_metric_name=f"{self.observed_set_name}_count"),
+            (get_metric_tag(TAG_BATCH, action_mode=self.mode, base_metric_name=f"{self.observed_set_name}_count"),
              len(self.observed_set))
         )
 
@@ -98,13 +96,13 @@ class CountMetric(Metric):
 
             # Count in reference set
             ret.append(
-                (get_metric_tag(BATCH_TAG, action_mode=self.mode, base_metric_name=f"{self.ref_set_name}_count"),
+                (get_metric_tag(TAG_BATCH, action_mode=self.mode, base_metric_name=f"{self.ref_set_name}_count"),
                  len(self.ref_set))
             )
 
             # Count of intersection
             ret.append(
-                (get_metric_tag(BATCH_TAG, action_mode=self.mode,
+                (get_metric_tag(TAG_BATCH, action_mode=self.mode,
                                 base_metric_name=f"intersect_{self.observed_set_name}_VS_{self.ref_set_name}_count"),
                  len(intersect_set))
             )
@@ -113,7 +111,7 @@ class CountMetric(Metric):
             if len(self.observed_set) > 0:
                 ret.append((
                     get_metric_tag(
-                        BATCH_TAG, action_mode=self.mode, base_metric_name=
+                        TAG_BATCH, action_mode=self.mode, base_metric_name=
                         f"intersect_{self.observed_set_name}_VS_{self.ref_set_name}_{self.observed_set_name}-fract"),
                     len(intersect_set) / len(self.observed_set)
                 ))
@@ -122,7 +120,7 @@ class CountMetric(Metric):
             if len(self.ref_set) > 0:
                 ret.append((
                     get_metric_tag(
-                        BATCH_TAG, action_mode=self.mode, base_metric_name=
+                        TAG_BATCH, action_mode=self.mode, base_metric_name=
                         f"intersect_{self.observed_set_name}_VS_{self.ref_set_name}_{self.ref_set_name}-fract"),
                     len(intersect_set) / len(self.ref_set)
                 ))

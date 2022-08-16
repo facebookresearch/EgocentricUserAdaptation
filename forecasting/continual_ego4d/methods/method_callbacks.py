@@ -5,6 +5,8 @@ from torch import Tensor
 from pytorch_lightning.core import LightningModule
 import torch
 from collections import defaultdict
+from continual_ego4d.metrics.metric import get_metric_tag
+from continual_ego4d.metrics.batch_metrics import TAG_BATCH
 
 
 class Method:
@@ -34,9 +36,9 @@ class Method:
         loss = loss1 + loss2  # Avg losses
 
         log_results = {
-            f"{self.train_result_prefix}_action_loss": loss.item(),
-            f"{self.train_result_prefix}_verb_loss": loss1.item(),
-            f"{self.train_result_prefix}_noun_loss": loss2.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='loss'): loss.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb', base_metric_name='loss'): loss1.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun', base_metric_name='loss'): loss2.item(),
         }
         return loss, preds, log_results
 
@@ -51,9 +53,12 @@ class Method:
         sample_to_results = {}
         for batch_idx, stream_sample_idx in enumerate(stream_sample_idxs):
             sample_to_results[stream_sample_idx] = {
-                f"{self.pred_result_prefix}_action_loss": loss_action[batch_idx].item(),
-                f"{self.pred_result_prefix}_verb_loss": loss_verb[batch_idx].item(),
-                f"{self.pred_result_prefix}_noun_loss": loss_noun[batch_idx].item(),
+                get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='action', base_metric_name='loss'):
+                    loss_action[batch_idx].item(),
+                get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='verb', base_metric_name='loss'):
+                    loss_verb[batch_idx].item(),
+                get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='noun', base_metric_name='loss'):
+                    loss_noun[batch_idx].item(),
             }
 
         return loss_action, preds, sample_to_results
@@ -80,7 +85,6 @@ class Replay(Method):
         self.is_action_balanced = cfg.METHOD.REPLAY.IS_ACTION_BALANCED
 
         self.train_stream_dataset = lightning_module.train_dataloader().dataset
-
 
         self.conditional_memory = defaultdict(set)
         self.memory_dataloader_idxs = []  # Use this to update the memory indices of the stream

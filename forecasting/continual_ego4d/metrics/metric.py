@@ -5,13 +5,22 @@ from typing import Dict, Set, Union, Tuple
 from continual_ego4d.utils.meters import AverageMeter
 from ego4d.evaluation import lta_metrics as metrics
 
+ACTION_MODES = ('action', 'verb', 'noun')
+TRAIN_MODES = ('train', 'pred')
 
-def get_metric_tag(parent_tag, action_mode=None, base_metric_name=None):
-    child_tag = []
+
+def get_metric_tag(parent_tag, train_mode='train', action_mode=None, base_metric_name=None):
+    """Get logging metric name."""
+    assert train_mode in TRAIN_MODES
+    child_tag = [train_mode]
+
     if action_mode is not None:
+        assert action_mode in ACTION_MODES
         child_tag.append(action_mode)
+
     if base_metric_name is not None:
         child_tag.append(base_metric_name)
+
     return f"{parent_tag}/{'_'.join(child_tag)}"
 
 
@@ -48,7 +57,7 @@ class Metric(ABC):
 
 class AvgMeterMetric(Metric):
     reset_before_batch = True
-    modes = ["verb", "noun", "action"]
+    modes = ACTION_MODES
 
     def __init__(self, mode="action"):
         self.name = None  # Overwrite

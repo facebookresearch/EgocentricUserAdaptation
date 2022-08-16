@@ -1,47 +1,33 @@
 import logging
-from abc import ABC, abstractmethod
 import torch
 from typing import Dict, Set, Union, Tuple
-from continual_ego4d.utils.meters import AverageMeter
-from ego4d.evaluation import lta_metrics as metrics
-from continual_ego4d.metrics.batch_metrics import Metric
+from continual_ego4d.metrics.metric import AvgMeterMetric, get_metric_tag
+from continual_ego4d.metrics.batch_metrics import TAG_BATCH
+
+TAG_ADAPT = 'adapt'
 
 
-class OnlineAdaptationGainMetric(Metric):
+class OnlineAdaptationGainMetric(AvgMeterMetric):
     """ Compare with pretrained model for verb, noun, or combined action loss what the delta is. """
     reset_before_batch = True
 
-    modes = ["verb", "noun", "action"]
-
-    def __init__(self, unreduced_loss_fun, sample_idx_to_pretrain_loss: dict, loss_mode="action", prefix="online"):
+    def __init__(self, unreduced_loss_fun, sample_idx_to_pretrain_loss: dict, loss_mode="action",
+                 main_metric_name="AG_online"):
         """
-
         :param unreduced_loss_fun:
         :param sample_idx_to_pretrain_loss:
         :param loss_mode: Which (sub)loss to consider for the gain calculation per instance.
-        :param prefix:
+        :param main_metric_name:
         """
+        super().__init__(loss_mode)
+        self.name = get_metric_tag(TAG_ADAPT, action_mode=self.mode, base_metric_name=main_metric_name)
         self.unreduced_loss_fun = unreduced_loss_fun
         self.sample_idx_to_pretrain_loss = sample_idx_to_pretrain_loss
-        self.name = f"{prefix}_{loss_mode}_AG"
-        self.avg_meter = AverageMeter()
-
-        self.mode = loss_mode
-        assert self.mode in self.modes
-        if self.mode == 'verb':
-            self.label_idx = 0
-        elif self.mode == 'noun':
-            self.label_idx = 1
-        elif self.mode == 'action':
-            pass
-        else:
-            raise NotImplementedError()
 
     @torch.no_grad()
     def update(self, preds, labels, current_batch_sample_idxs: list):
         """Update metric from predictions and labels."""
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
-        batch_size = labels.shape[0]
 
         loss_verb = self.unreduced_loss_fun(preds[0], labels[:, 0])  # Verbs
         loss_noun = self.unreduced_loss_fun(preds[1], labels[:, 1])  # Nouns
@@ -49,46 +35,37 @@ class OnlineAdaptationGainMetric(Metric):
 
         # Verb/noun errors
         if self.mode in ['verb']:
-            pretrain_key = "pred_verb_loss"
+            pretrain_key = get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='verb', base_metric_name='loss')
             current_batch_loss = loss_verb
+
         elif self.mode in ['noun']:
-            pretrain_key = "pred_noun_loss"
+            pretrain_key = get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='noun', base_metric_name='loss')
             current_batch_loss = loss_noun
+
         elif self.mode in ['action']:
-            pretrain_key = "pred_action_loss"
+            pretrain_key = get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='action', base_metric_name='loss')
             current_batch_loss = loss_action
 
+        # Iterate samples
         for batch_idx, stream_sample_idx in enumerate(current_batch_sample_idxs):
             pretrain_sample_loss = self.sample_idx_to_pretrain_loss[stream_sample_idx][pretrain_key]
             current_sample_loss = current_batch_loss[batch_idx].item()
             adaptation_gain: float = pretrain_sample_loss - current_sample_loss
             self.avg_meter.update(adaptation_gain, weight=1)
 
-    @torch.no_grad()
-    def reset(self):
-        """Reset the metric."""
-        self.avg_meter.reset()
-
-    @torch.no_grad()
-    def result(self) -> Dict:
-        """Get the metric(s) with name in dict format."""
-        return {self.name: self.avg_meter.avg}
-
 
 class RunningAvgOnlineAdaptationGainMetric(OnlineAdaptationGainMetric):
     reset_before_batch = False
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.name = f"running_avg_{self.name}"
+        super().__init__(*args, **kwargs, main_metric_name="AG_running_avg")
 
 
 class CumulativeOnlineAdaptationGainMetric(OnlineAdaptationGainMetric):
     reset_before_batch = False
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.name = f"cumul_{self.name}"
+        super().__init__(*args, **kwargs, main_metric_name="AG_cumul")
 
     @torch.no_grad()
     def result(self) -> Dict:
