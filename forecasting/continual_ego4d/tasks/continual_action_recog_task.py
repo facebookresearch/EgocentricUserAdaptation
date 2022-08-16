@@ -21,8 +21,9 @@ import os.path as osp
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
+from continual_ego4d.metrics.metric import get_metric_tag
 from continual_ego4d.metrics.batch_metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
-    CountMetric
+    CountMetric, TAG_BATCH
 from continual_ego4d.metrics.adapt_metrics import OnlineAdaptationGainMetric, RunningAvgOnlineAdaptationGainMetric, \
     CumulativeOnlineAdaptationGainMetric
 from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric, \
@@ -255,6 +256,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 metric.reset()
 
         self.eval_this_step = self.trainer.logger_connector.should_update_logs
+        logger.debug(f"Continual eval on batch {batch_idx} = {self.eval_this_step}")
 
     def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
         """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""
@@ -271,9 +273,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Observed idxs update
         self.current_batch_sample_idxs = stream_sample_idxs.tolist()
         logger.debug(f"current_batch_sample_idxs={self.current_batch_sample_idxs}")
+
         metric_results = {**metric_results, **{
-            "history_sample_count": len(self.seen_samples_idxs),
-            "future_sample_count": self.total_stream_sample_count - len(self.seen_samples_idxs)
+            get_metric_tag(TAG_BATCH, base_metric_name=f"history_sample_count"):
+                len(self.seen_samples_idxs),
+            get_metric_tag(TAG_BATCH, base_metric_name=f"future_sample_count"):
+                self.total_stream_sample_count - len(self.seen_samples_idxs),
         }}
 
         # Do method callback (Get losses etc)

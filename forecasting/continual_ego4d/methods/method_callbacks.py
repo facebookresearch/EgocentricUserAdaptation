@@ -144,19 +144,28 @@ class Replay(Method):
 
         log_results = {
             # Total
-            f"{self.train_result_prefix}_total_verb_loss": loss_total_verbs.item(),
-            f"{self.train_result_prefix}_total_noun_loss": loss_total_nouns.item(),
-            f"{self.train_result_prefix}_total_action_loss": loss_total_actions.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
+                           base_metric_name=f"loss_total"): loss_total_verbs.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
+                           base_metric_name=f"loss_total"): loss_total_nouns.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
+                           base_metric_name=f"loss_total"): loss_total_actions.item(),
 
             # Mem
-            f"{self.train_result_prefix}_mem_verb_loss": loss_mem_verbs.item(),
-            f"{self.train_result_prefix}_mem_noun_loss": loss_mem_nouns.item(),
-            f"{self.train_result_prefix}_mem_action_loss": loss_mem_actions.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
+                           base_metric_name=f"loss_mem"): loss_mem_verbs.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
+                           base_metric_name=f"loss_mem"): loss_mem_nouns.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
+                           base_metric_name=f"loss_mem"): loss_mem_actions.item(),
 
             # New
-            f"{self.train_result_prefix}_new_verb_loss": loss_new_verbs.item(),
-            f"{self.train_result_prefix}_new_noun_loss": loss_new_nouns.item(),
-            f"{self.train_result_prefix}_new_action_loss": loss_new_actions.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
+                           base_metric_name=f"loss_new"): loss_new_verbs.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
+                           base_metric_name=f"loss_new"): loss_new_nouns.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
+                           base_metric_name=f"loss_new"): loss_new_actions.item(),
         }
 
         # TODO: Store samples
