@@ -65,7 +65,7 @@ class MultiTaskClassificationTask(VideoTask):
             self.log(key, metric)
             logger.info(f"END TRAIN EPOCH {self.current_epoch}: {key}={metric}")
 
-    def validation_step(self, batch, batch_idx):
+    def _eval_single_step(self, batch, tag='val'):
         inputs, labels, _, _ = batch
         preds = self.forward(inputs)
 
@@ -84,39 +84,60 @@ class MultiTaskClassificationTask(VideoTask):
             preds[0], preds[1], labels[:, 0], labels[:, 1]
         )
         return {
-            "val_action_loss": loss.item(),
-            "val_verb_loss": loss1.item(),
-            "val_noun_loss": loss2.item(),
-            "val_top1_action_err": top1_err_action.item(),
-            "val_top1_verb_err": top1_err_verb.item(),
-            "val_top5_verb_err": top5_err_verb.item(),
-            "val_top1_noun_err": top1_err_noun.item(),
-            "val_top5_noun_err": top5_err_noun.item(),
+            f"{tag}_action_loss": loss.item(),
+            f"{tag}_verb_loss": loss1.item(),
+            f"{tag}_noun_loss": loss2.item(),
+            f"{tag}_top1_action_err": top1_err_action.item(),
+            f"{tag}_top1_verb_err": top1_err_verb.item(),
+            f"{tag}_top5_verb_err": top5_err_verb.item(),
+            f"{tag}_top1_noun_err": top1_err_noun.item(),
+            f"{tag}_top5_noun_err": top5_err_noun.item(),
         }
 
-    def validation_epoch_end(self, outputs):
+    def _aggregate_over_steps(self, outputs):
         keys = outputs[0].keys()
         for key in keys:
             metric = torch.tensor([x[key] for x in outputs]).mean()
             self.log(key, metric)
             logger.info(f"END VAL EPOCH {self.current_epoch}: {key}={metric}")
 
+    def validation_step(self, batch, batch_idx):
+        return self._eval_single_step(batch, tag='val')
+
+    def validation_epoch_end(self, outputs):
+        self._aggregate_over_steps(outputs)
+
     def test_step(self, batch, batch_idx):
-        logger.debug(f"Testing, batch {batch_idx}")
-        inputs, labels, clip_id, _ = batch
-        logger.debug(f"labels={labels.shape}")
-        logger.debug(f"batch_size=2x{inputs[0].shape},")
-        preds = self.forward(inputs)
-        return {
-            "preds_verb": preds[0],
-            "preds_noun": preds[1],
-            "labels": labels,
-            "clip_ids": clip_id,
-        }
+        if self.cfg.SOLVER.ACCELERATOR in ["dp", "gpu"]:
+            return self._eval_single_step(batch, tag='test')
+
+        elif self.cfg.SOLVER.ACCELERATOR in ["ddp"]:  # Collect predictions
+            logger.debug(f"Testing, batch {batch_idx}")
+            inputs, labels, clip_id, _ = batch
+            logger.debug(f"labels={labels.shape}")
+            logger.debug(f"batch_size=2x{inputs[0].shape},")
+            preds = self.forward(inputs)
+            return {
+                "preds_verb": preds[0],
+                "preds_noun": preds[1],
+                "labels": labels,
+                "clip_ids": clip_id,
+            }
 
     def test_epoch_end(self, outputs):
-        """Gathers from different spatial views and aggregates.
-        When using multiple GPUs, each will sample the same due to uniform clip-sampling.
+
+        if self.cfg.SOLVER.ACCELERATOR in ["dp", "gpu"]:
+            self._aggregate_over_steps(outputs)
+
+        elif self.cfg.SOLVER.ACCELERATOR in ["ddp"]:
+            self._test_epoch_end_distr(outputs)
+
+        else:
+            raise ValueError()
+
+    def _test_epoch_end_distr(self, outputs):
+        """Gathers from different spatial views (from different hosts) and aggregates.
+        When using multiple GPUs, each will sample the same subclip per annotation due to uniform clip-sampling.
         However, each can have different spatial crop due to 'random_scale_crop_flip', these are then aggregated. """
         preds_verbs = torch.cat([x["preds_verb"] for x in outputs])
         preds_nouns = torch.cat([x["preds_noun"] for x in outputs])
