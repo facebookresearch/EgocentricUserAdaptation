@@ -27,8 +27,9 @@ from continual_ego4d.metrics.adapt_metrics import OnlineAdaptationGainMetric, Ru
     CumulativeOnlineAdaptationGainMetric
 from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric, \
     GeneralizationLossMetric, FWTLossMetric
-from continual_ego4d.metrics.past_metrics import FullOnlineForgettingMetric, ReexposureForgettingMetric, \
-    CollateralForgettingMetric
+from continual_ego4d.metrics.past_metrics import FullOnlineForgettingAccMetric, ReexposureForgettingAccMetric, \
+    CollateralForgettingAccMetric, FullOnlineForgettingLossMetric, ReexposureForgettingLossMetric, \
+    CollateralForgettingLossMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
 
 from pytorch_lightning.core import LightningModule
@@ -163,24 +164,30 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.future_metrics = future_metrics
         if self.future_metrics is None:  # None = default
             action_metrics = [
-                GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, action_mode='action'),
-                FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, action_mode='action'),
+                GeneralizationTopkAccMetric(
+                    seen_action_set=self.seen_action_set, k=1, action_mode='action'),
+                FWTTopkAccMetric(
+                    seen_action_set=self.seen_action_set, k=1, action_mode='action'),
                 GeneralizationLossMetric(
                     seen_action_set=self.seen_action_set, action_mode='action', loss_fun=self.loss_fun),
                 FWTLossMetric(
                     seen_action_set=self.seen_action_set, action_mode='action', loss_fun=self.loss_fun),
             ]
             verb_metrics = [
-                GeneralizationTopkAccMetric(seen_action_set=self.seen_verb_set, k=1, action_mode='verb'),
-                FWTTopkAccMetric(seen_action_set=self.seen_verb_set, k=1, action_mode='verb'),
+                GeneralizationTopkAccMetric(
+                    seen_action_set=self.seen_verb_set, k=1, action_mode='verb'),
+                FWTTopkAccMetric(
+                    seen_action_set=self.seen_verb_set, k=1, action_mode='verb'),
                 GeneralizationLossMetric(
                     seen_action_set=self.seen_verb_set, action_mode='verb', loss_fun=self.loss_fun),
                 FWTLossMetric(
                     seen_action_set=self.seen_verb_set, action_mode='verb', loss_fun=self.loss_fun),
             ]
             noun_metrics = [
-                GeneralizationTopkAccMetric(seen_action_set=self.seen_noun_set, k=1, action_mode='noun'),
-                FWTTopkAccMetric(seen_action_set=self.seen_noun_set, k=1, action_mode='noun'),
+                GeneralizationTopkAccMetric(
+                    seen_action_set=self.seen_noun_set, k=1, action_mode='noun'),
+                FWTTopkAccMetric(
+                    seen_action_set=self.seen_noun_set, k=1, action_mode='noun'),
                 GeneralizationLossMetric(
                     seen_action_set=self.seen_noun_set, action_mode='noun', loss_fun=self.loss_fun),
                 FWTLossMetric(
@@ -192,19 +199,28 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.past_metrics = past_metrics
         if self.past_metrics is None:  # None = default
             action_metrics = [
-                FullOnlineForgettingMetric(k=1, mode='action'),
-                ReexposureForgettingMetric(k=1, mode='action'),
-                CollateralForgettingMetric(k=1, mode='action'),
+                FullOnlineForgettingAccMetric(k=1, action_mode='action'),
+                ReexposureForgettingAccMetric(k=1, action_mode='action'),
+                CollateralForgettingAccMetric(k=1, action_mode='action'),
+                FullOnlineForgettingLossMetric(loss_fun=self.loss_fun, action_mode='action'),
+                ReexposureForgettingLossMetric(loss_fun=self.loss_fun, action_mode='action'),
+                CollateralForgettingLossMetric(loss_fun=self.loss_fun, action_mode='action'),
             ]
             verb_metrics = [
-                FullOnlineForgettingMetric(k=1, mode='verb'),
-                ReexposureForgettingMetric(k=1, mode='verb'),
-                CollateralForgettingMetric(k=1, mode='verb'),
+                FullOnlineForgettingAccMetric(k=1, action_mode='verb'),
+                ReexposureForgettingAccMetric(k=1, action_mode='verb'),
+                CollateralForgettingAccMetric(k=1, action_mode='verb'),
+                FullOnlineForgettingLossMetric(loss_fun=self.loss_fun, action_mode='verb'),
+                ReexposureForgettingLossMetric(loss_fun=self.loss_fun, action_mode='verb'),
+                CollateralForgettingLossMetric(loss_fun=self.loss_fun, action_mode='verb'),
             ]
             noun_metrics = [
-                FullOnlineForgettingMetric(k=1, mode='noun'),
-                ReexposureForgettingMetric(k=1, mode='noun'),
-                CollateralForgettingMetric(k=1, mode='noun'),
+                FullOnlineForgettingAccMetric(k=1, action_mode='noun'),
+                ReexposureForgettingAccMetric(k=1, action_mode='noun'),
+                CollateralForgettingAccMetric(k=1, action_mode='noun'),
+                FullOnlineForgettingLossMetric(loss_fun=self.loss_fun, action_mode='noun'),
+                ReexposureForgettingLossMetric(loss_fun=self.loss_fun, action_mode='noun'),
+                CollateralForgettingLossMetric(loss_fun=self.loss_fun, action_mode='noun'),
             ]
             self.past_metrics = action_metrics + verb_metrics + noun_metrics
 

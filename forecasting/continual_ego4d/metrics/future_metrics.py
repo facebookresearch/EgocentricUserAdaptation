@@ -31,19 +31,24 @@ class ConditionalOnlineMetric(AvgMeterMetric):
         labels. e.g. for actions we need (verb,noun) labels).
         """
         super().__init__(action_mode)
-        self.name = get_metric_tag(TAG_FUTURE, action_mode=self.mode,
-                                   base_metric_name=f"{main_metric_name}_{base_metric_mode}")
+
         self.cond_set: Union[Set, Dict] = cond_set  # Conditional set: Which samples to look at
         self.in_cond_set = in_cond_set
 
         self.base_metric_mode = base_metric_mode
-        assert self.base_metric_mode in self.base_metric_modes
-
         if self.base_metric_mode == 'loss':
             assert loss_fun is not None, f"Need to pass loss_fun to metric if in loss mode."
             self.loss_fun = loss_fun
+            basic_metric_name = f"{main_metric_name}_{self.base_metric_mode}"
+
         elif self.base_metric_mode == 'acc':
             assert k is not None, f"Need to pass loss_fun to metric if in loss mode."
+            self.k = k
+            basic_metric_name = f"{main_metric_name}_top{self.k}{self.base_metric_mode}"
+        else:
+            raise ValueError()
+
+        self.name = get_metric_tag(TAG_FUTURE, action_mode=self.mode, base_metric_name=basic_metric_name)
 
     @torch.no_grad()
     def update(self, preds, labels, *args, **kwargs):
