@@ -9,7 +9,7 @@ from pytorchvideo.transforms import (
     Normalize,
     UniformTemporalSubsample,
 )
-from torch.utils.data import RandomSampler
+from torch.utils.data import RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from torchvision.transforms import (
     Compose,
@@ -33,9 +33,14 @@ class Ego4dRecognition(torch.utils.data.Dataset):
             "test",
         ], "Split '{}' not supported for Ego4d ".format(mode)
 
-        sampler = RandomSampler
-        if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"] and cfg.NUM_GPUS > 1:
-            sampler = DistributedSampler
+        if mode == 'test':
+            assert cfg.SOLVER.ACCELERATOR == "gpu", f"Only single GPU testing supported."
+            assert cfg.NUM_GPUS == 1, f"Only single GPU testing supported."
+            sampler = SequentialSampler
+        else:
+            sampler = RandomSampler
+            if cfg.SOLVER.ACCELERATOR in ['ddp'] and cfg.NUM_GPUS > 1:
+                sampler = DistributedSampler
 
         clip_sampler_type = "uniform" if mode == "test" else "random"
         clip_duration = (self.cfg.DATA.NUM_FRAMES * self.cfg.DATA.SAMPLING_RATE
