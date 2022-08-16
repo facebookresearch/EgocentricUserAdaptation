@@ -15,8 +15,8 @@ from sklearn.metrics import average_precision_score
 
 logger = logging.get_logger(__name__)
 
-
-def distributed_twodistr_top1_errors(preds1, preds2, labels1, labels2, acc=False) -> torch.FloatTensor:
+topk_return_modes = ['acc', 'err', 'correct_cnt']
+def distributed_twodistr_top1_errors(preds1, preds2, labels1, labels2, return_mode='err') -> torch.FloatTensor:
     """
     Prediction from both distributions (verb,noun) has to be correct for a correct (action) prediction.
     Only takes top1 as top-K with K>1 results in combinatorial solutions.
@@ -35,13 +35,11 @@ def distributed_twodistr_top1_errors(preds1, preds2, labels1, labels2, acc=False
     # Count corrects over batch
     top1_correct_count = top1_correct_both.reshape(-1).float().sum()
 
-    if not acc:
-        return (1.0 - top1_correct_count / batch_size) * 100.0
-    else:
-        return (top1_correct_count / batch_size) * 100.0
+    format_fn = get_return_format(return_mode, batch_size)
+    return format_fn(top1_correct_count)
 
 
-def distributed_topk_errors(preds, labels, ks, acc=False) -> list[torch.FloatTensor]:
+def distributed_topk_errors(preds, labels, ks, return_mode='err') -> list[torch.FloatTensor]:
     """
     Computes the top-k error for each k. Average reduces the result with all other
     distributed processes.
@@ -50,9 +48,11 @@ def distributed_topk_errors(preds, labels, ks, acc=False) -> list[torch.FloatTen
         labels (array): array of labels. Dimension is N.
         ks (list): list of ks to calculate the top accuracies.
     """
+    assert return_mode in topk_return_modes
+
     preds = torch.cat(du.all_gather_unaligned(preds), dim=0)
     labels = torch.cat(du.all_gather_unaligned(labels), dim=0)
-    errors = topk_errors(preds, labels, ks, acc=acc)
+    errors = topk_errors(preds, labels, ks, return_mode=return_mode)
     return errors
 
 
@@ -102,7 +102,19 @@ def _get_topk_correct_onehot_matrix(preds, labels, ks):
     return top_max_k_correct
 
 
-def topk_errors(preds, labels, ks, acc=False) -> list[torch.FloatTensor]:
+def get_return_format(return_mode, total_cnt=None):
+    if return_mode == 'err':
+        format_fn = lambda correct_cnt: (1.0 - correct_cnt / total_cnt) * 100.0
+    elif return_mode == 'acc':
+        format_fn = lambda correct_cnt: (correct_cnt / total_cnt) * 100.0
+    elif return_mode == 'correct_cnt':
+        format_fn = lambda correct_cnt: correct_cnt
+    else:
+        raise ValueError(f"return_mode='{return_mode}' unknown")
+    return format_fn
+
+
+def topk_errors(preds, labels, ks, return_mode='err') -> list[torch.FloatTensor]:
     """
     Computes the top-k error for each k.
     Args:
@@ -110,12 +122,9 @@ def topk_errors(preds, labels, ks, acc=False) -> list[torch.FloatTensor]:
         labels (array): array of labels. Dimension is N.
         ks (list): list of ks to calculate the top accuracies.
     """
-    num_topks_correct = topks_correct(preds, labels, ks)
-
-    if not acc:
-        return [(1.0 - x / preds.size(0)) * 100.0 for x in num_topks_correct]
-    else:
-        return [(x / preds.size(0)) * 100.0 for x in num_topks_correct]
+    num_topks_correct: list[torch.FloatTensor] = topks_correct(preds, labels, ks)
+    format_fn = get_return_format(return_mode, preds.size(0))
+    return [format_fn(x) for x in num_topks_correct]
 
 
 def edit_distance(preds, labels):
