@@ -6,27 +6,44 @@ from continual_ego4d.utils.meters import AverageMeter
 from ego4d.evaluation import lta_metrics as metrics
 from collections import defaultdict
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
-from continual_ego4d.metrics.batch_metrics import OnlineTopkAccMetric
+from continual_ego4d.metrics.metric import AvgMeterMetric, Metric, get_metric_tag
+
 from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)
 
+TAG_FUTURE = 'future'
 
-class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
+
+class ConditionalOnlineMetric(AvgMeterMetric):
     reset_before_batch = True
+    base_metric_modes = ['loss', 'acc']
 
-    def __init__(self, k, mode, name_prefix, cond_set: Union[Set[int], Set[Tuple[int]]], in_cond_set=True):
+    def __init__(self, base_metric_mode: str, action_mode: str, main_metric_name: str,
+                 cond_set: Union[Set[int], Set[Tuple[int]]], in_cond_set=True,
+                 loss_fun=None, k=None
+                 ):
         """
         Mask out predictions, but keep those that are in (in_cond_set=True) or not in (in_cond_set=False) the
         given label set (cond_set).
-        :param name_prefix: Indicates what the metric stands for
+        :param main_metric_name: Indicates what the metric stands for. e.g. FWT, GEN,...
         :param cond_set: Is a set or dict either with int's indicating the labels, or tuples of 2 ints indicating the pairs of
         labels. e.g. for actions we need (verb,noun) labels).
         """
-        super().__init__(k, mode)
-        self.name = f"{name_prefix}_{self.name}"
+        super().__init__(action_mode)
+        self.name = get_metric_tag(TAG_FUTURE, action_mode=self.mode,
+                                   base_metric_name=f"{main_metric_name}_{base_metric_mode}")
         self.cond_set: Union[Set, Dict] = cond_set  # Conditional set: Which samples to look at
         self.in_cond_set = in_cond_set
+
+        self.base_metric_mode = base_metric_mode
+        assert self.base_metric_mode in self.base_metric_modes
+
+        if self.base_metric_mode == 'loss':
+            assert loss_fun is not None, f"Need to pass loss_fun to metric if in loss mode."
+            self.loss_fun = loss_fun
+        elif self.base_metric_mode == 'acc':
+            assert k is not None, f"Need to pass loss_fun to metric if in loss mode."
 
     @torch.no_grad()
     def update(self, preds, labels, *args, **kwargs):
@@ -38,19 +55,20 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
 
         # Verb/noun errors
         if self.mode in ['verb', 'noun']:
-            topk_acc, subset_batch_size = self._get_verbnoun_topk_acc(preds, labels)
+            metric_result, subset_batch_size = self._get_verbnoun_metric_result(preds, labels)
 
         # Action errors
         elif self.mode in ['action']:
-            topk_acc, subset_batch_size = self._get_action_topk_acc(preds, labels)
+            metric_result, subset_batch_size = self._get_action_metric_result(preds, labels)
 
         else:
             raise NotImplementedError()
 
         # Update
-        self.avg_meter.update(topk_acc.item(), weight=subset_batch_size)
+        if metric_result is not None:
+            self.avg_meter.update(metric_result.item(), weight=subset_batch_size)
 
-    def _get_verbnoun_topk_acc(self, preds, labels):
+    def _get_verbnoun_metric_result(self, preds, labels):
         target_preds = preds[self.label_idx]
         target_labels = labels[:, self.label_idx]
 
@@ -61,7 +79,7 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
                 label_mask = sum(target_labels == el for el in self.cond_set).bool()  # Match tensors
             else:
                 label_mask = torch.zeros_like(target_labels).bool()
-        except Exception as e:
+        except Exception as e:  # TODO FIXME Remove this
             import pdb
             import traceback
             logger.debug(traceback.format_exc())
@@ -72,18 +90,20 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
             label_mask = ~label_mask
 
         subset_batch_size = sum(label_mask)
-        if subset_batch_size <= 0:  # No selected
-            topk_acc = torch.FloatTensor([0])
-        else:
+        metric_result = None
+        if subset_batch_size > 0:  # When samples selected
             subset_preds = target_preds[label_mask]
             subset_labels = target_labels[label_mask]
 
-            topk_acc: torch.FloatTensor = metrics.distributed_topk_errors(
-                subset_preds, subset_labels, [self.k], acc=True)[0]
+            if self.base_metric_mode == 'acc':
+                metric_result: torch.FloatTensor = metrics.distributed_topk_errors(
+                    subset_preds, subset_labels, [self.k], return_mode='acc')[0]
+            elif self.base_metric_mode == 'loss':
+                metric_result: torch.FloatTensor = self.loss_fun(subset_preds, subset_labels)
 
-        return topk_acc, subset_batch_size
+        return metric_result, subset_batch_size
 
-    def _get_action_topk_acc(self, preds, labels):
+    def _get_action_metric_result(self, preds, labels):
         # Get mask
         label_batch_axis = 0
         label_mask = torch.cat([
@@ -95,35 +115,67 @@ class ConditionalOnlineTopkAccMetric(OnlineTopkAccMetric):
             label_mask = ~label_mask
 
         subset_batch_size = sum(label_mask)
-        if subset_batch_size <= 0:  # No selected
-            topk_acc = torch.FloatTensor([0])
-        else:
+        metric_result = None
+        if subset_batch_size > 0:  # When samples selected
             # Subset
             preds1, preds2 = preds[0][label_mask], preds[1][label_mask]
             subset_labels = labels[label_mask]
             labels1, labels2 = subset_labels[:, 0], subset_labels[:, 1]
 
-            topk_acc: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
-                preds1, preds2, labels1, labels2, acc=True)
+            if self.base_metric_mode == 'acc':
+                metric_result: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
+                    preds1, preds2, labels1, labels2, return_mode='acc')
+            elif self.base_metric_mode == 'loss':
+                verb_loss: torch.FloatTensor = self.loss_fun(preds1, labels1)
+                noun_loss: torch.FloatTensor = self.loss_fun(preds2, labels2)
+                metric_result: torch.FloatTensor = verb_loss + noun_loss
 
-        return topk_acc, subset_batch_size
+        return metric_result, subset_batch_size
 
 
-class GeneralizationTopkAccMetric(ConditionalOnlineTopkAccMetric):
+class GeneralizationTopkAccMetric(ConditionalOnlineMetric):
     """ Measure on future data for actions that have been seen in history data."""
 
-    def __init__(self, seen_action_set, k, mode):
+    def __init__(self, seen_action_set, k, action_mode):
         super().__init__(
-            k=k, mode=mode,
-            name_prefix='GEN', cond_set=seen_action_set, in_cond_set=True  # Fixed
+            base_metric_mode='acc', main_metric_name='GEN',
+            k=k, loss_fun=None,  # Acc
+            action_mode=action_mode,
+            cond_set=seen_action_set, in_cond_set=True  # Fixed
         )
 
 
-class FWTTopkAccMetric(ConditionalOnlineTopkAccMetric):
+class FWTTopkAccMetric(ConditionalOnlineMetric):
     """ Measure on future data for actions that have NOT been seen in history data."""
 
-    def __init__(self, seen_action_set, k, mode):
+    def __init__(self, seen_action_set, k, action_mode):
         super().__init__(
-            k=k, mode=mode,
-            name_prefix='FWT', cond_set=seen_action_set, in_cond_set=False  # Fixed
+            base_metric_mode='acc', main_metric_name='FWT',
+            k=k, loss_fun=None,  # Acc
+            action_mode=action_mode,
+            cond_set=seen_action_set, in_cond_set=False  # Fixed
+        )
+
+
+class GeneralizationLossMetric(ConditionalOnlineMetric):
+    """ Measure on future data for actions that have been seen in history data."""
+
+    def __init__(self, seen_action_set, action_mode, loss_fun):
+        super().__init__(
+            base_metric_mode='loss', main_metric_name='GEN',
+            k=None, loss_fun=loss_fun,  # Loss
+            action_mode=action_mode,
+            cond_set=seen_action_set, in_cond_set=True  # Fixed
+        )
+
+
+class FWTLossMetric(ConditionalOnlineMetric):
+    """ Measure on future data for actions that have NOT been seen in history data."""
+
+    def __init__(self, seen_action_set, action_mode, loss_fun):
+        super().__init__(
+            base_metric_mode='loss', main_metric_name='FWT',
+            k=None, loss_fun=loss_fun,  # Loss
+            action_mode=action_mode,
+            cond_set=seen_action_set, in_cond_set=False  # Fixed
         )

@@ -25,7 +25,8 @@ from continual_ego4d.metrics.batch_metrics import Metric, OnlineTopkAccMetric, R
     CountMetric
 from continual_ego4d.metrics.adapt_metrics import OnlineAdaptationGainMetric, RunningAvgOnlineAdaptationGainMetric, \
     CumulativeOnlineAdaptationGainMetric
-from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric
+from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric, \
+    GeneralizationLossMetric, FWTLossMetric
 from continual_ego4d.metrics.past_metrics import FullOnlineForgettingMetric, ReexposureForgettingMetric, \
     CollateralForgettingMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
@@ -162,16 +163,28 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.future_metrics = future_metrics
         if self.future_metrics is None:  # None = default
             action_metrics = [
-                GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
-                FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, mode='action'),
+                GeneralizationTopkAccMetric(seen_action_set=self.seen_action_set, k=1, action_mode='action'),
+                FWTTopkAccMetric(seen_action_set=self.seen_action_set, k=1, action_mode='action'),
+                GeneralizationLossMetric(
+                    seen_action_set=self.seen_action_set, action_mode='action', loss_fun=self.loss_fun),
+                FWTLossMetric(
+                    seen_action_set=self.seen_action_set, action_mode='action', loss_fun=self.loss_fun),
             ]
             verb_metrics = [
-                GeneralizationTopkAccMetric(seen_action_set=self.seen_verb_set, k=1, mode='verb'),
-                FWTTopkAccMetric(seen_action_set=self.seen_verb_set, k=1, mode='verb'),
+                GeneralizationTopkAccMetric(seen_action_set=self.seen_verb_set, k=1, action_mode='verb'),
+                FWTTopkAccMetric(seen_action_set=self.seen_verb_set, k=1, action_mode='verb'),
+                GeneralizationLossMetric(
+                    seen_action_set=self.seen_verb_set, action_mode='verb', loss_fun=self.loss_fun),
+                FWTLossMetric(
+                    seen_action_set=self.seen_verb_set, action_mode='verb', loss_fun=self.loss_fun),
             ]
             noun_metrics = [
-                GeneralizationTopkAccMetric(seen_action_set=self.seen_noun_set, k=1, mode='noun'),
-                FWTTopkAccMetric(seen_action_set=self.seen_noun_set, k=1, mode='noun'),
+                GeneralizationTopkAccMetric(seen_action_set=self.seen_noun_set, k=1, action_mode='noun'),
+                FWTTopkAccMetric(seen_action_set=self.seen_noun_set, k=1, action_mode='noun'),
+                GeneralizationLossMetric(
+                    seen_action_set=self.seen_noun_set, action_mode='noun', loss_fun=self.loss_fun),
+                FWTLossMetric(
+                    seen_action_set=self.seen_noun_set, action_mode='noun', loss_fun=self.loss_fun),
             ]
             self.future_metrics = action_metrics + verb_metrics + noun_metrics
 
