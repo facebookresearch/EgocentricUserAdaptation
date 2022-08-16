@@ -290,7 +290,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # LOG results
         self.log_step_metrics(metric_results)
-        logger.debug(f"PRE-UPDATE Results for batch_idx={batch_idx}: {metric_results}")
+        logger.debug(f"PRE-UPDATE Results for batch_idx={batch_idx}: {pprint.pformat(metric_results)}")
 
         # Only loss should be used and stored for entire epoch (stream)
         return loss
@@ -320,7 +320,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
             # LOG results
             self.log_step_metrics(metric_results)
-            logger.debug(f"POST-UPDATE Results for batch_idx={batch_idx}: {metric_results}")
+            logger.debug(f"POST-UPDATE Results for batch_idx={batch_idx}: {pprint.pformat(metric_results)}")
 
             # (optionally) Save metrics after batch
             for metric in [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]:
@@ -373,7 +373,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         for metric in self.current_batch_metrics:
             results = {**results, **metric.result()}
 
-        self.add_to_dict_(step_result, results, prefix='online')
+        self.add_to_dict_(step_result, results)
 
     @torch.no_grad()
     @_eval_in_train_decorator
@@ -399,8 +399,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         )
 
         result_dict = self._get_metric_results_over_dataloader(future_dataloader, metrics=self.future_metrics)
-
-        self.add_to_dict_(step_result, result_dict, prefix='future')
+        self.add_to_dict_(step_result, result_dict)
 
     @torch.no_grad()
     @_eval_in_train_decorator
@@ -421,18 +420,16 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             subset_indices=seen_idxs,  # Previous data, not including current
         )
         result_dict = self._get_metric_results_over_dataloader(obs_dataloader, metrics=self.past_metrics)
-
-        self.add_to_dict_(step_result, result_dict, prefix='past')
+        self.add_to_dict_(step_result, result_dict)
 
     # ---------------------
     # HELPER METHODS
     # ---------------------
     @staticmethod
-    def add_to_dict_(source_dict: dict, dict_to_add: dict, prefix: str = "", ):
-        if len(prefix) > 0:
-            prefix = f"{prefix}_"
+    def add_to_dict_(source_dict: dict, dict_to_add: dict):
+        """In-place add to dict"""
         for k, v in dict_to_add.items():
-            source_dict[f"{prefix}{k}"] = v
+            source_dict[k] = v
 
     def _get_train_dataloader_subset(self, train_dataloader: torch.utils.data.DataLoader,
                                      subset_indices: Union[List, Tuple],
