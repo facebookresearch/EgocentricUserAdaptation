@@ -19,8 +19,8 @@ _C.METHOD = CfgNode()
 _C.METHOD.METHOD_NAME = "Finetuning"
 
 _C.METHOD.REPLAY = CfgNode()
-_C.METHOD.REPLAY.MEMORY_SIZE_SAMPLES = "1000"
-_C.METHOD.REPLAY.IS_ACTION_BALANCED = True
+_C.METHOD.REPLAY.MEMORY_SIZE_SAMPLES = 1000
+_C.METHOD.REPLAY.STORAGE_POLICY = "reservoir_stream"
 # ---------------------------------------------------------------------------- #
 # Batch norm options
 # ---------------------------------------------------------------------------- #

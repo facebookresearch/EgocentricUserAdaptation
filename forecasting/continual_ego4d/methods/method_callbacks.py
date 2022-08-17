@@ -83,12 +83,24 @@ class Replay(Method):
     Pytorch Subset of original stream, with expanding indices.
     """
 
+    storage_policies = ['reservoir_stream', 'reservoir_action', 'reservoir_verbnoun']
+    """
+    reservoir_stream: Reservoir sampling agnostic of any conditionals.
+    
+    reservoir_action: Reservoir sampling per action-bin, with bins defined by separate actions (verb,noun) pairs.
+    All bins have same capacity (and may not be entirely filled).
+    
+    reservoir_verbnoun: Reservoir sampling per verbnoun-bin, with bins defined by separate verbs or nouns. This allows 
+    sharing between actions with an identical verb or noun. All bins have same capacity (and may not be entirely filled).
+    """
+
+    # TODO VERBNOUN_BALANCED: A BIN PER SEPARATE VERB N NOUN (be careful not to store samples twice!)
+
     def __init__(self, cfg, lightning_module):
         super().__init__(cfg, lightning_module)
-        self.mem_size = cfg.METHOD.REPLAY.MEMORY_SIZE_SAMPLES
-        self.is_action_balanced = cfg.METHOD.REPLAY.IS_ACTION_BALANCED
-        # TODO VERBNOUN_BALANCED: A BIN PER SEPARATE VERB N NOUN (be careful not to store samples twice!)
-        # TODO do a balance mode instead of bools
+        self.mem_size = int(cfg.METHOD.REPLAY.MEMORY_SIZE_SAMPLES)
+        self.storage_policy = cfg.METHOD.REPLAY.STORAGE_POLICY
+        assert self.storage_policy in self.storage_policies
 
         self.train_stream_dataset = lightning_module.train_dataloader().dataset
         self.num_workers_replay = cfg.DATA_LOADER.NUM_WORKERS  # Doubles the number of workers
@@ -105,8 +117,8 @@ class Replay(Method):
         # Retrieve from memory
         mem_batch = self.retrieve_rnd_batch_from_mem(mem_batch_size=self.new_batch_size)
 
-        # join mem and new
-        joined_batch = torch.cat([new_batch, mem_batch], dim=0)  # Add in batch dim
+        # unpack and join mem and new
+        joined_batch = self.concat_batches(new_batch, mem_batch)
 
         return joined_batch
 
@@ -124,9 +136,7 @@ class Replay(Method):
             stream_subset,
             batch_size=mem_batch_size,
             num_workers=self.num_workers_replay,
-            shuffle=False,
-            pin_memory=True,
-            drop_last=False,
+            shuffle=False, pin_memory=True, drop_last=False,
         )
         logger.debug(f"Created Replay dataloader. batch_size={loader.batch_size}, "
                      f"samples={mem_batch_size}, num_batches={len(loader)}")
@@ -135,10 +145,26 @@ class Replay(Method):
         mem_batch = next(loader)
         return mem_batch
 
-    def training_step(self, inputs, labels, current_batch_sample_idxs=None, *args, **kwargs) \
+    @staticmethod
+    def concat_batches(batch1, batch2):
+        # inputs, labels, video_names, stream_sample_idxs = batch
+        joined_batch = [None] * 4
+
+        # Tensors concat in batch dim
+        tensor_idxs = [0, 1, 3]
+        for tensor_idx in tensor_idxs:
+            joined_batch[tensor_idx] = torch.cat([batch1[tensor_idx], batch2[tensor_idx]], dim=0)  # Add in batch dim
+
+        # List
+        joined_batch.append(batch1[2] + batch2[2])
+
+        return joined_batch
+
+    def training_step(self, inputs, labels, *args, current_batch_sample_idxs=None, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
+        assert current_batch_sample_idxs is not None, "Specify current_batch_sample_idxs for Replay"
         total_batch_size = inputs.shape[0]
 
         # Forward at once
@@ -192,11 +218,11 @@ class Replay(Method):
         }
 
         # TODO: Store samples
-        self._store_samples_in_replay_memory()
+        self._store_samples_in_replay_memory(labels, current_batch_sample_idxs)
 
         return loss_total_actions, preds, log_results
 
-    def _store_samples_in_replay_memory(self):
+    def _store_samples_in_replay_memory(self, labels, current_batch_sample_idxs):
         """"""
         # Based on action labels create new bins and cutoff others, e.g. reservoir sampling
 
