@@ -7,6 +7,13 @@ import torch
 from collections import defaultdict
 from continual_ego4d.metrics.metric import get_metric_tag
 from continual_ego4d.metrics.batch_metrics import TAG_BATCH
+from collections import OrderedDict
+import random
+import itertools
+
+from ego4d.utils import logging
+
+logger = logging.get_logger(__name__)
 
 
 class Method:
@@ -15,9 +22,6 @@ class Method:
         self.lightning_module = lightning_module
         self.device = self.lightning_module.device
         self.trainer = self.lightning_module.trainer
-
-        self.train_result_prefix = 'train'
-        self.pred_result_prefix = 'pred'
 
         self.loss_fun_train = self.lightning_module.loss_fun
         self.loss_fun_pred = self.lightning_module.loss_fun_pred
@@ -83,10 +87,13 @@ class Replay(Method):
         super().__init__(cfg, lightning_module)
         self.mem_size = cfg.METHOD.REPLAY.MEMORY_SIZE_SAMPLES
         self.is_action_balanced = cfg.METHOD.REPLAY.IS_ACTION_BALANCED
+        # TODO VERBNOUN_BALANCED: A BIN PER SEPARATE VERB N NOUN (be careful not to store samples twice!)
+        # TODO do a balance mode instead of bools
 
         self.train_stream_dataset = lightning_module.train_dataloader().dataset
+        self.num_workers_replay = cfg.DATA_LOADER.NUM_WORKERS  # Doubles the number of workers
 
-        self.conditional_memory = defaultdict(set)
+        self.conditional_memory = OrderedDict({})  # Map <Conditional, datastream_idx_list>
         self.memory_dataloader_idxs = []  # Use this to update the memory indices of the stream
 
         # Retrieval state vars
@@ -96,21 +103,37 @@ class Replay(Method):
         self.new_batch_size = new_batch.shape[0]
 
         # Retrieve from memory
-        mem_batch = self.retrieve_batch_from_mem()
+        mem_batch = self.retrieve_rnd_batch_from_mem(mem_batch_size=self.new_batch_size)
 
         # join mem and new
         joined_batch = torch.cat([new_batch, mem_batch], dim=0)  # Add in batch dim
 
         return joined_batch
 
-    def retrieve_batch_from_mem(self) -> Tensor:
-        """ """
-        # TODO add replay samples to batch
-        # Create new Subset and dataloader to fetch batch
+    def retrieve_rnd_batch_from_mem(self, mem_batch_size) -> Tensor:
+        """ Sample stream idxs from replay memory. Create loader and load all selected samples at once. """
+        # Sample idxs of our stream_idxs (without resampling)
+        # Random sampling, weighed by len per conditional bin
+        flat_mem = list(itertools.chain(self.conditional_memory.values()))
+        stream_idxs = random.sample(flat_mem, mem_batch_size)
 
-        # Sample idcs without resampling over total buffersize, with each class weighted by its len
+        # Load the samples from history of stream
+        stream_subset = torch.utils.data.Subset(self.train_stream_dataset, stream_idxs)
 
-        raise NotImplementedError()
+        loader = torch.utils.data.DataLoader(
+            stream_subset,
+            batch_size=mem_batch_size,
+            num_workers=self.num_workers_replay,
+            shuffle=False,
+            pin_memory=True,
+            drop_last=False,
+        )
+        logger.debug(f"Created Replay dataloader. batch_size={loader.batch_size}, "
+                     f"samples={mem_batch_size}, num_batches={len(loader)}")
+
+        assert len(loader) == 1, f"Dataloader should return all in 1 batch."
+        mem_batch = next(loader)
+        return mem_batch
 
     def training_step(self, inputs, labels, current_batch_sample_idxs=None, *args, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
