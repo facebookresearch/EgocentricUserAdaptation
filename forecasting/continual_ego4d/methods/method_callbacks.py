@@ -10,6 +10,7 @@ from continual_ego4d.metrics.batch_metrics import TAG_BATCH
 from collections import OrderedDict
 import random
 import itertools
+from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 
 from ego4d.utils import logging
 
@@ -86,19 +87,22 @@ class Replay(Method):
     storage_policies = ['reservoir_stream', 'reservoir_action', 'reservoir_verbnoun']
     """
     reservoir_stream: Reservoir sampling agnostic of any conditionals.
+    {None:[Memory-list]}
     
     reservoir_action: Reservoir sampling per action-bin, with bins defined by separate actions (verb,noun) pairs.
     All bins have same capacity (and may not be entirely filled).
+    {action-tuple:[Memory-list]}
     
     reservoir_verbnoun: Reservoir sampling per verbnoun-bin, with bins defined by separate verbs or nouns. This allows 
     sharing between actions with an identical verb or noun. All bins have same capacity (and may not be entirely filled).
+    {str: "{verb,noun}_label-int":[Memory-list]}
     """
 
     # TODO VERBNOUN_BALANCED: A BIN PER SEPARATE VERB N NOUN (be careful not to store samples twice!)
 
     def __init__(self, cfg, lightning_module):
         super().__init__(cfg, lightning_module)
-        self.mem_size = int(cfg.METHOD.REPLAY.MEMORY_SIZE_SAMPLES)
+        self.total_mem_size = int(cfg.METHOD.REPLAY.MEMORY_SIZE_SAMPLES)
         self.storage_policy = cfg.METHOD.REPLAY.STORAGE_POLICY
         assert self.storage_policy in self.storage_policies
 
@@ -110,6 +114,11 @@ class Replay(Method):
 
         # Retrieval state vars
         self.new_batch_size = None  # How many from stream
+
+        # storage state vars
+        self.mem_size_per_conditional = self.total_mem_size  # Will be updated
+        self.num_observed_samples = 0
+        self.num_samples_memory = 0
 
     def on_before_batch_transfer(self, new_batch: Any, dataloader_idx: int) -> Any:
         self.new_batch_size = new_batch.shape[0]
@@ -166,6 +175,8 @@ class Replay(Method):
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
         assert current_batch_sample_idxs is not None, "Specify current_batch_sample_idxs for Replay"
         total_batch_size = inputs.shape[0]
+        mem_batch_size = total_batch_size - self.new_batch_size
+        self.num_observed_samples += self.new_batch_size
 
         # Forward at once
         preds: list = self.lightning_module.forward(inputs)
@@ -179,7 +190,7 @@ class Replay(Method):
         loss_new_nouns = torch.mean(loss_nouns[:self.new_batch_size])
         loss_new_actions = loss_new_verbs + loss_new_nouns
 
-        if total_batch_size > self.new_batch_size:  # Memory samples added
+        if mem_batch_size > 0:  # Memory samples added
             loss_mem_verbs = torch.mean(loss_verbs[self.new_batch_size:])
             loss_mem_nouns = torch.mean(loss_nouns[self.new_batch_size:])
             loss_mem_actions = loss_mem_verbs + loss_mem_nouns
@@ -222,10 +233,74 @@ class Replay(Method):
 
         return loss_total_actions, preds, log_results
 
-    def _store_samples_in_replay_memory(self, labels, current_batch_sample_idxs):
+    def _store_samples_in_replay_memory(self, labels: torch.LongTensor, current_batch_stream_idxs: list):
         """"""
-        # Based on action labels create new bins and cutoff others, e.g. reservoir sampling
 
-        # Do 2 versions: 1 conditional (set per class) , 2 unconditional( Only 1 set)
-        self.is_action_balanced
-        raise NotImplementedError()
+        if self.storage_policy == 'reservoir_stream':
+            self.conditional_memory[None] = self.reservoir_sampling(
+                self.conditional_memory.get(None, []), current_batch_stream_idxs, self.total_mem_size)
+
+        elif self.storage_policy == 'reservoir_action':
+            self.reservoir_action_storage_policy(labels, current_batch_stream_idxs)
+
+        elif self.storage_policy == 'reservoir_verbnoun':
+            raise NotImplementedError()
+
+        else:
+            raise ValueError()
+
+    def reservoir_action_storage_policy(self, labels: torch.LongTensor, current_batch_stream_idxs: list):
+        label_batch_axis = 0
+
+        # Collect actions (label pairs) and count new ones
+        batch_actions = []
+        new_actions_observed = 0
+        for idx, verbnoun_t in enumerate(torch.unbind(labels, dim=label_batch_axis)):
+            action = verbnoun_to_action(*verbnoun_t.tolist())
+            batch_actions.append(action)
+
+            if action not in self.conditional_memory:
+                new_actions_observed += 1
+                self.conditional_memory[action] = []
+
+        # Update max mem size and cutoff those exceeding
+        if new_actions_observed >= 0:
+            self.mem_size_per_conditional = self.total_mem_size // len(self.conditional_memory)
+
+            for action, action_mem in self.conditional_memory.items():
+                self.conditional_memory[action] = action_mem[:self.mem_size_per_conditional]
+
+        # Add new batch samples
+        obs_actions_batch = set()
+        for action in batch_actions:
+            if action in obs_actions_batch:  # Already processed, so skip
+                continue
+            obs_actions_batch.add(action)
+
+            # Process all samples in batch for this action at once
+            label_mask = torch.cat([
+                torch.BoolTensor([verbnoun_to_action(*verbnoun_t.tolist()) == action])
+                for verbnoun_t in torch.unbind(labels, dim=label_batch_axis)
+            ], dim=label_batch_axis)
+
+            selected_inbatch_idxs = torch.nonzero(label_mask)
+            current_batch_stream_idxs_subset = [
+                stream_idx for inbatch_idx, stream_idx in enumerate(current_batch_stream_idxs)
+                if inbatch_idx in selected_inbatch_idxs
+            ]
+
+            self.conditional_memory[action] = self.reservoir_sampling(
+                self.conditional_memory[action], current_batch_stream_idxs_subset, self.mem_size_per_conditional)
+
+    def reservoir_sampling(self, memory: list, new_stream_idxs: list, mem_size_limit: int):
+        """ Fill buffer if not full yet, otherwise replace with probability mem_size/num_observed_samples. """
+
+        for new_stream_idx in new_stream_idxs:
+            if len(memory) < mem_size_limit:  # Buffer not filled yet
+                memory.append(new_stream_idx)
+            else:  # Replace with probability mem_size/num_observed_samples
+                rnd_idx = random.randint(0, self.num_observed_samples)  # [a,b]
+                if rnd_idx < mem_size_limit:  # Replace if sampled in memory
+                    memory[rnd_idx] = new_stream_idx
+
+        return memory
