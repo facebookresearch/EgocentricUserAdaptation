@@ -143,7 +143,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         count_metrics = [
             [  # Seen actions (history part of stream) vs full user stream actions
                 CountMetric(observed_set_name="seen", observed_set=seen_set,
-                            ref_set_name="user", ref_set=user_ref_set,
+                            ref_set_name="stream", ref_set=user_ref_set,
                             mode=mode
                             ),
                 # Seen actions (history part of stream) vs all actions seen during pretraining phase

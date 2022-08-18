@@ -9,19 +9,24 @@ ACTION_MODES = ('action', 'verb', 'noun')
 TRAIN_MODES = ('train', 'pred')
 
 
-def get_metric_tag(parent_tag, train_mode='train', action_mode=None, base_metric_name=None):
+def get_metric_tag(main_parent_tag, train_mode='train', action_mode=None, base_metric_name=None):
     """Get logging metric name."""
+
+    # PARENT
     assert train_mode in TRAIN_MODES
-    child_tag = [train_mode]
+    parent_tag = [train_mode]
 
     if action_mode is not None:
         assert action_mode in ACTION_MODES
-        child_tag.append(action_mode)
+        parent_tag.append(action_mode)
 
-    if base_metric_name is not None:
-        child_tag.append(base_metric_name)
+    parent_tag.append(main_parent_tag)
 
-    return f"{parent_tag}/{'_'.join(child_tag)}"
+    # CHILD
+    assert base_metric_name is not None
+    child_tag = [base_metric_name]
+
+    return f"{'_'.join(parent_tag)} / {'_'.join(child_tag)}"
 
 
 class Metric(ABC):
