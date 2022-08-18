@@ -8,6 +8,10 @@ from collections import defaultdict
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 from continual_ego4d.metrics.metric import Metric, ACTION_MODES, get_metric_tag
 
+from ego4d.utils import logging
+
+logger = logging.get_logger(__name__)
+
 TAG_PAST = 'past'
 
 
@@ -124,6 +128,8 @@ class ConditionalOnlineForgettingMetric(Metric):
         label_batch_axis = 0
         for idx, verbnoun_t in enumerate(torch.unbind(labels, dim=label_batch_axis)):
             verbnoun = verbnoun_t[self.label_idx].item()  # Verb or noun
+            verbnoun_labels = labels[:, self.label_idx]
+            verbnoun_preds = preds[self.label_idx]
 
             # Filter out based on conditional set
             if not self._satisfies_conditions(verbnoun, cond_set):
@@ -135,11 +141,15 @@ class ConditionalOnlineForgettingMetric(Metric):
             obs_actions_batch.add(verbnoun)
 
             # Mask
-            label_mask = (labels == verbnoun).bool()
+            label_mask = (verbnoun_labels == verbnoun).bool()
             subset_batch_size = sum(label_mask)
 
-            subset_preds = preds[label_mask]
-            subset_labels = labels[label_mask]
+            try:
+                subset_preds = verbnoun_preds[label_mask]
+                subset_labels = verbnoun_labels[label_mask]
+            except:
+                import traceback
+                logger.debug(traceback.format_exc())
 
             # Acc metric
             if self.base_metric_mode == 'acc':
@@ -203,10 +213,10 @@ class ConditionalOnlineForgettingMetric(Metric):
         avg_forg_over_actions = AverageMeter()
         for action, action_current_acc in self.action_to_current_perf.items():
             if action not in self.action_to_prev_perf:  # First time the acc is measured on the model for this action
-                logging.debug(f"Action {action} acc measured for first time in history stream.")
+                logger.debug(f"{self.action_mode} {action} acc measured for first time in history stream.")
                 continue
             current_acc = action_current_acc.avg
-            assert current_acc.count > 0, f"Acc {current_acc} has zero count."
+            assert action_current_acc.count > 0, f"Acc {current_acc} has zero count."
 
             forg = self.delta_fun(current_acc, self.action_to_prev_perf[action])
             avg_forg_over_actions.update(forg, weight=1)
