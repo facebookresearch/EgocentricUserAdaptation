@@ -121,13 +121,17 @@ class Replay(Method):
         self.num_samples_memory = 0
 
     def on_before_batch_transfer(self, new_batch: Any, dataloader_idx: int) -> Any:
-        self.new_batch_size = new_batch.shape[0]
+        _, new_batch_labels, *_ = new_batch
+        self.new_batch_size = new_batch_labels.shape[0]
 
         # Retrieve from memory
-        mem_batch = self.retrieve_rnd_batch_from_mem(mem_batch_size=self.new_batch_size)
+        mem_batch = None
+        num_samples_retrieve = min(self.new_batch_size, self.num_samples_memory)
+        if num_samples_retrieve > 0:
+            mem_batch = self.retrieve_rnd_batch_from_mem(mem_batch_size=num_samples_retrieve)
 
         # unpack and join mem and new
-        joined_batch = self.concat_batches(new_batch, mem_batch)
+        joined_batch = self.concat_batches(new_batch, mem_batch) if mem_batch is not None else new_batch
 
         return joined_batch
 
@@ -231,6 +235,9 @@ class Replay(Method):
         # TODO: Store samples
         self._store_samples_in_replay_memory(labels, current_batch_sample_idxs)
 
+        # Update size
+        self.num_samples_memory = sum(len(cond_mem) for cond_mem in self.conditional_memory.values())
+
         return loss_total_actions, preds, log_results
 
     def _store_samples_in_replay_memory(self, labels: torch.LongTensor, current_batch_stream_idxs: list):
@@ -250,6 +257,9 @@ class Replay(Method):
             raise ValueError()
 
     def reservoir_action_storage_policy(self, labels: torch.LongTensor, current_batch_stream_idxs: list):
+        """ Memory is divided in equal memory bins per observed action.
+        Each bin is populated using reservoir sampling when new samples for that bin are encountered.
+        """
         label_batch_axis = 0
 
         # Collect actions (label pairs) and count new ones
