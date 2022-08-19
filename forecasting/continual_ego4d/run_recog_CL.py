@@ -13,6 +13,7 @@ from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 from continual_ego4d.utils.custom_logger_connector import CustomLoggerConnector
 
+from ego4d.config.defaults import set_cfg_by_name, get_cfg_by_name
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
 from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
@@ -35,6 +36,14 @@ def main(cfg: CfgNode):
     resuming_run = len(cfg.RESUME_OUTPUT_DIR) > 0
     if resuming_run:
         cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR  # Resume run if specified, and output to same output dir
+
+    elif cfg.GRID_NODES is not None:  # Add gridsearch nodes to add in output dir name
+        OUTPUT_DIR_EXT = []
+        for grid_node in cfg.GRID_NODES.split(','):
+            OUTPUT_DIR_EXT.append(
+                f"{grid_node.replace('.', '-')}={get_cfg_by_name(cfg, grid_node)}"
+            )
+        cfg.OUTPUT_DIR = f"{cfg.OUTPUT_DIR}_GRID_{'_'.join(OUTPUT_DIR_EXT)}"
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
     logging.setup_logging(cfg.OUTPUT_DIR, host_name='MASTER', overwrite_logfile=False)
@@ -200,13 +209,8 @@ def overwrite_config_continual_learning(cfg):
     }
 
     for hierarchy_k, v in overwrite_dict.items():
-        keys = hierarchy_k.split('.')
-        target_obj = cfg
-        for idx, key in enumerate(keys):  # If using dots, set in hierarchy of objects, not as single dotted-key
-            if idx == len(keys) - 1:  # is last
-                setattr(target_obj, key, v)
-            else:
-                target_obj = getattr(target_obj, key)
+        set_cfg_by_name(cfg, hierarchy_k, v)
+
     logger.debug(f"OVERWRITING CFG attributes for continual learning:\n{pprint.pformat(overwrite_dict)}")
 
 
