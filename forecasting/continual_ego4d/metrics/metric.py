@@ -26,7 +26,7 @@ def get_metric_tag(main_parent_tag, train_mode='train', action_mode=None, base_m
     assert base_metric_name is not None
     child_tag = [base_metric_name]
 
-    return f"{'_'.join(parent_tag)} / {'_'.join(child_tag)}"
+    return f"{'_'.join(parent_tag)}/{'_'.join(child_tag)}"
 
 
 class Metric(ABC):
