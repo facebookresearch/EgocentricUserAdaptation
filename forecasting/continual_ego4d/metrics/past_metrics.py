@@ -83,12 +83,13 @@ class ConditionalOnlineForgettingMetric(Metric):
         self.name = get_metric_tag(TAG_PAST, action_mode=self.action_mode, base_metric_name=basic_metric_name)
 
     @torch.no_grad()
-    def update(self, preds, labels, *args, **kwargs):
+    def update(self, preds, labels, *args, stream_batch_labels=None, **kwargs):
         """
         ASSUMPTION: The preds,labels are all from the history stream only, forwarded on the CURRENT model.
         Update per-action accuracy metric from predictions and labels.
         """
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
+        assert stream_batch_labels is not None
 
         # Verb/noun errors
         cond_set = None
@@ -96,7 +97,8 @@ class ConditionalOnlineForgettingMetric(Metric):
 
             # Use current batch as conditional set
             if self.current_batch_cond_set:
-                cond_set = set(labels[:, self.label_idx].tolist())
+                # TODO: This is NOT Condition Set, Should be the actual current batch in stream, this is the batch in history!!
+                cond_set = set(stream_batch_labels[:, self.label_idx].tolist())
 
             self._get_verbnoun_metric_result(preds, labels, cond_set)
 
@@ -106,7 +108,7 @@ class ConditionalOnlineForgettingMetric(Metric):
             # Use current batch as conditional set
             if self.current_batch_cond_set:
                 cond_set = set()
-                for (verb, noun) in labels.tolist():
+                for (verb, noun) in stream_batch_labels.tolist():
                     action = verbnoun_to_action(verb, noun)
                     cond_set.add(action)
             self._get_action_metric_result(preds, labels, cond_set)

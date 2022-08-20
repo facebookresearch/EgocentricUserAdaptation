@@ -10,7 +10,7 @@ METHOD:
     STORAGE_POLICY: "reservoir_stream"
 CONTINUAL_EVAL:
   FREQ: 1
-  BATCH_SIZE: 32
+  BATCH_SIZE: 16
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition

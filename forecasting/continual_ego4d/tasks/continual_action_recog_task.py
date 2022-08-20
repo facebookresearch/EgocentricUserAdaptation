@@ -102,6 +102,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # State vars (single batch)
         self.current_batch_stream_idxs = None
         self.eval_this_step = False
+        self.stream_batch_size = None  # Size of the new data batch sampled from the stream (exclusive replay samples)
+        self.stream_batch_labels = None  # Ref for Re-exposure based forgetting
 
         # For data stream info dump
         self.dumpfile = self.cfg.COMPUTED_USER_DUMP_FILE
@@ -275,6 +277,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
         """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""
+        # Observed idxs update before batch is altered
+        _, labels, _, stream_sample_idxs = batch
+        self.stream_batch_labels = labels
+        self.current_batch_stream_idxs = stream_sample_idxs.tolist()
+        self.stream_batch_size = len(self.current_batch_stream_idxs)
+        logger.debug(f"current_batch_sample_idxs={self.current_batch_stream_idxs}")
+
+        # Alter batch (e.g. Replay adds new samples)
         altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
         return altered_batch
 
@@ -283,12 +293,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         metric_results = {}
 
         # PREDICTIONS + LOSS
-        inputs, labels, video_names, stream_sample_idxs = batch
+        inputs, labels, video_names, _ = batch
 
-        # Observed idxs update
-        self.current_batch_stream_idxs = stream_sample_idxs.tolist()
-        logger.debug(f"current_batch_sample_idxs={self.current_batch_stream_idxs}")
-
+        # Before-update counts
         metric_results = {**metric_results, **{
             get_metric_tag(TAG_BATCH, base_metric_name=f"history_sample_count"):
                 len(self.seen_samples_idxs),
@@ -346,7 +353,11 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             for metric in [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]:
                 metric.save_result_to_history()
 
-        # Derive action from verbs,nouns
+        # Update counts etc
+        self._update_state(labels, batch_idx)
+
+    def _update_state(self, labels, batch_idx):
+        # Only iterate stream batch (not replay samples)
         for ((verb, noun), sample_idx) in zip(labels.tolist(), self.current_batch_stream_idxs):
             action = verbnoun_to_action(verb, noun)
             self.seen_action_set.add(action)
@@ -500,7 +511,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             preds = self.forward(inputs)
 
             for metric in metrics:
-                metric.update(preds, labels)
+                metric.update(
+                    preds, labels, stream_batch_labels=self.stream_batch_labels
+                )
 
         # Gather results
         avg_metric_result_dict = {}
