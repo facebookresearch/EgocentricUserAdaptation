@@ -44,11 +44,11 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS '3'"
+OVERWRITE_CFG_ARGS+=" GPU_IDS '5'"
 
-OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0" # Workers per dataloader (i.e. per user process)
+#OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0" # Workers per dataloader (i.e. per user process)
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0 TRAIN.BATCH_SIZE 10 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 16 CHECKPOINT_step_freq 300" # DEBUG
-OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 20" # DEBUG
+OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 23 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 10" # DEBUG
 
 # RESUME
 #OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/test_exp_00/logs/2022-08-02_10-46-07_UIDed095550-f431-4c1e-ae62-b072fc4c9a87"

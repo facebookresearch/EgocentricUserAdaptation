@@ -3,6 +3,8 @@ TEST:
   ENABLE: True
   DATASET: Ego4dRecognition
   BATCH_SIZE: 64
+  NUM_SPATIAL_CROPS: 1 # Instead of standard 3
+#  BATCH_SIZE: 64
 DATA_LOADER:
   NUM_WORKERS: 8
   PIN_MEMORY: True

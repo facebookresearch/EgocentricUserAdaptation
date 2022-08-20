@@ -33,7 +33,7 @@ cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script fil
 
 OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" NUM_GPUS 1" # For solid benchmarking
-export CUDA_VISIBLE_DEVICES="5" # Set as environment variable for this script
+export CUDA_VISIBLE_DEVICES="3" # Set as environment variable for this script
 
 OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN False"
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8"

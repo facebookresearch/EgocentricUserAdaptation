@@ -12,12 +12,13 @@ TRAIN:
   DATASET: Ego4dRecognition
   BATCH_SIZE: 64
 DATA:
-  PATH_TO_DATA_FILE: # Train on PRETRAIN data, and validate on USER-TRAIN SUBSET (which we use for hyperparam tuning)
+  PATH_TO_DATA_FILE: # All test on same data, but must specify train/val arbitrary
+# Train on PRETRAIN data, and validate on USER-TRAIN SUBSET (which we use for hyperparam tuning)
 #    TRAIN: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_pretrain_usersplit_147users.json"
 #    TRAIN: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-05_18-22-53_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json"
 #    VAL: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-05_18-22-53_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json"
-    TRAIN: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-05_18-22-53_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json"
-    VAL: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-05_18-22-53_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json"
+    TRAIN: ""
+    VAL: ""
     TEST: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-05_18-22-53_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json"
   NUM_FRAMES: 32
   SAMPLING_RATE: 2

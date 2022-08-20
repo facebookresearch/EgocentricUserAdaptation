@@ -5,18 +5,21 @@ CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
 CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
 METHOD:
   METHOD_NAME: "Finetuning"
+TEST:
+  ENABLE: False
+CONTINUAL_EVAL:
+  FREQ: 1
+  BATCH_SIZE: 64
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition
   BATCH_SIZE: 10 # Process 1 new video-subsequence a time (Online)
-  CONTINUAL_EVAL_BATCH_SIZE: 32
-  CONTINUAL_EVAL_FREQ: 1
 DATA:
   USER_SUBSET: 'train' # train or test usersplit
   PATH_TO_DATA_SPLIT_JSON:
-    TRAIN_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-08_16-38-39_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'
-    TEST_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-08_16-38-39_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'
-    PRETRAIN_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-08_16-38-39_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
+    TRAIN_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-09_16-02-54_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'
+    TEST_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-09_16-02-54_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'
+    PRETRAIN_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-09_16-02-54_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
   TARGET_FPS: 30
   NUM_FRAMES: 32
   SAMPLING_RATE: 2
@@ -48,7 +51,7 @@ BN:
   USE_PRECISE_STATS: False # Not for CL
 #  NUM_BATCHES_PRECISE: 200 # After this many batches, Recomputes Batch-stats on actual fixed model instead of running avg
 SOLVER:
-  BASE_LR: 1e-2
+  BASE_LR: 1e-4
   LR_POLICY: constant
   MAX_EPOCH: 1
   MOMENTUM: 0.9

@@ -49,7 +49,7 @@ def construct_predictstream_loader(trainloader, cfg):
     """
     Constructs data loader similar to trainloader, but using max batch_size.
     """
-    total_mem_batch_size = cfg.TRAIN.BATCH_SIZE + cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE
+    total_mem_batch_size = cfg.TRAIN.BATCH_SIZE + cfg.CONTINUAL_EVAL.BATCH_SIZE
     if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
         batch_size = int(total_mem_batch_size / cfg.NUM_GPUS)
     else:

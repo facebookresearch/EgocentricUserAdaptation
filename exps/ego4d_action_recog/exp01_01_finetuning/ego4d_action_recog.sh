@@ -28,32 +28,17 @@ OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${run_id}" # Alte
 EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations/
 EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
 
-# Checkpoint path (Make unique)
-#if [ $# -eq 0 ]; then # Default checkpoint path is based on 2 parent dirs + Unique id
-#  parent_parent_dir="$(basename "$(dirname "$this_script_dirpath")")"
-#  parent_dir="$(basename "$this_script_dirpath")"
-#  CHECKPOINT_DIR="${root_path}/checkpoints/${parent_parent_dir}/${parent_dir}/${run_id}"
-#else # When RESUMING
-#  CHECKPOINT_DIR=$1
-#fi
-#mkdir -p "$CHECKPOINT_DIR"
-#echo "CHECKPOINT_DIR=${CHECKPOINT_DIR}"
-
 #-----------------------------------------------------------------------------------------------#
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS '1,2,3,4,6,7'"
+OVERWRITE_CFG_ARGS+=" GPU_IDS '0,1,2,3'"
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # DEBUG
 #OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN False FAST_DEV_DATA_CUTOFF 30" # DEBUG
 
 # RESUME
-#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/test_exp_00/logs/2022-08-02_10-46-07_UIDed095550-f431-4c1e-ae62-b072fc4c9a87"
-
-# Architecture: aggregator/decoder only for LTA, SlowFast model directly performs Action Classification
-#OVERWRITE_CFG_ARGS+=" FORECASTING.AGGREGATOR TransformerAggregator"
-#OVERWRITE_CFG_ARGS+=" FORECASTING.DECODER MultiHeadDecoder"
+OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-18_21-12-20_UIDe57eb203-32ac-4534-86db-20e166af80e4"
 
 # Checkpoint loading
 #BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/k400_slowfast8x8.ckpt"

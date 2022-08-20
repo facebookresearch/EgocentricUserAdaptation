@@ -12,6 +12,12 @@ _C = CfgNode()
 # Add paths
 _C.CONFIG_FILE_PATH = ""
 _C.PARENT_SCRIPT_FILE_PATH = ""
+
+# ---------------------------------------------------------------------------- #
+# GRIDSEARCH options
+# ---------------------------------------------------------------------------- #
+_C.GRID_NODES = None  # Add nodes that we gridsearch over to output path
+
 # ---------------------------------------------------------------------------- #
 # METHOD options
 # ---------------------------------------------------------------------------- #
@@ -55,6 +61,21 @@ _C.BN.NUM_SYNC_DEVICES = 1
 # ---------------------------------------------------------------------------- #
 # Training options.
 # ---------------------------------------------------------------------------- #
+_C.CONTINUAL_EVAL = CfgNode()
+
+# Batch size for evaluation after each model prediction during training.
+_C.CONTINUAL_EVAL.BATCH_SIZE = 10
+
+# Every how many update steps should evaluate
+_C.CONTINUAL_EVAL.FREQ = 10
+
+# How much to sample from future/past stream
+_C.CONTINUAL_EVAL.FUTURE_SAMPLE_CAPACITY = 100
+_C.CONTINUAL_EVAL.PAST_SAMPLE_CAPACITY = 100
+
+# ---------------------------------------------------------------------------- #
+# Training options.
+# ---------------------------------------------------------------------------- #
 _C.TRAIN = CfgNode()
 
 # If True Train the model, else skip training.
@@ -66,19 +87,13 @@ _C.TRAIN.DATASET = "Kinetics"
 # Total mini-batch size.
 _C.TRAIN.BATCH_SIZE = 1
 
-# Batch size for evaluation after each model prediction during training.
-_C.TRAIN.CONTINUAL_EVAL_BATCH_SIZE = 10
-
-# Every how many update steps should evaluate
-_C.TRAIN.CONTINUAL_EVAL_FREQ = 10
-
 # ---------------------------------------------------------------------------- #
 # Testing options
 # ---------------------------------------------------------------------------- #
 _C.TEST = CfgNode()
 
 # If True test the model, else skip the testing.
-_C.TEST.ENABLE = True
+_C.TEST.ENABLE = False
 
 # Dataset for testing.
 _C.TEST.DATASET = "kinetics"
@@ -384,7 +399,7 @@ _C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = ""
 
 # CL: Stride for next observed frame in sequential data stream (in a single sequential clip-video)
 #  If batch size > STRIDE, then next step will contain seen samples (Although shifted)
-_C.DATA.SEQ_OBSERVED_FRAME_STRIDE = None # BY DEFAULT specified as None: a full new batch is observed
+_C.DATA.SEQ_OBSERVED_FRAME_STRIDE = None  # BY DEFAULT specified as None: a full new batch is observed
 
 # Custom data path names for Ego4d
 _C.DATA.PATH_TO_DATA_FILE = CfgNode()
@@ -916,6 +931,26 @@ def _assert_and_infer_cfg(cfg):
         assert cfg.BN.NUM_SYNC_DEVICES % cfg.NUM_GPUS == 0
 
     return cfg
+
+
+def set_cfg_by_name(cfg: CfgNode, hierarchy_cfg_name: str, cfg_val):
+    """Maps cfg_val of METHOD.SOME.NODE to dict hierarchy: {METHOD:{SOME:{NODE:cfg_val}}}"""
+    keys = hierarchy_cfg_name.split('.')
+    target_obj = cfg
+    for idx, key in enumerate(keys):  # If using dots, set in hierarchy of objects, not as single dotted-key
+        if idx == len(keys) - 1:  # is last
+            setattr(target_obj, key, cfg_val)
+        else:
+            target_obj = getattr(target_obj, key)
+
+
+def get_cfg_by_name(cfg: CfgNode, hierarchy_cfg_name: str):
+    """Gets with METHOD.SOME.NODE the value from dict hierarchy: {METHOD:{SOME:{NODE:cfg_val}}}"""
+    keys = hierarchy_cfg_name.split('.')
+    target_obj = cfg
+    for idx, key in enumerate(keys):  # If using dots, set in hierarchy of objects, not as single dotted-key
+        target_obj = getattr(target_obj, key)
+    return target_obj
 
 
 def get_cfg():

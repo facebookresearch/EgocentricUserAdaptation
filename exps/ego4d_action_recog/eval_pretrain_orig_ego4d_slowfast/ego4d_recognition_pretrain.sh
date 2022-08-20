@@ -33,10 +33,12 @@ cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script fil
 
 OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" NUM_GPUS 1" # For solid benchmarking
-export CUDA_VISIBLE_DEVICES="7" # Set as environment variable for this script
+export CUDA_VISIBLE_DEVICES="4" # Set as environment variable for this script
 
 OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN False"
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8"
+
+#OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 50 DATA_LOADER.NUM_WORKERS 8" # DEBUG
 
 # RESUME
 #OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/test_exp_00/logs/2022-07-26_14-33-36_UIDd8a02398-ec4c-4d49-b81b-2d357c63bcf4"

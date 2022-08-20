@@ -5,12 +5,13 @@ CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
 CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
 METHOD:
   METHOD_NAME: "Finetuning"
+CONTINUAL_EVAL:
+  FREQ: 1
+  BATCH_SIZE: 64
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition
   BATCH_SIZE: 10 # Process 1 new video-subsequence a time (Online)
-  CONTINUAL_EVAL_BATCH_SIZE: 64
-  CONTINUAL_EVAL_FREQ: 10
 DATA:
   USER_SUBSET: 'train' # train or test usersplit
   PATH_TO_DATA_SPLIT_JSON:
