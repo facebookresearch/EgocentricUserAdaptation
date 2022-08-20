@@ -21,7 +21,6 @@ class Method:
     def __init__(self, cfg, lightning_module: LightningModule):
         self.cfg = cfg  # For method-specific params
         self.lightning_module = lightning_module
-        self.device = self.lightning_module.device
         self.trainer = self.lightning_module.trainer
 
         self.loss_fun_train = self.lightning_module.loss_fun
@@ -139,8 +138,10 @@ class Replay(Method):
         """ Sample stream idxs from replay memory. Create loader and load all selected samples at once. """
         # Sample idxs of our stream_idxs (without resampling)
         # Random sampling, weighed by len per conditional bin
-        flat_mem = list(itertools.chain(self.conditional_memory.values()))
-        stream_idxs = random.sample(flat_mem, mem_batch_size)
+        flat_mem = list(itertools.chain(*self.conditional_memory.values()))
+        nb_samples_mem = min(len(flat_mem), mem_batch_size)
+        stream_idxs = random.sample(flat_mem, k=nb_samples_mem)
+        logger.debug(f"Retrieving {nb_samples_mem} samples from memory: {stream_idxs}")
 
         # Load the samples from history of stream
         stream_subset = torch.utils.data.Subset(self.train_stream_dataset, stream_idxs)
@@ -155,7 +156,7 @@ class Replay(Method):
                      f"samples={mem_batch_size}, num_batches={len(loader)}")
 
         assert len(loader) == 1, f"Dataloader should return all in 1 batch."
-        mem_batch = next(loader)
+        mem_batch = next(iter(loader))
         return mem_batch
 
     @staticmethod
@@ -163,22 +164,27 @@ class Replay(Method):
         # inputs, labels, video_names, stream_sample_idxs = batch
         joined_batch = [None] * 4
 
-        # Tensors concat in batch dim
-        tensor_idxs = [0, 1, 3]
+        # Input is 2dim-list (verb,noun) of input-tensors
+        joined_batch[0] = [
+            torch.cat([batch1[0][idx], batch2[0][idx]], dim=0) for idx in range(2)
+        ]
+
+        # Tensors concat directly in batch dim
+        tensor_idxs = [1, 3]
         for tensor_idx in tensor_idxs:
             joined_batch[tensor_idx] = torch.cat([batch1[tensor_idx], batch2[tensor_idx]], dim=0)  # Add in batch dim
 
         # List
-        joined_batch.append(batch1[2] + batch2[2])
+        joined_batch[2] = batch1[2] + batch2[2]
 
         return joined_batch
 
-    def training_step(self, inputs, labels, *args, current_batch_sample_idxs=None, **kwargs) \
+    def training_step(self, inputs, labels, *args, current_batch_stream_idxs=None, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
-        assert current_batch_sample_idxs is not None, "Specify current_batch_sample_idxs for Replay"
-        total_batch_size = inputs.shape[0]
+        assert current_batch_stream_idxs is not None, "Specify current_batch_stream_idxs for Replay"
+        total_batch_size = labels.shape[0]
         mem_batch_size = total_batch_size - self.new_batch_size
         self.num_observed_samples += self.new_batch_size
 
@@ -200,7 +206,7 @@ class Replay(Method):
             loss_mem_actions = loss_mem_verbs + loss_mem_nouns
 
         else:
-            loss_mem_verbs = loss_mem_nouns = loss_mem_actions = torch.FloatTensor([0]).to(self.device)
+            loss_mem_verbs = loss_mem_nouns = loss_mem_actions = torch.FloatTensor([0]).to(loss_verbs.device)
 
         loss_total_verbs = (loss_new_verbs + loss_mem_verbs) / 2
         loss_total_nouns = (loss_new_nouns + loss_mem_nouns) / 2
@@ -233,7 +239,7 @@ class Replay(Method):
         }
 
         # TODO: Store samples
-        self._store_samples_in_replay_memory(labels, current_batch_sample_idxs)
+        self._store_samples_in_replay_memory(labels, current_batch_stream_idxs)
 
         # Update size
         self.num_samples_memory = sum(len(cond_mem) for cond_mem in self.conditional_memory.values())
@@ -302,7 +308,7 @@ class Replay(Method):
             self.conditional_memory[action] = self.reservoir_sampling(
                 self.conditional_memory[action], current_batch_stream_idxs_subset, self.mem_size_per_conditional)
 
-    def reservoir_sampling(self, memory: list, new_stream_idxs: list, mem_size_limit: int):
+    def reservoir_sampling(self, memory: list, new_stream_idxs: list, mem_size_limit: int) -> list:
         """ Fill buffer if not full yet, otherwise replace with probability mem_size/num_observed_samples. """
 
         for new_stream_idx in new_stream_idxs:
