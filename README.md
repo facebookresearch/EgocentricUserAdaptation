@@ -1,5 +1,19 @@
 # Matthias Continual Learning Benchmark Project
 
+How to do gridsearch?
+In .sh script pass CFG attributes that are being gridsearched over. In Python main script these are then also added in the
+output path.
+
+The possible gridvalues are defined in the bashscript, and indexed as an array.
+
+We have to run jobs separately anyway with the nodes..
+
+
+Pass timestamp in shell script instead of python, as in clusters/scheduling it gives the timestamp it was 
+launched in queue, not timestamp popped (which may have arbitrary order).
+
+
+
 TODO: Check pretrain not running validation all the time, and how much data? Maybe we should use our train usersplit?
 
 TODO: Ego4d dataset is Iterable dataset or not? Even if iterable stil have to define len, which is hard to measure.
@@ -11,6 +25,11 @@ TODO: copy final jsons to another outputdir
 TODO: restore previous layout
 
 
+## How to gridsearch
+Use 'grid.sh' script which passes the CFG-node names and values for the nodes to directly overwrite to the main bash script.
+The main python script incorporates the node-names in the final cfg.OUTPUT_DIR to easily find entries from different runs.
+
+TODO: Add GRID_NODES in config instead: So can easily derive
 
 ## Pretraining on usersplit Ego4d
 See [Ego4d LTA README](forecasting/LONG_TERM_ANTICIPATION.md) for a guide on how to use pretraining in general.
@@ -30,17 +49,15 @@ This will generate a json split for pretraining. Use this json as input path for
 - Model of 30 epochs on pretrain data (without NaN user):
   - /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-07-28_17-06-20_UIDe499d926-a3ff-4a28-9632-7d01054644fe/lightning_logs/version_0/checkpoints
 - Model of 30 epochs on pretrain data WITH NaN user:
-  - /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-08-07_10-58-41_UIDb107f026-abad-42bc-a66e-77442d07ef0a/lightning_logs/version_0/
-
+  - /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-08-13_09-41-26_UID8196dadf-1ce7-4ed5-85c1-9bd3d1e6ffe6/lightning_logs/version_0/checkpoints
 
 ### Data paths
 - Usersplit including NaN-user + action sets:
   - /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-09_16-02-54_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json
 
 ### Loggin multiple TB-dirs:
-You can log multiple dirs in command but need to specifiy the directories directly containing the logs (not the parent as for a single log dir).
-    tensorboard --logdir=noNAN:/fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit/pretrain_147usersplit_excl_nan/2022-0
-,NAN:/fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit/pretrain_148usersplit_incl_nan/2022-08-07_10-58-41_UIDb107f026-abad-42bc-a66e-77442d07ef0a/lightning_logs/version_0
+Use script tb_plot_local.py which copies from remote to local in single dir and plots for this dir.
+
 
 ### JSON structure
 

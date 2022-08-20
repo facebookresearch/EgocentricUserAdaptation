@@ -282,7 +282,8 @@ def online_adaptation_single_user(
         checkpoint_callback,
         # DeviceStatsMonitor(), # Way too detailed
         GPUStatsMonitor(),
-        Timer(duration=None, interval='epoch')
+        Timer(duration=None, interval='epoch'),
+        Timer(duration=None, interval='step')
         # LearningRateMonitor(), # Cst LR by default
     ]
 
@@ -324,7 +325,7 @@ def online_adaptation_single_user(
 
         callbacks=trainer_callbacks,
         logger=trainer_loggers,
-        log_every_n_steps=cfg.TRAIN.CONTINUAL_EVAL_FREQ,  # Required to allow per-step log-cals for evaluation
+        log_every_n_steps=cfg.CONTINUAL_EVAL.FREQ,  # Required to allow per-step log-cals for evaluation
     )
 
     # Overwrite (Always log on first step)
