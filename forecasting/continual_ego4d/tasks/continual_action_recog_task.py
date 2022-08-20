@@ -3,6 +3,7 @@ import pprint
 
 import torch
 from fvcore.nn.precise_bn import get_bn_modules
+from collections import Counter
 
 from collections import defaultdict
 import numpy as np
@@ -17,6 +18,7 @@ from ego4d.utils import distributed as du
 from ego4d.models import build_model
 from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader, construct_predictstream_loader
 import os.path as osp
+import random
 
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
@@ -74,36 +76,49 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.model = build_model(cfg)
         self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")  # Training
         self.loss_fun_pred = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="none")  # Prediction
-        self.method: Method = build_method(cfg, self)
-        self.continual_eval_freq = cfg.TRAIN.CONTINUAL_EVAL_FREQ
+        self.continual_eval_freq = cfg.CONTINUAL_EVAL.FREQ
 
         # Pretraining stats
         self.pretrain_action_sets = cfg.COMPUTED_PRETRAIN_ACTION_SETS
-
-        # Predict phase:
-        # If we first run predict phase, we can fill this dict with the results, this can then be used in trainphase
-        self.run_predict_before_train = True
-        self.sample_idx_to_pretrain_loss = {}
 
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=shuffle_stream)
         self.predict_loader = construct_predictstream_loader(self.train_loader, self.cfg)
         self.total_stream_sample_count = len(self.train_loader.dataset)
 
-        # Store vars (Don't reassign, use ref)
+        # Predict phase:
+        # If we first run predict phase, we can fill this dict with the results, this can then be used in trainphase
+        self.run_predict_before_train = True
+        self.sample_idx_to_pretrain_loss = {}
+        self.sample_idx_to_action_list = [None] * self.total_stream_sample_count
+
+        # Store vars of observed part of stream (Don't reassign, use ref)
         self.seen_samples_idxs = []
         self.seen_action_set = set()
         self.seen_verb_set = set()
         self.seen_noun_set = set()
+        self.seen_action_to_stream_idxs = defaultdict(list)  # On-the-fly: For each action keep observed stream ids
 
         # State vars (single batch)
-        self.current_batch_sample_idxs = None
+        self.current_batch_stream_idxs = None
         self.eval_this_step = False
 
         # For data stream info dump
         self.dumpfile = self.cfg.COMPUTED_USER_DUMP_FILE
         self.action_to_batches = defaultdict(list)  # On-the-fly: For each action keep all ids when it was observed
         self.batch_to_actions = defaultdict(list)
+
+        # Stream samplers
+        self.future_stream_sampler = FutureSampler(mode='FIFO_split_seen_unseen',
+                                                   stream_idx_to_action_list=self.sample_idx_to_action_list,
+                                                   seen_action_set=self.seen_action_set,
+                                                   total_capacity=self.cfg.CONTINUAL_EVAL.FUTURE_SAMPLE_CAPACITY)
+        self.past_stream_sampler = PastSampler(mode='uniform_action_uniform_instance',
+                                               seen_action_to_stream_idxs=self.seen_action_to_stream_idxs,
+                                               total_capacity=self.cfg.CONTINUAL_EVAL.PAST_SAMPLE_CAPACITY)
+
+        # Method
+        self.method: Method = build_method(cfg, self)
 
         # Count-sets: Current stream
         user_verb_freq_dict = self.train_loader.dataset.verb_freq_dict
@@ -271,8 +286,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         inputs, labels, video_names, stream_sample_idxs = batch
 
         # Observed idxs update
-        self.current_batch_sample_idxs = stream_sample_idxs.tolist()
-        logger.debug(f"current_batch_sample_idxs={self.current_batch_sample_idxs}")
+        self.current_batch_stream_idxs = stream_sample_idxs.tolist()
+        logger.debug(f"current_batch_sample_idxs={self.current_batch_stream_idxs}")
 
         metric_results = {**metric_results, **{
             get_metric_tag(TAG_BATCH, base_metric_name=f"history_sample_count"):
@@ -283,7 +298,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Do method callback (Get losses etc)
         loss, outputs, step_results = self.method.training_step(
-            inputs, labels, current_batch_sample_idxs=self.current_batch_sample_idxs
+            inputs, labels, current_batch_stream_idxs=self.current_batch_stream_idxs
         )
         metric_results = {**metric_results, **step_results}
 
@@ -332,16 +347,17 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 metric.save_result_to_history()
 
         # Derive action from verbs,nouns
-        for (verb, noun) in labels.tolist():
+        for ((verb, noun), sample_idx) in zip(labels.tolist(), self.current_batch_stream_idxs):
             action = verbnoun_to_action(verb, noun)
             self.seen_action_set.add(action)
             self.seen_verb_set.add(verb)
             self.seen_noun_set.add(noun)
             self.action_to_batches[action].append(batch_idx)  # Possibly add multiple time batch_idx
+            self.seen_action_to_stream_idxs[action].append(sample_idx)
             self.batch_to_actions[batch_idx].append(action)
 
         # Update Task states
-        self.seen_samples_idxs.extend(self.current_batch_sample_idxs)
+        self.seen_samples_idxs.extend(self.current_batch_stream_idxs)
         assert len(self.seen_samples_idxs) == len(np.unique(self.seen_samples_idxs)), \
             f"Duplicate visited samples in {self.seen_samples_idxs}"
 
@@ -371,7 +387,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Update metrics
         for metric in self.current_batch_metrics:
-            metric.update(outputs, labels, self.current_batch_sample_idxs)
+            metric.update(outputs, labels, self.current_batch_stream_idxs)
 
         # Gather results from metrics
         results = {}
@@ -393,14 +409,16 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         logger.debug(f"Gathering results on future data")
 
         # Include current batch
-        unseen_idxs = list(range(min(self.current_batch_sample_idxs), len(self.train_loader.dataset)))
-        logger.debug(f"unseen_idxs interval = [{unseen_idxs[0]},..., {unseen_idxs[-1]}]")
+        all_future_idxs = list(range(min(self.current_batch_stream_idxs), len(self.train_loader.dataset)))
+        sampled_future_idxs = self.future_stream_sampler(all_future_idxs)
+        logger.debug(f"SAMPLED {len(sampled_future_idxs)} from all_future_idxs interval = "
+                     f"[{all_future_idxs[0]},..., {all_future_idxs[-1]}]")
 
         # Create new dataloader
         future_dataloader = self._get_train_dataloader_subset(
             self.train_loader,
-            batch_size=self.cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE,
-            subset_indices=unseen_idxs,  # Future data, including current
+            batch_size=self.cfg.CONTINUAL_EVAL.BATCH_SIZE,
+            subset_indices=sampled_future_idxs,  # Future data, including current
         )
 
         result_dict = self._get_metric_results_over_dataloader(future_dataloader, metrics=self.future_metrics)
@@ -416,15 +434,17 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             return
         logger.debug(f"Gathering results on past data")
 
-        seen_idxs = np.unique(self.seen_samples_idxs)
-        logger.debug(f"seen_idxs interval = [{seen_idxs[0]},..., {seen_idxs[-1]}]")
+        all_past_idxs = np.unique(self.seen_samples_idxs).tolist()
+        sampled_past_idxs = self.past_stream_sampler(all_past_idxs)
+        logger.debug(f"SAMPLED {len(sampled_past_idxs)} from all_past_idxs interval = "
+                     f"[{all_past_idxs[0]},..., {all_past_idxs[-1]}]")
 
-        obs_dataloader = self._get_train_dataloader_subset(
+        past_dataloader = self._get_train_dataloader_subset(
             self.train_loader,
-            batch_size=self.cfg.TRAIN.CONTINUAL_EVAL_BATCH_SIZE,
-            subset_indices=seen_idxs,  # Previous data, not including current
+            batch_size=self.cfg.CONTINUAL_EVAL.BATCH_SIZE,
+            subset_indices=sampled_past_idxs,  # Previous data, not including current
         )
-        result_dict = self._get_metric_results_over_dataloader(obs_dataloader, metrics=self.past_metrics)
+        result_dict = self._get_metric_results_over_dataloader(past_dataloader, metrics=self.past_metrics)
         self.add_to_dict_(step_result, result_dict)
 
     # ---------------------
@@ -496,11 +516,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: Optional[int] = None):
         """ Collect per-sample stats such as the loss. """
         inputs, labels, video_names, stream_sample_idxs = batch
-        _, _, sample_to_results = self.method.prediction_step(inputs, labels, stream_sample_idxs.tolist())
 
+        # Loss per sample
+        _, _, sample_to_results = self.method.prediction_step(inputs, labels, stream_sample_idxs.tolist())
         for k, v in sample_to_results.items():
-            # self.sample_idx_to_pretrain_loss = {**self.sample_idx_to_pretrain_loss, **sample_to_results} # FIXME MAIN BUG!! Changes reference of dict each time, but need the reference!
             self.sample_idx_to_pretrain_loss[k] = v
+
+        # Actions in stream
+        for stream_sample_idx, label in zip(stream_sample_idxs.tolist(), labels.tolist()):
+            self.sample_idx_to_action_list[stream_sample_idx] = tuple(label)
 
     def on_predict_end(self) -> None:
         logger.info(f"Predict collected over stream: {pprint.pformat(self.sample_idx_to_pretrain_loss)}")
@@ -542,3 +566,135 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def test_step(self, batch, batch_idx):
         raise NotImplementedError()
+
+
+class FutureSampler:
+    """How to sample idxs from the future part of the stream (including current batch before update)."""
+    modes = ['full', 'FIFO_split_seen_unseen']
+
+    def __init__(self, mode,
+                 stream_idx_to_action_list: list,
+                 seen_action_set: set,
+                 total_capacity=None):
+        assert mode in self.modes
+        self.mode = mode
+        self.total_capacity = total_capacity
+        self.stream_idx_to_action_list = stream_idx_to_action_list
+        self.seen_action_set = seen_action_set
+
+    def __call__(self, all_future_idxs: list, *args, **kwargs) -> list:
+        if self.mode == 'full' or len(all_future_idxs) <= self.total_capacity:
+            logger.debug(f"Returning all remaining future samples: {len(all_future_idxs)}")
+            return all_future_idxs
+
+        elif self.mode == 'FIFO_split_seen_unseen':
+            return self.get_FIFO_split_seen_unseen(all_future_idxs)
+
+    def get_FIFO_split_seen_unseen(self, all_future_idxs) -> list:
+        """
+        Divide total capacity equally over seen and unseen action bins.
+        Bins are populated sequentially from stream.
+        If one bin is not full, allocate left-over capacity to other bin.
+        """
+        # Sanity check
+        if len(all_future_idxs) <= self.total_capacity:
+            logger.debug(f"Returning all remaining future samples: {len(all_future_idxs)}")
+            return all_future_idxs
+
+        initial_capacity = self.total_capacity // 2
+
+        # Iterate and allocate in bins until both have at least the initial_capacity or end of stream
+        seen_bin = []
+        unseen_bin = []
+        for future_idx in all_future_idxs:
+            action_for_idx = self.stream_idx_to_action_list[future_idx]
+
+            if action_for_idx in self.seen_action_set:
+                seen_bin.append(future_idx)
+            else:
+                unseen_bin.append(future_idx)
+
+            # Stop criterion
+            if len(seen_bin) >= initial_capacity and len(unseen_bin) >= initial_capacity:
+                break
+
+        # If one has < initial capacity and other >, we can reallocate capacity between the two
+        min_bin, max_bin = (seen_bin, unseen_bin) if len(seen_bin) < len(unseen_bin) else (unseen_bin, seen_bin)
+
+        # Return if both have less/equal the init capacity (no leftover)
+        if len(max_bin) <= initial_capacity:
+            logger.debug(f"Sampled for future: seen-action-bin={len(seen_bin)}, unseen-action-bin={len(unseen_bin)}")
+            return min_bin + max_bin
+
+        # Reallocate from max_bin
+        if len(min_bin) < initial_capacity:  # Means that full future stream is in bins (stop criterion not met)
+            extra_capacity = initial_capacity - len(min_bin)
+            max_bin = max_bin[:initial_capacity + extra_capacity]
+        else:  # If both have enough capacity just return earliest (FIFO) samples for both
+            min_bin = min_bin[:initial_capacity]
+            max_bin = max_bin[:initial_capacity]
+
+        logger.debug(f"Sampled for future: min-bin={len(min_bin)}, max-bin={len(max_bin)}")
+        return min_bin + max_bin
+
+
+class PastSampler:
+    """How to sample idxs from the history part of the stream."""
+
+    modes = ['full', 'uniform_action_uniform_instance']
+
+    def __init__(self, mode,
+                 seen_action_to_stream_idxs: dict,
+                 total_capacity=None):
+        assert mode in self.modes
+        self.mode = mode
+        self.total_capacity = total_capacity
+        self.seen_action_to_stream_idxs = seen_action_to_stream_idxs  # Mapping of all past actions to past stream idxs
+
+    def __call__(self, all_past_idxs: list, *args, **kwargs) -> list:
+        if self.mode == 'full' or len(all_past_idxs) <= self.total_capacity:
+            logger.debug(f"Returning all remaining past samples: {len(all_past_idxs)}")
+            return all_past_idxs
+
+        elif self.mode == 'uniform_action_uniform_instance':
+            return self.get_uniform_action_uniform_instance(all_past_idxs)
+
+    def get_uniform_action_uniform_instance(self, all_past_idxs: list) -> list:
+        """
+        Sample uniform over action-bins, then per bin sample uniform as well.
+        This balances sampling for imbalanced action-to-stream-idx bins.
+        """
+
+        # Sample actions uniformly
+        nb_actions_to_sample = self.total_capacity
+        source_action_counts = Counter(self.seen_action_to_stream_idxs)  # To sample from
+        sampled_action_counts = defaultdict(int)  # The ones we have sampled
+        sampled_count = 0
+
+        # Sanity checks
+        assert len(all_past_idxs) == sum(cnt for cnt in source_action_counts.values())
+        if len(all_past_idxs) <= self.total_capacity:
+            logger.debug(f"Returning all remaining past samples: {len(all_past_idxs)}")
+            return all_past_idxs
+
+        while sampled_count < nb_actions_to_sample:
+            action = random.choice(list(source_action_counts.keys()))
+
+            # Update target
+            sampled_count += 1
+            sampled_action_counts[action] += 1
+
+            # Update source
+            source_action_counts[action] -= 1
+            if source_action_counts[action] <= 0:
+                del source_action_counts[action]
+
+        # Sample instances uniformly
+        sampled_past_idxs = []
+        for action, sample_size in sampled_action_counts.items():
+            action_idxs = random.sample(self.seen_action_to_stream_idxs[action], k=sample_size)
+            sampled_past_idxs.append(action_idxs)
+
+            logger.debug(f"Action {action}: Sampled {len(action_idxs)} samples = {action_idxs}")
+
+        return sampled_past_idxs
