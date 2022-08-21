@@ -18,6 +18,8 @@ _C.PARENT_SCRIPT_FILE_PATH = ""
 # ---------------------------------------------------------------------------- #
 _C.GRID_NODES = None  # Add nodes that we gridsearch over to output path
 
+_C.NUM_USERS_PER_DEVICE = 1 # How many user-processes per gpu
+
 # ---------------------------------------------------------------------------- #
 # METHOD options
 # ---------------------------------------------------------------------------- #
@@ -64,7 +66,7 @@ _C.BN.NUM_SYNC_DEVICES = 1
 _C.CONTINUAL_EVAL = CfgNode()
 
 # Batch size for evaluation after each model prediction during training.
-_C.CONTINUAL_EVAL.BATCH_SIZE = 10
+_C.CONTINUAL_EVAL.BATCH_SIZE = 100
 
 # Every how many update steps should evaluate
 _C.CONTINUAL_EVAL.FREQ = 10

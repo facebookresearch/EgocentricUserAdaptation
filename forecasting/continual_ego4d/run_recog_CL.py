@@ -108,6 +108,7 @@ def main(cfg: CfgNode):
         available_device_ids=available_device_ids,
         all_user_ids=all_user_ids,
         processed_user_ids=processed_user_ids,
+        userprocesses_per_device=cfg.NUM_USERS_PER_DEVICE,
     )
 
     if len(scheduler_cfg.available_device_ids) == 1:
@@ -120,10 +121,13 @@ def main(cfg: CfgNode):
 class SchedulerConfig:
     """ Config attributes used for scheduling the job either sequentially or parallel."""
 
-    def __init__(self, all_user_ids, processed_user_ids, available_device_ids):
+    def __init__(self, all_user_ids, processed_user_ids, available_device_ids, userprocesses_per_device):
         self.all_user_ids: list[str] = all_user_ids
         self.processed_user_ids: list[str] = processed_user_ids
-        self.available_device_ids: list[int] = available_device_ids
+
+        self.userprocesses_per_device = userprocesses_per_device
+        assert self.userprocesses_per_device >= 1
+        self.available_device_ids: list[int] = available_device_ids * self.userprocesses_per_device
 
 
 def process_users_parallel(
