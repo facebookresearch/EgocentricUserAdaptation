@@ -81,13 +81,30 @@ test_pretrain_orig_ego4d_vs_nonan = [
 
 ]
 
-# TODO RUNNING
-# exp01_01_finetuning with
 exp01_01_finetuning = [
-    (
-        None,  # Parent dir, users are entry-names
-        "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-17_15-08-28_UID9cdf57fa-deb8-4423-89e8-cfc007e020d0/tb"
-    ),
+    # 100-sampling of future/past + fix Forgetting + speed-up small batch size multiple workers
+    (None,  # Parent dir, users are entry-names
+     "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_12-18-08_UID505e310d-5db1-43c5-9af8-0d82395b8b0e/tb",
+     # "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_11-44-11_UIDa889b3fc-e160-4ad6-b487-b3132c008911/tb",
+     # "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-18_21-12-20_UIDe57eb203-32ac-4534-86db-20e166af80e4/tb"
+     ),
+
+    # New run, updated metrics (start orig ego4d, full stream eval)
+    # (None,  # Parent dir, users are entry-names
+    #  "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-18_21-12-20_UIDe57eb203-32ac-4534-86db-20e166af80e4/tb"
+    #  ),
+
+    #     # Old run that was interupted randomly
+    # (None,
+    #     "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-18_10-33-52_UID03c7c17a-b016-46b8-af7f-7f2db7c9618e/tb",
+    #     # "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-17_15-08-28_UID9cdf57fa-deb8-4423-89e8-cfc007e020d0/tb"
+    # ),
+]
+
+exp02_replay_fullmem = [
+    (None,
+     "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp02_01_replay_unlimited/logs/2022-08-20_10-58-58_UIDb8ea4d6d-fb12-446a-9941-0db654eed34d_GRID_METHOD-REPLAY-MEMORY_SIZE_SAMPLES=1000000_METHOD-REPLAY-STORAGE_POLICY=reservoir_action/tb"
+     ),
 ]
 if __name__ == "__main__":
     """

@@ -179,11 +179,13 @@ class Replay(Method):
 
         return joined_batch
 
-    def training_step(self, inputs, labels, *args, current_batch_stream_idxs=None, **kwargs) \
+    def training_step(self, inputs, labels, *args, current_batch_stream_idxs: list = None, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
         assert current_batch_stream_idxs is not None, "Specify current_batch_stream_idxs for Replay"
+        assert len(current_batch_stream_idxs) == self.new_batch_size, \
+            "current_batch_stream_idxs should only include new-batch idxs"
         total_batch_size = labels.shape[0]
         mem_batch_size = total_batch_size - self.new_batch_size
         self.num_observed_samples += self.new_batch_size

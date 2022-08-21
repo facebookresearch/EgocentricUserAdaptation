@@ -53,6 +53,18 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     """
 
     def __init__(self, cfg, future_metrics=None, past_metrics=None, shuffle_stream=False):
+        """
+
+        !Warning: In __init__ the self.device='cpu' always! After init it is set to the right device, see:
+        https://github.com/Lightning-AI/lightning/issues/2638
+        Als in setup() the device is still cpu, this is a PL bug.
+        https://github.com/Lightning-AI/lightning/issues/13108
+
+        :param cfg:
+        :param future_metrics:
+        :param past_metrics:
+        :param shuffle_stream:
+        """
         logger.debug('Starting init ContinualVideoTask')
         super().__init__()
 
@@ -500,6 +512,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def _get_metric_results_over_dataloader(self, dataloader, metrics: List[Metric]):
 
         # Update metrics over dataloader data
+        logger.debug(f"Iterating dataloader and transferring to device: {self.device}")
         for batch_idx, (inputs, labels, _, _) in tqdm(enumerate(dataloader), total=len(dataloader)):
             # Slowfast inputs (list):
             # inputs[0].shape = torch.Size([32, 3, 8, 224, 224]) -> Slow net
@@ -657,7 +670,7 @@ class PastSampler:
     modes = ['full', 'uniform_action_uniform_instance']
 
     def __init__(self, mode,
-                 seen_action_to_stream_idxs: dict,
+                 seen_action_to_stream_idxs: dict[tuple, list],
                  total_capacity=None):
         assert mode in self.modes
         self.mode = mode
@@ -680,7 +693,10 @@ class PastSampler:
 
         # Sample actions uniformly
         nb_actions_to_sample = self.total_capacity
-        source_action_counts = Counter(self.seen_action_to_stream_idxs)  # To sample from
+        source_action_counts = {
+            action: len(stream_idx_list)
+            for action, stream_idx_list in self.seen_action_to_stream_idxs.items()
+        }  # To sample from
         sampled_action_counts = defaultdict(int)  # The ones we have sampled
         sampled_count = 0
 
@@ -706,7 +722,7 @@ class PastSampler:
         sampled_past_idxs = []
         for action, sample_size in sampled_action_counts.items():
             action_idxs = random.sample(self.seen_action_to_stream_idxs[action], k=sample_size)
-            sampled_past_idxs.append(action_idxs)
+            sampled_past_idxs.extend(action_idxs)
 
             logger.debug(f"Action {action}: Sampled {len(action_idxs)} samples = {action_idxs}")
 
