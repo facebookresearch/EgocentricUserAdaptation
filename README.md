@@ -1,5 +1,10 @@
 # Matthias Continual Learning Benchmark Project
 
+TODO give separate nb workers for continual_eval (e.g. 10 for batch_size 10 and stream 100), 
+predict (full stream, can take 10 processes as well) and 
+train (e.g. 3 because waiting for continual eval mostly gives a lot of time for next batch)
+
+
 How to do gridsearch?
 In .sh script pass CFG attributes that are being gridsearched over. In Python main script these are then also added in the
 output path.
@@ -24,6 +29,23 @@ TODO: Dataloadign problem is in eval past? Maybe to do with Seq sampler
 TODO: copy final jsons to another outputdir
 TODO: restore previous layout
 
+## How to unittest
+
+    cd forecasting
+    python -m unittest tests.test_metrics
+
+
+See: https://stackoverflow.com/questions/1896918/running-unittest-with-typical-test-directory-structure 
+
+## Guide on num_workers and batch size
+Each worker loads a single batch and returns it only once it’s ready.
+Typically use about 8 workers (8 batches loaded concurrently), but the wait-time for 1 batch is limited to a single worker!
+Hence if we have a continual eval stream length of 100, and we take batch size 100, only 1 worker will be loading
+and on the end will return the batch, hence we have no speed-up with multiple workers. 
+On the other hand, having a lower batch size allows multiple batches to be loaded in parallel e.g. with 10 workers, each loads 10 samples.
+Then at once, 10 batches will be able to be processed in the forward. The forwarding is not parallelized though, but as IO is main bottleneck we still have speedup!
+
+See: https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813
 
 ## How to gridsearch
 Use 'grid.sh' script which passes the CFG-node names and values for the nodes to directly overwrite to the main bash script.
