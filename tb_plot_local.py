@@ -4,7 +4,7 @@ import uuid
 import subprocess
 
 
-def run_tb(loglist):
+def run_tb(loglist, args):
     uid = uuid.uuid4()
     local_parent_out_path = osp.join('/tmp', 'mattdl', f'tensorboard_id_{uid}')
     os.makedirs(local_parent_out_path, exist_ok=False)
@@ -46,7 +46,7 @@ def run_tb(loglist):
         # tb_holder_path = osp.join(local_parent_out_path, entryname)
         # os.symlink(remote_entrypath, tb_holder_path, target_is_directory=True)
 
-    subprocess.run(f"tensorboard --logdir={local_parent_out_path}", shell=True)
+    subprocess.run(f"tensorboard --logdir={local_parent_out_path} --port {args.port}", shell=True)
 
 
 ############## CONFIGS ########################
@@ -84,7 +84,8 @@ test_pretrain_orig_ego4d_vs_nonan = [
 exp01_01_finetuning = [
     # 100-sampling of future/past + fix Forgetting + speed-up small batch size multiple workers
     (None,  # Parent dir, users are entry-names
-     "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_12-18-08_UID505e310d-5db1-43c5-9af8-0d82395b8b0e/tb",
+     "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_17-30-48_UID61c906b6-2f71-4d24-9dfa-60efa9b001bb/tb",
+     # "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_12-18-08_UID505e310d-5db1-43c5-9af8-0d82395b8b0e/tb",
      # "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_11-44-11_UIDa889b3fc-e160-4ad6-b487-b3132c008911/tb",
      # "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-18_21-12-20_UIDe57eb203-32ac-4534-86db-20e166af80e4/tb"
      ),
@@ -103,13 +104,23 @@ exp01_01_finetuning = [
 
 exp02_replay_fullmem = [
     (None,
-     "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp02_01_replay_unlimited/logs/2022-08-20_10-58-58_UIDb8ea4d6d-fb12-446a-9941-0db654eed34d_GRID_METHOD-REPLAY-MEMORY_SIZE_SAMPLES=1000000_METHOD-REPLAY-STORAGE_POLICY=reservoir_action/tb"
+     "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp02_01_replay_unlimited/logs/2022-08-20_17-31-43_UID21f66e51-99a0-4ea9-90b5-0234b7adae67_GRID_METHOD-REPLAY-MEMORY_SIZE_SAMPLES=1000000_METHOD-REPLAY-STORAGE_POLICY=reservoir_action/tb",
+     # "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp02_01_replay_unlimited/logs/2022-08-20_17-31-43_UID21f66e51-99a0-4ea9-90b5-0234b7adae67_GRID_METHOD-REPLAY-MEMORY_SIZE_SAMPLES=1000000_METHOD-REPLAY-STORAGE_POLICY=reservoir_action/tb"
+     # "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp02_01_replay_unlimited/logs/2022-08-20_10-58-58_UIDb8ea4d6d-fb12-446a-9941-0db654eed34d_GRID_METHOD-REPLAY-MEMORY_SIZE_SAMPLES=1000000_METHOD-REPLAY-STORAGE_POLICY=reservoir_action/tb"
      ),
 ]
+
+
 if __name__ == "__main__":
     """
     Run locally and define pairs of <NAME,REMOTE_DIRECT_TB_DIR> entries.
     The remote paths are copied locally and then plotted locally so no port-forwarding is required.
     """
+    import argparse
 
-    run_tb(exp01_01_finetuning)
+    p = argparse.ArgumentParser(description="Tensorboard local viewer of remote results")
+    p.add_argument('--port', type=int, help='Local port nb to host on',
+                   default=6006)
+    args = p.parse_args()
+
+    run_tb(exp02_replay_fullmem, args)
