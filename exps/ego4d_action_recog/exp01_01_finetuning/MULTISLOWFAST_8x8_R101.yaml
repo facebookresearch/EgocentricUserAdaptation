@@ -3,17 +3,20 @@ OUTPUT_DIR: "" # OVERWRITTEN IN CALLING-SCRIPT
 RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/
 CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
 CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
+NUM_USERS_PER_DEVICE: 1
 METHOD:
   METHOD_NAME: "Finetuning"
 TEST:
   ENABLE: False
 CONTINUAL_EVAL:
   FREQ: 1
-  BATCH_SIZE: 64
+  BATCH_SIZE: 10 # For speedup with parallel dataloading
+  FUTURE_SAMPLE_CAPACITY: 100
+  PAST_SAMPLE_CAPACITY: 100
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition
-  BATCH_SIZE: 10 # Process 1 new video-subsequence a time (Online)
+  BATCH_SIZE: 4 # Process 1 new video-subsequence a time (Online)
 DATA:
   USER_SUBSET: 'train' # train or test usersplit
   PATH_TO_DATA_SPLIT_JSON:

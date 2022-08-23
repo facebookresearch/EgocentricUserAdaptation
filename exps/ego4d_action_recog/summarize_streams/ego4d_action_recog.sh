@@ -24,8 +24,8 @@ pp_dirname="$(basename "$(dirname -- "${this_script_dirpath}")")"
 OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${run_id}" # Alternative:/home/matthiasdelange/data/ego4d/continual_ego4d_pretrained_models_usersplit
 
 # Data paths
-EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations/
-EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
+EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations_local/
+EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root_local/clips
 
 #-----------------------------------------------------------------------------------------------#
 # CONFIG (Overwrite with args)

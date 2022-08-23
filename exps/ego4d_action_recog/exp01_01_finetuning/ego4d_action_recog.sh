@@ -25,20 +25,20 @@ pp_dirname="$(basename "$(dirname -- "${this_script_dirpath}")")"
 OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${run_id}" # Alternative:/home/matthiasdelange/data/ego4d/continual_ego4d_pretrained_models_usersplit
 
 # Data paths
-EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations/
-EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
+EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations_local/
+EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root_local/clips
 
 #-----------------------------------------------------------------------------------------------#
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS=""
-OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS '0,1,2,3'"
+OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 10" # Workers per dataloader (i.e. per user process)
+OVERWRITE_CFG_ARGS+=" GPU_IDS '0' NUM_USERS_PER_DEVICE 2"
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # DEBUG
-#OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN False FAST_DEV_DATA_CUTOFF 30" # DEBUG
+#OVERWRITE_CFG_ARGS+=" GPU_IDS '0' FAST_DEV_RUN False FAST_DEV_DATA_CUTOFF 30" # DEBUG
 
 # RESUME
-OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-18_21-12-20_UIDe57eb203-32ac-4534-86db-20e166af80e4"
+OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_17-30-48_UID61c906b6-2f71-4d24-9dfa-60efa9b001bb"
 
 # Checkpoint loading
 #BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/k400_slowfast8x8.ckpt"

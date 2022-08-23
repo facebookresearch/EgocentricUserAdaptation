@@ -25,8 +25,8 @@ pp_dirname="$(basename "$(dirname -- "${this_script_dirpath}")")"
 OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${run_id}" # Alternative:/home/matthiasdelange/data/ego4d/continual_ego4d_pretrained_models_usersplit
 
 # Data paths
-EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations/
-EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
+EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations_local/
+EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root_local/clips
 
 # Checkpoint path (Make unique)
 #if [ $# -eq 0 ]; then # Default checkpoint path is based on 2 parent dirs + Unique id
@@ -44,11 +44,12 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root/clips
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS=""
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS '5'"
+OVERWRITE_CFG_ARGS+=" GPU_IDS '0'"
 
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0" # Workers per dataloader (i.e. per user process)
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 0 TRAIN.BATCH_SIZE 10 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 16 CHECKPOINT_step_freq 300" # DEBUG
-OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 23 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 10" # DEBUG
+#OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 23 TRAIN.CONTINUAL_EVAL_BATCH_SIZE 10" # DEBUG
+OVERWRITE_CFG_ARGS+=" GRID_NODES METHOD.REPLAY.MEMORY_SIZE_SAMPLES,METHOD.REPLAY.STORAGE_POLICY METHOD.REPLAY.STORAGE_POLICY reservoir_action METHOD.REPLAY.MEMORY_SIZE_SAMPLES 100 " # DEBUG
 
 # RESUME
 #OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/test_exp_00/logs/2022-08-02_10-46-07_UIDed095550-f431-4c1e-ae62-b072fc4c9a87"
