@@ -24,7 +24,7 @@ from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 
 from scripts.slurm import copy_and_run_with_config
 import os
-import shutil
+
 
 from fvcore.common.config import CfgNode
 
@@ -33,30 +33,15 @@ logger = logging.get_logger(__name__)
 
 def main(cfg: CfgNode):
     """ Iterate users and aggregate. """
-    resuming_run = len(cfg.RESUME_OUTPUT_DIR) > 0
-    if resuming_run:
-        cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR  # Resume run if specified, and output to same output dir
+    path_handler = PathHandler(cfg)
 
-    elif cfg.GRID_NODES is not None:  # Add gridsearch nodes to add in output dir name
-        OUTPUT_DIR_EXT = []
-        for grid_node in cfg.GRID_NODES.split(','):
-            OUTPUT_DIR_EXT.append(
-                f"{grid_node.replace('.', '-')}={get_cfg_by_name(cfg, grid_node)}"
-            )
-        cfg.OUTPUT_DIR = f"{cfg.OUTPUT_DIR}_GRID_{'_'.join(OUTPUT_DIR_EXT)}"
-    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-
-    logging.setup_logging(cfg.OUTPUT_DIR, host_name='MASTER', overwrite_logfile=False)
-    logger.info(f"Starting main script with OUTPUT_DIR={cfg.OUTPUT_DIR}")
+    logging.setup_logging(path_handler.main_output_dir, host_name='MASTER', overwrite_logfile=False)
+    logger.info(f"Starting main script with OUTPUT_DIR={path_handler.main_output_dir}")
 
     # CFG overwrites and setup
     overwrite_config_continual_learning(cfg)
     logger.info("Run with config:")
     logger.info(pprint.pformat(cfg))
-
-    # Copy files to output dir for reproducing
-    for reproduce_path in [cfg.PARENT_SCRIPT_FILE_PATH, cfg.CONFIG_FILE_PATH]:
-        shutil.copy2(reproduce_path, cfg.OUTPUT_DIR)
 
     # Select user-split file based on config: Either train or test:
     assert cfg.DATA.USER_SUBSET in ['train', 'test'], \
@@ -81,9 +66,8 @@ def main(cfg: CfgNode):
 
     # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
     processed_user_ids = []
-    path_handler = PathHandler(cfg)
-    if resuming_run:
-        logger.info(f"Resuming run from {cfg.OUTPUT_DIR}")
+    if path_handler.is_resuming_run:
+        logger.info(f"Resuming run from {path_handler.main_output_dir}")
         processed_user_ids = path_handler.get_processed_users_from_final_dumps()
         logger.debug(f"LOADED META CHECKPOINT: Processed users = {processed_user_ids}")
 
@@ -187,7 +171,7 @@ def process_users_sequentially(
     # Iterate user datasets
     for user_id in scheduler_cfg.all_user_ids:
         if user_id in scheduler_cfg.processed_user_ids:  # SKIP PROCESSED USER
-            logger.info(f"Skipping USER {user_id} as already processed, result_path={cfg.OUTPUT_DIR}")
+            logger.info(f"Skipping USER {user_id} as already processed, result_path={path_handler.main_output_dir}")
 
         interrupted, *_ = online_adaptation_single_user(
             copy.deepcopy(cfg),  # Cfg doesn't allow resetting COMPUTED_ attributes
@@ -200,7 +184,7 @@ def process_users_sequentially(
             logger.exception(f"Shutting down on USER {user_id}, because of Trainer being Interrupted")
             raise Exception()
 
-    logger.info(f"All results over users can be found in OUTPUT-DIR={cfg.OUTPUT_DIR}")
+    logger.info(f"All results over users can be found in OUTPUT-DIR={path_handler.main_output_dir}")
 
 
 def overwrite_config_continual_learning(cfg):
@@ -258,7 +242,7 @@ def online_adaptation_single_user(
     # Loggers
     logging.setup_logging(  # Stdout logging
         [path_handler.get_user_results_dir(user_id)],
-        host_name=f'GPU-{device_ids}|USER-{user_id}',
+        host_name=f'USER-{user_id}|GPU-{device_ids}|PID-{os.getpid()}',
         overwrite_logfile=False,
     )
 
@@ -354,6 +338,9 @@ def online_adaptation_single_user(
 
         interrupted = trainer.interrupted
         logger.info(f"Trainer interrupted signal during testing = {interrupted}")
+
+    # Cleanup process GPU-MEM allocation (Only process context will remain allocated)
+    torch.cuda.empty_cache()
 
     return interrupted, device_ids, user_id  # For multiprocessing indicate which resources are free now
 
