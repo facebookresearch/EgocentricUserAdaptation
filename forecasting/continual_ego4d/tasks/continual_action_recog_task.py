@@ -285,7 +285,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 metric.reset()
 
         self.eval_this_step = self.trainer.logger_connector.should_update_logs
-        logger.debug(f"Continual eval on batch {batch_idx} = {self.eval_this_step}")
+        logger.debug(f"Continual eval on batch {batch_idx}/{len(self.train_loader)} = {self.eval_this_step}")
 
     def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
         """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""
@@ -323,13 +323,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Perform additional eval
         if self.eval_this_step:
-            logger.debug(f"Starting PRE-UPDATE evaluation: batch_idx={batch_idx}")
+            logger.debug(f"Starting PRE-UPDATE evaluation: batch_idx={batch_idx}/{len(self.train_loader)}")
             self.eval_current_batch_(metric_results, outputs, labels)
             self.eval_future_data_(metric_results, batch_idx)
 
         # LOG results
         self.log_step_metrics(metric_results)
-        logger.debug(f"PRE-UPDATE Results for batch_idx={batch_idx}: {pprint.pformat(metric_results)}")
+        logger.debug(f"PRE-UPDATE Results for batch_idx={batch_idx}/{len(self.train_loader)}: "
+                     f"{pprint.pformat(metric_results)}")
 
         # Only loss should be used and stored for entire epoch (stream)
         return loss
@@ -353,13 +354,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Do post-update evaluation of the past
         if self.eval_this_step:
-            logger.debug(f"Starting POST-UPDATE evaluation on batch_idx={batch_idx}")
+            logger.debug(f"Starting POST-UPDATE evaluation on batch_idx={batch_idx}/{len(self.train_loader)}")
             metric_results = {}
             self.eval_past_data_(metric_results, batch_idx)
 
             # LOG results
             self.log_step_metrics(metric_results)
-            logger.debug(f"POST-UPDATE Results for batch_idx={batch_idx}: {pprint.pformat(metric_results)}")
+            logger.debug(f"POST-UPDATE Results for batch_idx={batch_idx}/{len(self.train_loader)}: "
+                         f"{pprint.pformat(metric_results)}")
 
             # (optionally) Save metrics after batch
             for metric in [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]:
