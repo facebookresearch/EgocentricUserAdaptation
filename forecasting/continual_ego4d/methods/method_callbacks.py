@@ -83,8 +83,10 @@ class Replay(Method):
     Pytorch Subset of original stream, with expanding indices.
     """
 
-    storage_policies = ['reservoir_stream', 'reservoir_action', 'reservoir_verbnoun']
+    storage_policies = ['window', 'reservoir_stream', 'reservoir_action', 'reservoir_verbnoun']
     """
+    window: A moving window with the current bath iteration. e.g. for Mem-size M, [t-M,t] indices are considered.
+    
     reservoir_stream: Reservoir sampling agnostic of any conditionals.
     {None:[Memory-list]}
     
@@ -260,6 +262,13 @@ class Replay(Method):
 
         elif self.storage_policy == 'reservoir_verbnoun':
             raise NotImplementedError()
+
+        elif self.storage_policy == 'window':
+            min_current_batch_idx = min(current_batch_stream_idxs)
+            self.conditional_memory[None] = list(range(
+                max(0, min_current_batch_idx - self.total_mem_size),
+                min_current_batch_idx)
+            )
 
         else:
             raise ValueError()

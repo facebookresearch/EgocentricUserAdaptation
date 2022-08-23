@@ -2,13 +2,13 @@
 
 grid_cfg_names="METHOD.REPLAY.MEMORY_SIZE_SAMPLES,METHOD.REPLAY.STORAGE_POLICY" # Split by comma
 
-mem_idx=0
+mem_idx=2
 mem_sizes=(1000000 100 10)
 mem_val="METHOD.REPLAY.MEMORY_SIZE_SAMPLES ${mem_sizes[${mem_idx}]}"
 echo "mem_val=$mem_val"
 
-stor_idx=1
-stor_policies=("reservoir_stream" "reservoir_action")
+stor_idx=2
+stor_policies=("reservoir_stream" "reservoir_action" "window")
 stor_val="METHOD.REPLAY.STORAGE_POLICY ${stor_policies[${stor_idx}]}"
 echo "stor_val=$stor_val"
 
