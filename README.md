@@ -29,6 +29,8 @@ TODO: Dataloadign problem is in eval past? Maybe to do with Seq sampler
 TODO: copy final jsons to another outputdir
 TODO: restore previous layout
 
+
+
 ## How to unittest
 
     cd forecasting
@@ -110,6 +112,18 @@ See [forecasting](forecasting) for our experimental codebase.
   - /fb-agios-acai-efs/Ego4D/lta_video_clips
 - Pre-trained Ego4D models (Kinetics + full ego4d pretraining): 
   - /home/matthiasdelange/data/ego4d/ego4d_pretrained_models/pretrained_models/long_term_anticipation
+
+### Speed-up by locally storing dataset
+
+- Move with rsync from `/fb-agios-acai-efs/Ego4D/lta_video_clips/v1/clips` to some local dir
+  - Add local private key link locally in `~/.ssh/config`
+  - `rsync -chavzP --stats /fb-agios-acai-efs/Ego4D/lta_video_clips/v1/clips/* /home/matthiasdelange/data/ego4d/lta_video_clips/clips`. lta_video_clips is the video_root dir
+  - `rsync -chavzP --stats /fb-agios-acai-efs/Ego4D/ego4d_data/v1/annotations/* /home/matthiasdelange/data/ego4d/annotations`
+- Make symlink to local dir in `forecasting/data/long_term_anticipation/clips_root/clips_local`
+  - `mkdir /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/data/long_term_anticipation/clips_root_local` and cd
+  - `ln -s /home/matthiasdelange/data/ego4d/lta_video_clips clips_root_local`. Has e.g. `clips` and `clips_resized` dirs underneath.
+  - `ln -s /home/matthiasdelange/data/ego4d/annotations annotations_local`
+- In exp scripts, use `forecasting/data/long_term_anticipation/clips_root/clips_local` 
 
 
 ### How to define our own splits? (TODO DEPRECATED)
