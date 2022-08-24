@@ -25,7 +25,7 @@ from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
 from continual_ego4d.metrics.metric import get_metric_tag
 from continual_ego4d.metrics.batch_metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
-    CountMetric, TAG_BATCH
+    CountMetric, TAG_BATCH, WindowedUniqueCountMetric
 from continual_ego4d.metrics.adapt_metrics import OnlineAdaptationGainMetric, RunningAvgOnlineAdaptationGainMetric, \
     CumulativeOnlineAdaptationGainMetric
 from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric, \
@@ -103,6 +103,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.run_predict_before_train = True
         self.sample_idx_to_pretrain_loss = {}
         self.sample_idx_to_action_list = [None] * self.total_stream_sample_count
+        """ A list containing all actions in the full stream, the array index corresponds to the stream sample idx. """
 
         # Store vars of observed part of stream (Don't reassign, use ref)
         self.seen_samples_idxs = []
@@ -148,29 +149,35 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Metrics
         # CURRENT BATCH METRICS
-        verbnoun_metrics = [[OnlineTopkAccMetric(k=k, mode=m), RunningAvgOnlineTopkAccMetric(k=k, mode=m)]
-                            for k, m in product([1, 5], ['verb', 'noun'])]
-        verbnoun_metrics = [metric for metric_list in verbnoun_metrics for metric in metric_list]
+        verbnoun_metrics = []
+        for k, m in product([1, 5], ['verb', 'noun']):
+            verbnoun_metrics.extend([
+                OnlineTopkAccMetric(k=k, mode=m), RunningAvgOnlineTopkAccMetric(k=k, mode=m)
+            ])
 
         action_metrics = [
             OnlineTopkAccMetric(k=1, mode='action'),
             RunningAvgOnlineTopkAccMetric(k=1, mode='action')
         ]
 
-        adapt_metrics = [
-            [
+        adapt_metrics = []
+        for loss_mode in ['action', 'verb', 'noun']:
+            adapt_metrics.extend([
                 OnlineAdaptationGainMetric(
                     self.loss_fun_pred, self.sample_idx_to_pretrain_loss, loss_mode=loss_mode),
                 RunningAvgOnlineAdaptationGainMetric(
                     self.loss_fun_pred, self.sample_idx_to_pretrain_loss, loss_mode=loss_mode),
                 CumulativeOnlineAdaptationGainMetric(
                     self.loss_fun_pred, self.sample_idx_to_pretrain_loss, loss_mode=loss_mode),
-            ] for loss_mode in ['action', 'verb', 'noun']
-        ]
-        adapt_metrics = [metric for metric_list in adapt_metrics for metric in metric_list]  # Flatten
+            ])
 
-        count_metrics = [
-            [  # Seen actions (history part of stream) vs full user stream actions
+        count_metrics = []
+        for mode, seen_set, user_ref_set, pretrain_ref_set in [
+            ('action', self.seen_action_set, user_action_freq_dict, pretrain_action_set),
+            ('verb', self.seen_verb_set, user_verb_freq_dict, pretrain_verb_set),
+            ('noun', self.seen_noun_set, user_noun_freq_dict, pretrain_noun_set),
+        ]:
+            count_metrics.extend([  # Seen actions (history part of stream) vs full user stream actions
                 CountMetric(observed_set_name="seen", observed_set=seen_set,
                             ref_set_name="stream", ref_set=user_ref_set,
                             mode=mode
@@ -180,13 +187,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                             ref_set_name="pretrain", ref_set=pretrain_ref_set,
                             mode=mode
                             ),
-            ] for mode, seen_set, user_ref_set, pretrain_ref_set in [
-                ('action', self.seen_action_set, user_action_freq_dict, pretrain_action_set),
-                ('verb', self.seen_verb_set, user_verb_freq_dict, pretrain_verb_set),
-                ('noun', self.seen_noun_set, user_noun_freq_dict, pretrain_noun_set),
-            ]
-        ]
-        count_metrics = [metric for metric_list in count_metrics for metric in metric_list]  # Flatten
+            ])
+
+        for window_size, mode in product([10, 100], ['action', 'verb', 'noun']):
+            count_metrics.append(
+                WindowedUniqueCountMetric(
+                    preceding_window_size=window_size,
+                    sample_idx_to_action_list=self.sample_idx_to_action_list,
+                    action_mode=mode)
+            )
 
         self.current_batch_metrics = [*verbnoun_metrics, *action_metrics, *adapt_metrics, *count_metrics]
 
