@@ -90,9 +90,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.loss_fun_pred = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="none")  # Prediction
         self.continual_eval_freq = cfg.CONTINUAL_EVAL.FREQ
 
-        # Pretraining stats
-        self.pretrain_action_sets = cfg.COMPUTED_PRETRAIN_ACTION_SETS
-
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=shuffle_stream)
         self.predict_loader = construct_predictstream_loader(self.train_loader, self.cfg)
@@ -101,36 +98,48 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Predict phase:
         # If we first run predict phase, we can fill this dict with the results, this can then be used in trainphase
         self.run_predict_before_train = True
+        """ Triggers running prediction phase before starting training on the stream. 
+        This allows preprocessing on the entire stream (e.g. collect pretraining losses and stream stats)."""
+
         self.sample_idx_to_pretrain_loss = {}
+        """ A dict containing a mapping of the stream sample index to the loss on the initial pretrain model.
+        The dictionary is filled in the preprocessing predict phase before training."""
+
         self.sample_idx_to_action_list = [None] * self.total_stream_sample_count
         """ A list containing all actions in the full stream, the array index corresponds to the stream sample idx. """
 
         # Store vars of observed part of stream (Don't reassign, use ref)
         self.seen_samples_idxs = []
-        self.seen_action_set = set()
-        self.seen_verb_set = set()
-        self.seen_noun_set = set()
+        self.stream_seen_action_set = set()
+        self.stream_seen_verb_set = set()
+        self.stream_seen_noun_set = set()
         self.seen_action_to_stream_idxs = defaultdict(list)  # On-the-fly: For each action keep observed stream ids
+        """ Summarize observed part of the stream. """
 
         # State vars (single batch)
         self.stream_batch_idxs = None
         self.eval_this_step = False
         self.stream_batch_size = None  # Size of the new data batch sampled from the stream (exclusive replay samples)
         self.stream_batch_labels = None  # Ref for Re-exposure based forgetting
+        """ Variables set per iteration to share between methods. """
 
         # For data stream info dump
         self.dumpfile = self.cfg.COMPUTED_USER_DUMP_FILE
         self.action_to_batches = defaultdict(list)  # On-the-fly: For each action keep all ids when it was observed
         self.batch_to_actions = defaultdict(list)
+        """ Track info about stream to include in final dumpfile.
+         The dumpfile is used as reference to check if user processing has finished. """
+
 
         # Stream samplers
         self.future_stream_sampler = FutureSampler(mode='FIFO_split_seen_unseen',
                                                    stream_idx_to_action_list=self.sample_idx_to_action_list,
-                                                   seen_action_set=self.seen_action_set,
+                                                   seen_action_set=self.stream_seen_action_set,
                                                    total_capacity=self.cfg.CONTINUAL_EVAL.FUTURE_SAMPLE_CAPACITY)
         self.past_stream_sampler = PastSampler(mode='uniform_action_uniform_instance',
                                                seen_action_to_stream_idxs=self.seen_action_to_stream_idxs,
                                                total_capacity=self.cfg.CONTINUAL_EVAL.PAST_SAMPLE_CAPACITY)
+        """ Samplers to process the future and past part of the stream. """
 
         # Method
         self.method: Method = build_method(cfg, self)
@@ -139,13 +148,16 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         user_verb_freq_dict = self.train_loader.dataset.verb_freq_dict
         user_noun_freq_dict = self.train_loader.dataset.noun_freq_dict
         user_action_freq_dict = self.train_loader.dataset.action_freq_dict
+        """ Counter dictionaries from the user stream for actions/verbs/nouns. """
 
-        # Count-sets: Pretrain stream
+        # Pretraining stats
         # From JSON: {'ACTION_LABEL': {'name': "ACTION_NAME", 'count': "ACTION_COUNT"}}
-        pretrain_verb_set = {verbnoun_format(x) for x in self.pretrain_action_sets['verb_to_name_dict'].keys()}
-        pretrain_noun_set = {verbnoun_format(x) for x in self.pretrain_action_sets['noun_to_name_dict'].keys()}
-        pretrain_action_set = {verbnoun_to_action(*str(action).split('-'))  # Json format to tuple for actions
-                               for action in self.pretrain_action_sets['action_to_name_dict'].keys()}
+        pretrain_action_sets = cfg.COMPUTED_PRETRAIN_ACTION_SETS
+        self.pretrain_verb_set = {verbnoun_format(x) for x in pretrain_action_sets['verb_to_name_dict'].keys()}
+        self.pretrain_noun_set = {verbnoun_format(x) for x in pretrain_action_sets['noun_to_name_dict'].keys()}
+        self.pretrain_action_set = {verbnoun_to_action(*str(action).split('-'))  # Json format to tuple for actions
+                                    for action in pretrain_action_sets['action_to_name_dict'].keys()}
+        """ Sets containing all the action/nouns/verbs from the pretraining phase. """
 
         # Metrics
         # CURRENT BATCH METRICS
@@ -173,9 +185,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         count_metrics = []
         for mode, seen_set, user_ref_set, pretrain_ref_set in [
-            ('action', self.seen_action_set, user_action_freq_dict, pretrain_action_set),
-            ('verb', self.seen_verb_set, user_verb_freq_dict, pretrain_verb_set),
-            ('noun', self.seen_noun_set, user_noun_freq_dict, pretrain_noun_set),
+            ('action', self.stream_seen_action_set, user_action_freq_dict, self.pretrain_action_set),
+            ('verb', self.stream_seen_verb_set, user_verb_freq_dict, self.pretrain_verb_set),
+            ('noun', self.stream_seen_noun_set, user_noun_freq_dict, self.pretrain_noun_set),
         ]:
             count_metrics.extend([  # Seen actions (history part of stream) vs full user stream actions
                 CountMetric(observed_set_name="seen", observed_set=seen_set,
@@ -202,35 +214,38 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # FUTURE METRICS
         self.future_metrics = future_metrics
         if self.future_metrics is None:  # None = default
+            action_sets = [self.stream_seen_action_set, self.pretrain_action_set]
             action_metrics = [
                 GeneralizationTopkAccMetric(
-                    seen_action_set=self.seen_action_set, k=1, action_mode='action'),
+                    seen_action_sets=action_sets, k=1, action_mode='action'),
                 FWTTopkAccMetric(
-                    seen_action_set=self.seen_action_set, k=1, action_mode='action'),
+                    seen_action_sets=action_sets, k=1, action_mode='action'),
                 GeneralizationLossMetric(
-                    seen_action_set=self.seen_action_set, action_mode='action', loss_fun=self.loss_fun),
+                    seen_action_sets=action_sets, action_mode='action', loss_fun=self.loss_fun),
                 FWTLossMetric(
-                    seen_action_set=self.seen_action_set, action_mode='action', loss_fun=self.loss_fun),
+                    seen_action_sets=action_sets, action_mode='action', loss_fun=self.loss_fun),
             ]
+            verb_sets = [self.stream_seen_verb_set, self.pretrain_verb_set]
             verb_metrics = [
                 GeneralizationTopkAccMetric(
-                    seen_action_set=self.seen_verb_set, k=1, action_mode='verb'),
+                    seen_action_sets=verb_sets, k=1, action_mode='verb'),
                 FWTTopkAccMetric(
-                    seen_action_set=self.seen_verb_set, k=1, action_mode='verb'),
+                    seen_action_sets=verb_sets, k=1, action_mode='verb'),
                 GeneralizationLossMetric(
-                    seen_action_set=self.seen_verb_set, action_mode='verb', loss_fun=self.loss_fun),
+                    seen_action_sets=verb_sets, action_mode='verb', loss_fun=self.loss_fun),
                 FWTLossMetric(
-                    seen_action_set=self.seen_verb_set, action_mode='verb', loss_fun=self.loss_fun),
+                    seen_action_sets=verb_sets, action_mode='verb', loss_fun=self.loss_fun),
             ]
+            noun_sets = [self.stream_seen_noun_set, self.pretrain_noun_set]
             noun_metrics = [
                 GeneralizationTopkAccMetric(
-                    seen_action_set=self.seen_noun_set, k=1, action_mode='noun'),
+                    seen_action_sets=noun_sets, k=1, action_mode='noun'),
                 FWTTopkAccMetric(
-                    seen_action_set=self.seen_noun_set, k=1, action_mode='noun'),
+                    seen_action_sets=noun_sets, k=1, action_mode='noun'),
                 GeneralizationLossMetric(
-                    seen_action_set=self.seen_noun_set, action_mode='noun', loss_fun=self.loss_fun),
+                    seen_action_sets=noun_sets, action_mode='noun', loss_fun=self.loss_fun),
                 FWTLossMetric(
-                    seen_action_set=self.seen_noun_set, action_mode='noun', loss_fun=self.loss_fun),
+                    seen_action_sets=noun_sets, action_mode='noun', loss_fun=self.loss_fun),
             ]
             self.future_metrics = action_metrics + verb_metrics + noun_metrics
 
@@ -389,9 +404,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Only iterate stream batch (not replay samples)
         for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_batch_idxs):
             action = verbnoun_to_action(verb, noun)
-            self.seen_action_set.add(action)
-            self.seen_verb_set.add(verb)
-            self.seen_noun_set.add(noun)
+            self.stream_seen_action_set.add(action)
+            self.stream_seen_verb_set.add(verb)
+            self.stream_seen_noun_set.add(noun)
             self.action_to_batches[action].append(batch_idx)  # Possibly add multiple time batch_idx
             self.seen_action_to_stream_idxs[action].append(sample_idx)
             self.batch_to_actions[batch_idx].append(action)
