@@ -25,7 +25,6 @@ from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 from scripts.slurm import copy_and_run_with_config
 import os
 
-
 from fvcore.common.config import CfgNode
 
 logger = logging.get_logger(__name__)
@@ -57,7 +56,12 @@ def main(cfg: CfgNode):
     # Current training data (for all users)
     datasets_holder = extract_json(data_path)
     user_datasets = datasets_holder['users']  # user-specific datasets
-    all_user_ids = sorted([u for u in user_datasets.keys()])  # Deterministic user order
+    user_to_ds_len = sorted(
+        [(user_id, len(user_ds)) for user_id, user_ds in user_datasets.items()],
+        key=lambda x: x[1], reverse=True
+    )
+    all_user_ids = [x[0] for x in user_to_ds_len]  # Order users on dataset length (nb annotations as proxy)
+    logger.info(f"Processing users in order: {all_user_ids}, with sizes {user_to_ds_len}")
 
     # Pretraining stats (e.g. action sets), cfg requires COMPUTED_ for dynamically added nodes
     pretrain_dataset_holder = extract_json(data_paths['pretrain'])
