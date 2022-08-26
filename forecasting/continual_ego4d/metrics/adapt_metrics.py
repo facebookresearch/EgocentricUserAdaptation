@@ -25,7 +25,7 @@ class OnlineAdaptationGainMetric(AvgMeterMetric):
         self.sample_idx_to_pretrain_loss = sample_idx_to_pretrain_loss
 
     @torch.no_grad()
-    def update(self, preds, labels, current_batch_sample_idxs: list):
+    def update(self, current_batch_idx: int, preds, labels, current_batch_sample_idxs: list):
         """Update metric from predictions and labels."""
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
 
@@ -68,6 +68,6 @@ class CumulativeOnlineAdaptationGainMetric(OnlineAdaptationGainMetric):
         super().__init__(*args, **kwargs, main_metric_name="AG_cumul")
 
     @torch.no_grad()
-    def result(self) -> Dict:
+    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format."""
         return {self.name: self.avg_meter.sum}

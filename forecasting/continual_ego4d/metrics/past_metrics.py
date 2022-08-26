@@ -8,6 +8,8 @@ from collections import defaultdict
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 from continual_ego4d.metrics.metric import Metric, ACTION_MODES, get_metric_tag
 
+import matplotlib.pyplot as plt
+
 from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)
@@ -20,9 +22,17 @@ class ConditionalOnlineForgettingMetric(Metric):
     modes = ACTION_MODES
     base_metric_modes = ['loss', 'acc']
 
+    plot_config = {
+        "color": 'royalblue',
+        "dpi": 600,
+        "figsize": (8, 8),
+    }
+
     def __init__(self, base_metric_mode: str, action_mode: str, main_metric_name: str,
                  current_batch_cond_set=False, in_cond_set=True,
                  k: int = None, loss_fun=None,
+                 keep_action_results_over_time=False,
+                 do_plot=True,
                  ):
         """
         Takes in the history stream, and calculates forgetting per action.
@@ -43,6 +53,8 @@ class ConditionalOnlineForgettingMetric(Metric):
 
         :param: current_batch_cond_set: Use current observed batch as conditional set for constraints?
         :param: in_cond_set: If current_batch_cond_set=True, should consider samples in or out this set?
+        :param: keep_action_results_over_time: Store everytime a result is queried, for all actions separately.
+        Including the iteration number of previous time result was queried and current iteration number.
         """
         self.action_mode = action_mode
         self.base_metric_mode = base_metric_mode
@@ -82,13 +94,24 @@ class ConditionalOnlineForgettingMetric(Metric):
 
         self.name = get_metric_tag(TAG_PAST, action_mode=self.action_mode, base_metric_name=basic_metric_name)
 
+        # track results per action
+        self.keep_action_results_over_time = keep_action_results_over_time
+        self.action_results_over_time = {
+            "prev_batch_idx": defaultdict(list),  # <action, list(<prev_iter,current_iter,delta_value>)
+            "current_batch_idx": defaultdict(list),
+            "delta": defaultdict(list),
+        }
+
+        # Only something to plot if keeping track of state
+        self.do_plot = do_plot and self.keep_action_results_over_time
+
     @torch.no_grad()
-    def update(self, preds, labels, *args, stream_batch_labels=None, **kwargs):
+    def update(self, current_batch_idx: int, past_preds, past_labels, *args, stream_batch_labels=None, **kwargs):
         """
         ASSUMPTION: The preds,labels are all from the history stream only, forwarded on the CURRENT model.
         Update per-action accuracy metric from predictions and labels.
         """
-        assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
+        assert past_preds[0].shape[0] == past_labels.shape[0], f"Batch sizes not matching for past in stream!"
         assert stream_batch_labels is not None
 
         # Verb/noun errors
@@ -97,10 +120,9 @@ class ConditionalOnlineForgettingMetric(Metric):
 
             # Use current batch as conditional set
             if self.current_batch_cond_set:
-                # TODO: This is NOT Condition Set, Should be the actual current batch in stream, this is the batch in history!!
                 cond_set = set(stream_batch_labels[:, self.label_idx].tolist())
 
-            self._get_verbnoun_metric_result(preds, labels, cond_set)
+            self._get_verbnoun_metric_result(past_preds, past_labels, cond_set)
 
         # Action errors
         elif self.action_mode in ['action']:
@@ -111,7 +133,7 @@ class ConditionalOnlineForgettingMetric(Metric):
                 for (verb, noun) in stream_batch_labels.tolist():
                     action = verbnoun_to_action(verb, noun)
                     cond_set.add(action)
-            self._get_action_metric_result(preds, labels, cond_set)
+            self._get_action_metric_result(past_preds, past_labels, cond_set)
 
         else:
             raise NotImplementedError()
@@ -146,12 +168,8 @@ class ConditionalOnlineForgettingMetric(Metric):
             label_mask = (verbnoun_labels == verbnoun).bool()
             subset_batch_size = sum(label_mask)
 
-            try:
-                subset_preds = verbnoun_preds[label_mask]
-                subset_labels = verbnoun_labels[label_mask]
-            except:
-                import traceback
-                logger.debug(traceback.format_exc())
+            subset_preds = verbnoun_preds[label_mask]
+            subset_labels = verbnoun_labels[label_mask]
 
             # Acc metric
             if self.base_metric_mode == 'acc':
@@ -207,9 +225,10 @@ class ConditionalOnlineForgettingMetric(Metric):
         self.action_to_current_perf = defaultdict(AverageMeter)
 
     @torch.no_grad()
-    def result(self) -> Dict:
+    def result(self, current_batch_idx, *args, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format.
         Averages with equal weight over all actions with a meter.
+        Stores per-action results and timestamps in action_results_over_time.
         """
         # avg acc results over all actions, and make relative to previous acc (forgetting)
         avg_forg_over_actions = AverageMeter()
@@ -218,65 +237,130 @@ class ConditionalOnlineForgettingMetric(Metric):
                 logger.debug(f"{self.action_mode} {action} acc measured for first time in history stream.")
                 continue
             current_acc = action_current_acc.avg
+            prev_acc, prev_batch_idx = self.action_to_prev_perf[action]
             assert action_current_acc.count > 0, f"Acc {current_acc} has zero count."
 
-            forg = self.delta_fun(current_acc, self.action_to_prev_perf[action])
+            # Delta
+            forg = self.delta_fun(current_acc, prev_acc)
+
+            # Updates
             avg_forg_over_actions.update(forg, weight=1)
+
+            if self.keep_action_results_over_time:
+                self.action_results_over_time["prev_batch_idx"][action].append(prev_batch_idx)
+                self.action_results_over_time["current_batch_idx"][action].append(current_batch_idx)
+                self.action_results_over_time["delta"][action].append(forg)
 
         if avg_forg_over_actions.count == 0:
             return {}
         return {self.name: avg_forg_over_actions.avg}
 
     @torch.no_grad()
-    def save_result_to_history(self):
+    def save_result_to_history(self, current_batch_idx, *args, **kwargs):
         """ Save acc on current model results per action in the dict."""
         for action, action_current_perf in self.action_to_current_perf.items():
             if action_current_perf.count == 0:
                 continue
-            self.action_to_prev_perf[action] = action_current_perf.avg
+            self.action_to_prev_perf[action] = (action_current_perf.avg, current_batch_idx)
+
+    @torch.no_grad()
+    def dump(self) -> Dict:
+        if not self.keep_action_results_over_time:
+            return {}
+
+        # Check equal lengths (same nb actions)
+        single_entry_len = None
+        for key, timelist in self.action_results_over_time.items():
+            if single_entry_len is None:
+                single_entry_len = len(timelist)
+            else:
+                assert len(timelist) == single_entry_len, \
+                    f"{key} in action_results_over_time not populated with other keys"
+
+        return {self.name: self.action_results_over_time}
+
+    @torch.no_grad()
+    def plot(self) -> Dict:
+        if not self.do_plot:  # Don't log if state is not kept
+            return {}
+
+        # Get deltas on x-axis
+        deltas_x_per_action = defaultdict(list)
+        for action, prev_res_over_time in self.action_results_over_time["prev_batch_idx"].items():
+            cur_res_over_time = self.action_results_over_time["current_batch_idx"][action]
+            for prev_t, new_t in zip(prev_res_over_time, cur_res_over_time):
+                assert new_t > prev_t, f"New iteration {new_t} <= prev iteration {prev_t}"
+                deltas_x_per_action[action].append(new_t - prev_t)
+
+        # Get values on y-axis
+        deltas_y_per_action = self.action_results_over_time["delta"]
+
+        # Plot task-agnostic
+        figure = plt.figure(figsize=self.plot_config['figsize'],
+                            dpi=self.plot_config['dpi'])  # So all bars are visible!
+        for action, deltas_x in deltas_x_per_action.items():
+            deltas_y = deltas_y_per_action[action]
+            plt.scatter(deltas_x, deltas_y, c=self.plot_config['color'])
+
+        plt.ylim(None, None)
+        plt.xlim(0, None)
+
+        xlabel = 'nb_iters_between_exposures'
+        ylabel = self.name
+        title = f"{xlabel}_VS_{ylabel}"
+
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+
+        return {self.name: figure}
 
 
 class FullOnlineForgettingAccMetric(ConditionalOnlineForgettingMetric):
     """ Measure on history data over all actions that have already been observed."""
 
-    def __init__(self, k, action_mode):
+    def __init__(self, k, action_mode, keep_action_results_over_time=False):
         super().__init__(
             base_metric_mode='acc', k=k, loss_fun=None,  # Acc
             action_mode=action_mode, main_metric_name="FORG_full",
             # current_batch_cond_set=False, in_cond_set=False  # Fixed
+            keep_action_results_over_time=keep_action_results_over_time,
         )
 
 
 class FullOnlineForgettingLossMetric(ConditionalOnlineForgettingMetric):
     """ Measure on history data over all actions that have already been observed."""
 
-    def __init__(self, loss_fun, action_mode):
+    def __init__(self, loss_fun, action_mode, keep_action_results_over_time=False):
         super().__init__(
             base_metric_mode='loss', k=None, loss_fun=loss_fun,  # Acc
             action_mode=action_mode, main_metric_name="FORG_full",
             # current_batch_cond_set=False, in_cond_set=False  # Fixed
+            keep_action_results_over_time=keep_action_results_over_time,
         )
 
 
 class ReexposureForgettingAccMetric(ConditionalOnlineForgettingMetric):
     """ Measure on history data over actions that have already been observed AND are observed in current mini-batch."""
 
-    def __init__(self, k, action_mode):
+    def __init__(self, k, action_mode, keep_action_results_over_time=False):
         super().__init__(
             base_metric_mode='acc', k=k, loss_fun=None,  # Acc
             action_mode=action_mode, main_metric_name="FORG_EXPOSE",
             current_batch_cond_set=True, in_cond_set=True,
+            keep_action_results_over_time=keep_action_results_over_time,
         )
 
 
 class ReexposureForgettingLossMetric(ConditionalOnlineForgettingMetric):
     """ Measure on history data over actions that have already been observed AND are observed in current mini-batch."""
 
-    def __init__(self, loss_fun, action_mode):
+    def __init__(self, loss_fun, action_mode, keep_action_results_over_time=False):
         super().__init__(
             base_metric_mode='loss', k=None, loss_fun=loss_fun,  # Acc
             action_mode=action_mode, main_metric_name="FORG_EXPOSE",
             current_batch_cond_set=True, in_cond_set=True,
+            keep_action_results_over_time=keep_action_results_over_time,
         )
 
 
@@ -284,11 +368,12 @@ class CollateralForgettingAccMetric(ConditionalOnlineForgettingMetric):
     """ Measure on history data over actions that have already been observed
     AND are NOTobserved in current mini-batch."""
 
-    def __init__(self, k, action_mode):
+    def __init__(self, k, action_mode, keep_action_results_over_time=False):
         super().__init__(
             base_metric_mode='acc', k=k, loss_fun=None,  # Acc
             action_mode=action_mode, main_metric_name="FORG_COLLAT",
-            current_batch_cond_set=True, in_cond_set=False
+            current_batch_cond_set=True, in_cond_set=False,
+            keep_action_results_over_time=keep_action_results_over_time,
         )
 
 
@@ -296,9 +381,10 @@ class CollateralForgettingLossMetric(ConditionalOnlineForgettingMetric):
     """ Measure on history data over actions that have already been observed
     AND are NOTobserved in current mini-batch."""
 
-    def __init__(self, loss_fun, action_mode):
+    def __init__(self, loss_fun, action_mode, keep_action_results_over_time=False):
         super().__init__(
             base_metric_mode='loss', k=None, loss_fun=loss_fun,  # Acc
             action_mode=action_mode, main_metric_name="FORG_COLLAT",
-            current_batch_cond_set=True, in_cond_set=False
+            current_batch_cond_set=True, in_cond_set=False,
+            keep_action_results_over_time=keep_action_results_over_time,
         )

@@ -38,7 +38,7 @@ class Metric(ABC):
 
     @abstractmethod
     @torch.no_grad()
-    def update(self, preds: list, labels, *args, **kwargs):
+    def update(self, current_batch_idx: int, preds: list, labels, *args, **kwargs):
         """Update metric from predictions and labels.
         preds: (2 x batch_size x input_shape) -> first dim = verb/noun
         labels: (batch_size x 2) -> second dim = verb/noun
@@ -51,13 +51,23 @@ class Metric(ABC):
 
     @abstractmethod
     @torch.no_grad()
-    def result(self) -> Dict:
+    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format."""
 
     @torch.no_grad()
-    def save_result_to_history(self):
+    def save_result_to_history(self, current_batch_idx: int, *args, **kwargs):
         """Optional: after getting the result, we may also want to re-use this result later on."""
         pass
+
+    @torch.no_grad()
+    def plot(self) -> Dict:
+        """Optional: during training stream, plot state of metric."""
+        return {}
+
+    @torch.no_grad()
+    def dump(self) -> Dict:
+        """Optional: after training stream, a dump of states could be returned."""
+        return {}
 
 
 class AvgMeterMetric(Metric):
@@ -80,7 +90,7 @@ class AvgMeterMetric(Metric):
             raise NotImplementedError()
 
     @torch.no_grad()
-    def update(self, preds, labels, *args, **kwargs):
+    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
         """Update metric from predictions and labels."""
         raise NotImplementedError()
 
@@ -90,7 +100,7 @@ class AvgMeterMetric(Metric):
         self.avg_meter.reset()
 
     @torch.no_grad()
-    def result(self) -> Dict:
+    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format."""
         if self.avg_meter.count == 0:
             return {}

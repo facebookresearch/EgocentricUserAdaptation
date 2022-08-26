@@ -49,7 +49,7 @@ class ConditionalOnlineMetric(AvgMeterMetric):
         self.name = get_metric_tag(TAG_FUTURE, action_mode=self.mode, base_metric_name=basic_metric_name)
 
     @torch.no_grad()
-    def update(self, preds, labels, *args, **kwargs):
+    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
         """Update metric from predictions and labels."""
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
 

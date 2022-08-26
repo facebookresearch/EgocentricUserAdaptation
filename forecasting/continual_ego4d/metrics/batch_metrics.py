@@ -23,7 +23,7 @@ class OnlineTopkAccMetric(AvgMeterMetric):
             assert self.k == 1, f"Action mode only supports top1, not top-{self.k}"
 
     @torch.no_grad()
-    def update(self, preds, labels, *args, **kwargs):
+    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
         """Update metric from predictions and labels."""
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
         batch_size = labels.shape[0]
@@ -73,7 +73,7 @@ class CountMetric(Metric):
         assert self.mode in self.modes
 
     @torch.no_grad()
-    def update(self, preds, labels, *args, **kwargs):
+    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
         """Update metric from predictions and labels."""
         pass
 
@@ -83,7 +83,7 @@ class CountMetric(Metric):
         pass
 
     @torch.no_grad()
-    def result(self) -> Dict:
+    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format."""
         ret = []
 
@@ -162,7 +162,7 @@ class WindowedUniqueCountMetric(Metric):
         self._current_batch_min_idx: int = None
 
     @torch.no_grad()
-    def update(self, preds, labels, current_batch_sample_idxs: list):
+    def update(self, current_batch_idx: int, preds, labels, current_batch_sample_idxs: list):
         """Update metric from predictions and labels."""
         current_batch_min_idx = min(current_batch_sample_idxs)
         if self._current_batch_min_idx is None:
@@ -176,7 +176,7 @@ class WindowedUniqueCountMetric(Metric):
         self._current_batch_min_idx = None
 
     @torch.no_grad()
-    def result(self) -> Dict:
+    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format."""
         assert self._current_batch_min_idx is not None, "Assign self._current_batch_min_idx first with update()"
 

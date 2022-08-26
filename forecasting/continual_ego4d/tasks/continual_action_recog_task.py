@@ -34,6 +34,9 @@ from continual_ego4d.metrics.past_metrics import FullOnlineForgettingAccMetric, 
     CollateralForgettingAccMetric, FullOnlineForgettingLossMetric, ReexposureForgettingLossMetric, \
     CollateralForgettingLossMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
+from pytorch_lightning.loggers import TensorBoardLogger
+
+import matplotlib.pyplot as plt
 
 from pytorch_lightning.core import LightningModule
 from typing import List, Tuple, Union, Any, Optional, Dict
@@ -89,6 +92,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")  # Training
         self.loss_fun_pred = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="none")  # Prediction
         self.continual_eval_freq = cfg.CONTINUAL_EVAL.FREQ
+        self.plotting_log_freq = cfg.CONTINUAL_EVAL.PLOTTING_FREQ
 
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=shuffle_stream)
@@ -117,6 +121,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         """ Summarize observed part of the stream. """
 
         # State vars (single batch)
+        self.batch_idx = None  # Current batch idx
         self.stream_batch_idxs = None
         self.eval_this_step = False
         self.stream_batch_size = None  # Size of the new data batch sampled from the stream (exclusive replay samples)
@@ -129,7 +134,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.batch_to_actions = defaultdict(list)
         """ Track info about stream to include in final dumpfile.
          The dumpfile is used as reference to check if user processing has finished. """
-
 
         # Stream samplers
         self.future_stream_sampler = FutureSampler(mode='FIFO_split_seen_unseen',
@@ -253,31 +257,50 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.past_metrics = past_metrics
         if self.past_metrics is None:  # None = default
             action_metrics = [
-                FullOnlineForgettingAccMetric(k=1, action_mode='action'),
-                ReexposureForgettingAccMetric(k=1, action_mode='action'),
-                CollateralForgettingAccMetric(k=1, action_mode='action'),
-                FullOnlineForgettingLossMetric(loss_fun=self.loss_fun, action_mode='action'),
-                ReexposureForgettingLossMetric(loss_fun=self.loss_fun, action_mode='action'),
-                CollateralForgettingLossMetric(loss_fun=self.loss_fun, action_mode='action'),
+                FullOnlineForgettingAccMetric(
+                    k=1, action_mode='action'),
+                ReexposureForgettingAccMetric(
+                    k=1, action_mode='action', keep_action_results_over_time=True),
+                CollateralForgettingAccMetric(
+                    k=1, action_mode='action'),
+                FullOnlineForgettingLossMetric(
+                    loss_fun=self.loss_fun, action_mode='action'),
+                ReexposureForgettingLossMetric(
+                    loss_fun=self.loss_fun, action_mode='action', keep_action_results_over_time=True),
+                CollateralForgettingLossMetric(
+                    loss_fun=self.loss_fun, action_mode='action'),
             ]
             verb_metrics = [
-                FullOnlineForgettingAccMetric(k=1, action_mode='verb'),
-                ReexposureForgettingAccMetric(k=1, action_mode='verb'),
-                CollateralForgettingAccMetric(k=1, action_mode='verb'),
-                FullOnlineForgettingLossMetric(loss_fun=self.loss_fun, action_mode='verb'),
-                ReexposureForgettingLossMetric(loss_fun=self.loss_fun, action_mode='verb'),
-                CollateralForgettingLossMetric(loss_fun=self.loss_fun, action_mode='verb'),
+                FullOnlineForgettingAccMetric(
+                    k=1, action_mode='verb'),
+                ReexposureForgettingAccMetric(
+                    k=1, action_mode='verb'),
+                CollateralForgettingAccMetric(
+                    k=1, action_mode='verb'),
+                FullOnlineForgettingLossMetric(
+                    loss_fun=self.loss_fun, action_mode='verb'),
+                ReexposureForgettingLossMetric(
+                    loss_fun=self.loss_fun, action_mode='verb'),
+                CollateralForgettingLossMetric(
+                    loss_fun=self.loss_fun, action_mode='verb'),
             ]
             noun_metrics = [
-                FullOnlineForgettingAccMetric(k=1, action_mode='noun'),
-                ReexposureForgettingAccMetric(k=1, action_mode='noun'),
-                CollateralForgettingAccMetric(k=1, action_mode='noun'),
-                FullOnlineForgettingLossMetric(loss_fun=self.loss_fun, action_mode='noun'),
-                ReexposureForgettingLossMetric(loss_fun=self.loss_fun, action_mode='noun'),
-                CollateralForgettingLossMetric(loss_fun=self.loss_fun, action_mode='noun'),
+                FullOnlineForgettingAccMetric(
+                    k=1, action_mode='noun'),
+                ReexposureForgettingAccMetric(
+                    k=1, action_mode='noun'),
+                CollateralForgettingAccMetric(
+                    k=1, action_mode='noun'),
+                FullOnlineForgettingLossMetric(
+                    loss_fun=self.loss_fun, action_mode='noun'),
+                ReexposureForgettingLossMetric(
+                    loss_fun=self.loss_fun, action_mode='noun'),
+                CollateralForgettingLossMetric(
+                    loss_fun=self.loss_fun, action_mode='noun'),
             ]
             self.past_metrics = action_metrics + verb_metrics + noun_metrics
 
+        self.all_metrics = [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]
         logger.debug(f'Initialized {self.__class__.__name__}')
 
     # ---------------------
@@ -304,7 +327,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # ---------------------
     def on_train_batch_start(self, batch: Any, batch_idx: int, unused: Optional[int] = 0) -> None:
         # Reset metrics
-        for metric in [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]:
+        for metric in self.all_metrics:
             if metric.reset_before_batch:
                 metric.reset()
 
@@ -326,6 +349,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def training_step(self, batch, batch_idx):
         """ Before update: Forward and define loss. """
+        self.batch_idx = batch_idx
         metric_results = {}
 
         # PREDICTIONS + LOSS
@@ -394,11 +418,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                          f"{pprint.pformat(metric_results)}")
 
             # (optionally) Save metrics after batch
-            for metric in [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]:
-                metric.save_result_to_history()
+            for metric in self.all_metrics:
+                metric.save_result_to_history(current_batch_idx=batch_idx)
 
         # Update counts etc
         self._update_state(labels, batch_idx)
+
+        # Plot metrics if possible
+        if batch_idx % self.plotting_log_freq == 0 or batch_idx == len(self.train_loader):
+            self._log_plotting_metrics()
 
     def _update_state(self, labels, batch_idx):
         # Only iterate stream batch (not replay samples)
@@ -416,14 +444,46 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         assert len(self.seen_samples_idxs) == len(np.unique(self.seen_samples_idxs)), \
             f"Duplicate visited samples in {self.seen_samples_idxs}"
 
+    def _log_plotting_metrics(self):
+        """ Iterate over metrics to get Image plots. """
+
+        # Collect loggers
+        tb_loggers = [result_logger for result_logger in self.logger if isinstance(result_logger, TensorBoardLogger)]
+        if len(tb_loggers) == 0:
+            logger.info(f"No tensorboard logger found, skipping image plotting.")
+            return
+        elif len(tb_loggers) > 1:
+            raise Exception(f"Multiple tensorboard loggers found, should only define one: {tb_loggers}")
+        tb_logger = tb_loggers[0]
+
+        logger.info("Collecting figures for metric plots")
+        plot_dict = {}
+        for metric in self.all_metrics:
+            metric_plot_dict = metric.plot()
+            if metric_plot_dict is not None and len(metric_plot_dict) > 0:
+                self.add_to_dict_(plot_dict, metric_plot_dict)
+
+        # Log them
+        logger.info("Plotting tensorboard figures")
+        for name, mpl_figure in plot_dict.items():
+            tb_logger.experiment.add_figure(
+                tag=name, figure=mpl_figure
+            )
+        plt.close('all')
+
     def on_train_end(self) -> None:
         """Dump any additional stats about the training."""
-        torch.save({
+        dump_dict = {
             "batch_to_actions": self.batch_to_actions,
             "action_to_batches": self.action_to_batches,
             "dataset_all_entries_ordered": self.train_dataloader().dataset.seq_input_list,
-        },
-            self.dumpfile)
+        }
+        for metric in self.all_metrics:
+            metric_dict = metric.dump()
+            if metric_dict is not None and len(metric_dict) > 0:
+                self.add_to_dict_(dump_dict, metric_dict)
+
+        torch.save(dump_dict, self.dumpfile)
         logger.debug(f"Logged stream info to dumpfile {self.dumpfile}")
 
     # ---------------------
@@ -447,12 +507,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Update metrics
         for metric in self.current_batch_metrics:
-            metric.update(verbnoun_outputs, labels, self.stream_batch_idxs)
+            metric.update(self.batch_idx, verbnoun_outputs, labels, self.stream_batch_idxs)
 
         # Gather results from metrics
         results = {}
         for metric in self.current_batch_metrics:
-            results = {**results, **metric.result()}
+            results = {**results, **metric.result(self.batch_idx)}
 
         self.add_to_dict_(step_result, results)
 
@@ -511,9 +571,11 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # HELPER METHODS
     # ---------------------
     @staticmethod
-    def add_to_dict_(source_dict: dict, dict_to_add: dict):
+    def add_to_dict_(source_dict: dict, dict_to_add: dict, key_exist_ok=False):
         """In-place add to dict"""
         for k, v in dict_to_add.items():
+            if not key_exist_ok and k in source_dict:
+                raise ValueError(f'dict_to_add is overwriting source_dict, existing key={k}')
             source_dict[k] = v
 
     def _get_train_dataloader_subset(self, train_dataloader: torch.utils.data.DataLoader,
@@ -562,13 +624,13 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
             for metric in metrics:
                 metric.update(
-                    preds, labels, stream_batch_labels=self.stream_batch_labels
+                    self.batch_idx, preds, labels, stream_batch_labels=self.stream_batch_labels
                 )
 
         # Gather results
         avg_metric_result_dict = {}
         for metric in metrics:
-            avg_metric_result_dict = {**avg_metric_result_dict, **metric.result()}
+            avg_metric_result_dict = {**avg_metric_result_dict, **metric.result(self.batch_idx)}
 
         return avg_metric_result_dict
 
