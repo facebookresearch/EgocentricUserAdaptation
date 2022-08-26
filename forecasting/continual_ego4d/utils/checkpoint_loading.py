@@ -6,6 +6,9 @@ import torch
 from ego4d.utils import logging
 from ego4d.utils.c2_model_loading import get_name_convert_func
 import os.path as osp
+from ego4d.config.defaults import get_cfg_by_name
+import shutil
+from pathlib import Path
 
 logger = logging.get_logger(__name__)
 
@@ -13,8 +16,9 @@ logger = logging.get_logger(__name__)
 class PathHandler:
 
     def __init__(self, cfg):
+        self.main_output_dir, self.is_resuming_run = self.setup_main_output_dir(cfg)
+
         # Full paths (user agnostic)
-        self.main_output_dir = cfg.OUTPUT_DIR  # Main dir
         self.meta_checkpoint_path = osp.join(self.main_output_dir, 'meta_checkpoint.pt')
 
         # USER DEPENDENT
@@ -27,6 +31,45 @@ class PathHandler:
 
         # Filenames
         self.user_streamdump_filename = 'stream_info_dump.pth'
+
+    @staticmethod
+    def setup_main_output_dir(cfg) -> (str, bool):
+
+        orig_path = Path(cfg.OUTPUT_DIR)  # Insert grid_dir as parent dir to group runs based on grid params
+        grid_parent_dir = None
+        if cfg.GRID_NODES is not None:
+            grid_parent_dir_name = []
+            for grid_node in cfg.GRID_NODES.split(','):
+                grid_parent_dir_name.append(
+                    f"{grid_node.replace('.', '-')}={get_cfg_by_name(cfg, grid_node)}"
+                )
+            grid_parent_dir_name.sort()  # Make deterministic order
+            grid_parent_dir = f"GRID_{'_'.join(grid_parent_dir_name)}"
+
+        # Resume run if specified, and output to same output dir
+        is_resuming_run = len(cfg.RESUME_OUTPUT_DIR) > 0
+        if is_resuming_run:
+
+            # Check GRID_NODES and current resume-path are matching
+            if grid_parent_dir is not None:
+                assert Path(cfg.RESUME_OUTPUT_DIR).parent.name == grid_parent_dir, \
+                    f"Defined resume path and gridsearch nodes are not matching. " \
+                    f"Resume_dir={cfg.RESUME_OUTPUT_DIR}, grid_parent_dir={grid_parent_dir}"
+
+            cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR
+
+        # Add gridsearch config nodes to add a grouping gridsearch parent dir
+        elif grid_parent_dir is not None:
+            cfg.OUTPUT_DIR = str(orig_path.parent.absolute() / grid_parent_dir / orig_path.name)
+
+        # Create dir
+        os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+
+        # Copy files to output dir for reproducing
+        for reproduce_path in [cfg.PARENT_SCRIPT_FILE_PATH, cfg.CONFIG_FILE_PATH]:
+            shutil.copy2(reproduce_path, cfg.OUTPUT_DIR)
+
+        return cfg.OUTPUT_DIR, is_resuming_run
 
     def get_experiment_version(self, user_id):
         return self.userid_to_userdir(user_id)
