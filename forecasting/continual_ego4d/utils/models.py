@@ -51,3 +51,7 @@ class UnseenVerbNounMaskerHead(nn.Module):
         maskout_set = [idx for idx in range(pred_size) if idx not in passthrough_set]
         out[:, maskout_set] = self.mask_val
         return out, len(maskout_set)
+
+    def __repr__(self):
+        """Keeps reference to task, hence __repr__ of CL task results in recursion overflow. """
+        return f"{self.__class__.__name__}-Wrapper: {self.original_verbnoun_head}"
