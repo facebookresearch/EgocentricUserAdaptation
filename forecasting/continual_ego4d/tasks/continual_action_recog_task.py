@@ -34,6 +34,7 @@ from continual_ego4d.metrics.past_metrics import FullOnlineForgettingAccMetric, 
     CollateralForgettingAccMetric, FullOnlineForgettingLossMetric, ReexposureForgettingLossMetric, \
     CollateralForgettingLossMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
+from continual_ego4d.utils.models import UnseenVerbNounMaskerHead
 from pytorch_lightning.loggers import TensorBoardLogger
 
 import matplotlib.pyplot as plt
@@ -88,7 +89,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # CFG checks
         self.cfg = cfg
         self.save_hyperparameters()  # Save cfg to '
-        self.model = build_model(cfg)
+
+        # Multi-task (verb/noun) has classification head, mask out unseen classifier prototype outputs
+        model = build_model(cfg)
+        model.head = UnseenVerbNounMaskerHead(model.head, self)
+        self.model = model
+
         self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")  # Training
         self.loss_fun_pred = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="none")  # Prediction
         self.continual_eval_freq = cfg.CONTINUAL_EVAL.FREQ
@@ -120,12 +126,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.seen_action_to_stream_idxs = defaultdict(list)  # On-the-fly: For each action keep observed stream ids
         """ Summarize observed part of the stream. """
 
-        # State vars (single batch)
-        self.batch_idx = None  # Current batch idx
-        self.stream_batch_idxs = None
-        self.eval_this_step = False
-        self.stream_batch_size = None  # Size of the new data batch sampled from the stream (exclusive replay samples)
-        self.stream_batch_labels = None  # Ref for Re-exposure based forgetting
+        # Current iteration State vars (single batch)
+        self.batch_idx: int = None  # Current batch idx
+        self.stream_batch_idxs: list = None
+        self.eval_this_step: bool = False
+        self.stream_batch_size: int = None  # Size of the new data batch sampled from the stream (exclusive replay samples)
+        self.stream_batch_labels: torch.Tensor = None  # Ref for Re-exposure based forgetting
+        self.batch_action_set: set = None
+        self.batch_verb_set: set = None
+        self.batch_noun_set: set = None
         """ Variables set per iteration to share between methods. """
 
         # For data stream info dump
@@ -336,16 +345,30 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
         """Override to alter or apply batch augmentations to your batch before it is transferred to the device."""
+        self._set_current_batch_states(batch)
+
+        # Alter batch (e.g. Replay adds new samples)
+        altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
+        return altered_batch
+
+    def _set_current_batch_states(self, batch: Any):
         # Observed idxs update before batch is altered
         _, labels, _, stream_sample_idxs = batch
         self.stream_batch_labels = labels
         self.stream_batch_idxs = stream_sample_idxs.tolist()
         self.stream_batch_size = len(self.stream_batch_idxs)
-        logger.debug(f"current_batch_sample_idxs={self.stream_batch_idxs}")
 
-        # Alter batch (e.g. Replay adds new samples)
-        altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
-        return altered_batch
+        # Get new actions/verbs current batch
+        self.batch_action_set = set()
+        self.batch_verb_set = set()
+        self.batch_noun_set = set()
+        for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_batch_idxs):
+            action = verbnoun_to_action(verb, noun)
+            self.batch_action_set.add(action)
+            self.batch_verb_set.add(verbnoun_format(verb))
+            self.batch_noun_set.add(verbnoun_format(noun))
+
+        logger.debug(f"current_batch_sample_idxs={self.stream_batch_idxs}")
 
     def training_step(self, batch, batch_idx):
         """ Before update: Forward and define loss. """
@@ -422,19 +445,20 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 metric.save_result_to_history(current_batch_idx=batch_idx)
 
         # Update counts etc
-        self._update_state(labels, batch_idx)
+        self._update_seen_state(labels, batch_idx)
 
         # Plot metrics if possible
         if batch_idx % self.plotting_log_freq == 0 or batch_idx == len(self.train_loader):
             self._log_plotting_metrics()
 
-    def _update_state(self, labels, batch_idx):
+    def _update_seen_state(self, labels, batch_idx):
+        self.stream_seen_action_set.update(self.batch_action_set)
+        self.stream_seen_verb_set.update(self.batch_verb_set)
+        self.stream_seen_noun_set.update(self.batch_noun_set)
+
         # Only iterate stream batch (not replay samples)
         for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_batch_idxs):
             action = verbnoun_to_action(verb, noun)
-            self.stream_seen_action_set.add(action)
-            self.stream_seen_verb_set.add(verb)
-            self.stream_seen_noun_set.add(noun)
             self.action_to_batches[action].append(batch_idx)  # Possibly add multiple time batch_idx
             self.seen_action_to_stream_idxs[action].append(sample_idx)
             self.batch_to_actions[batch_idx].append(action)
