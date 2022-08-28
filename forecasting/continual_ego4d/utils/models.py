@@ -7,34 +7,32 @@ from ego4d.utils import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
+    from continual_ego4d.tasks.continual_action_recog_task import StreamStateTracker
 
 logger = logging.get_logger(__name__)
 
 
 class UnseenVerbNounMaskerHead(nn.Module):
-    def __init__(self, original_verbnoun_head: nn.Module, cl_task: 'ContinualMultiTaskClassificationTask'):
+    def __init__(self, stream_state: 'StreamStateTracker'):
         super().__init__()
-        self.original_verbnoun_head = original_verbnoun_head
-        self.cl_task = cl_task
+        self.stream_state = stream_state
         self.mask_val = -1e12  # Extremely negative value
 
-    def forward(self, feats):
+    def forward(self, verbnoun_logits):
         """ Make sure that current_batch before forwarding the verbs and nouns are in the seen set. """
-        verbnoun_x = self.original_verbnoun_head.forward(feats)
 
         # Verb
-        verb_x = verbnoun_x[0]
+        verb_x = verbnoun_logits[0]
         seen_sets_verb = {  # Include both past seen and current seen
-            x for subset in [self.cl_task.stream_seen_verb_set, self.cl_task.batch_verb_set] for x in subset
+            x for subset in [self.stream_state.stream_seen_verb_set, self.stream_state.batch_verb_set] for x in subset
         }
         masked_verb_x, nb_masked = self._mask_unseen(verb_x, seen_sets_verb)
         logger.info(f"Masked out {nb_masked} verb logits")
 
         # Noun
-        noun_x = verbnoun_x[1]
+        noun_x = verbnoun_logits[1]
         seen_sets_noun = {  # Include both past seen and current seen
-            x for subset in [self.cl_task.stream_seen_noun_set, self.cl_task.batch_noun_set] for x in subset
+            x for subset in [self.stream_state.stream_seen_noun_set, self.stream_state.batch_noun_set] for x in subset
         }
         masked_noun_x, nb_masked = self._mask_unseen(noun_x, seen_sets_noun)
         logger.info(f"Masked out {nb_masked} noun logits")
@@ -52,6 +50,6 @@ class UnseenVerbNounMaskerHead(nn.Module):
         out[:, maskout_set] = self.mask_val
         return out, len(maskout_set)
 
-    def __repr__(self):
-        """Keeps reference to task, hence __repr__ of CL task results in recursion overflow. """
-        return f"{self.__class__.__name__}-Wrapper: {self.original_verbnoun_head}"
+    # def __repr__(self):
+    #     """Keeps reference to task, hence __repr__ of CL task results in recursion overflow. """
+    #     return f"{self.__class__.__name__}-Wrapper, mask_val={self.mask_val}"
