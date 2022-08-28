@@ -353,13 +353,23 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # ---------------------
     # TRAINING FLOW CALLBACKS
     # ---------------------
+
+    def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
+        """
+        Override to alter or apply batch augmentations to your batch before it is transferred to the device.
+        e.g. Replay adds samples.
+        Happens before on_train_batch_start (although differently documented).
+        """
+        self._set_current_batch_states(batch, batch_idx=dataloader_idx)
+
+        altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
+        return altered_batch
+
     def on_train_batch_start(self, batch: Any, batch_idx: int, unused: Optional[int] = 0) -> None:
         # Reset metrics
         for metric in self.all_metrics:
             if metric.reset_before_batch:
                 metric.reset()
-
-        self._set_current_batch_states(batch, batch_idx)
 
     def _set_current_batch_states(self, batch: Any, batch_idx: int):
         self.stream_state.plot_this_step = batch_idx % self.plotting_log_freq == 0 or batch_idx == len(
@@ -385,14 +395,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             self.stream_state.batch_noun_set.add(verbnoun_format(noun))
 
         logger.debug(f"current_batch_sample_idxs={self.stream_state.stream_batch_idxs}")
-
-    def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
-        """
-        Override to alter or apply batch augmentations to your batch before it is transferred to the device.
-        e.g. Replay adds samples.
-        """
-        altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
-        return altered_batch
 
     def training_step(self, batch, batch_idx):
         """ Before update: Forward and define loss. """
