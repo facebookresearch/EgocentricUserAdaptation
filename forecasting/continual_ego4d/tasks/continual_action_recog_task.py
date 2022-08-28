@@ -65,15 +65,15 @@ class StreamStateTracker:
         """ Summarize observed part of the stream. """
 
         # Current iteration State vars (single batch)
-        self.batch_idx: int = None  # Current batch idx
+        self.batch_idx: int = -1  # Current batch idx
         self.eval_this_step: bool = False
         self.plot_this_step: bool = False
-        self.stream_batch_idxs: list = None
-        self.stream_batch_size: int = None  # Size of the new data batch sampled from the stream (exclusive replay samples)
+        self.stream_batch_idxs: list = []
+        self.stream_batch_size: int = 0  # Size of the new data batch sampled from the stream (exclusive replay samples)
         self.stream_batch_labels: torch.Tensor = None  # Ref for Re-exposure based forgetting
-        self.batch_action_set: set = None
-        self.batch_verb_set: set = None
-        self.batch_noun_set: set = None
+        self.batch_action_set: set = set()
+        self.batch_verb_set: set = set()
+        self.batch_noun_set: set = set()
         """ Variables set per iteration to share between methods. """
 
         # For dump
@@ -214,9 +214,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         count_metrics = []
         for mode, seen_set, user_ref_set, pretrain_ref_set in [
-            ('action', self.stream_state.stream_seen_action_set, self.stream_state.user_action_freq_dict, self.stream_state.pretrain_action_set),
-            ('verb', self.stream_state.stream_seen_verb_set, self.stream_state.user_verb_freq_dict, self.stream_state.pretrain_verb_set),
-            ('noun', self.stream_state.stream_seen_noun_set, self.stream_state.user_noun_freq_dict, self.stream_state.pretrain_noun_set),
+            ('action', self.stream_state.stream_seen_action_set, self.stream_state.user_action_freq_dict,
+             self.stream_state.pretrain_action_set),
+            ('verb', self.stream_state.stream_seen_verb_set, self.stream_state.user_verb_freq_dict,
+             self.stream_state.pretrain_verb_set),
+            ('noun', self.stream_state.stream_seen_noun_set, self.stream_state.user_noun_freq_dict,
+             self.stream_state.pretrain_noun_set),
         ]:
             count_metrics.extend([  # Seen actions (history part of stream) vs full user stream actions
                 CountMetric(observed_set_name="seen", observed_set=seen_set,
@@ -234,7 +237,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             count_metrics.append(
                 WindowedUniqueCountMetric(
                     preceding_window_size=window_size,
-                    sample_idx_to_action_list=self.sample_idx_to_action_list,
+                    sample_idx_to_action_list=self.stream_state.sample_idx_to_action_list,
                     action_mode=mode)
             )
 
@@ -359,7 +362,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self._set_current_batch_states(batch, batch_idx)
 
     def _set_current_batch_states(self, batch: Any, batch_idx: int):
-        self.stream_state.plot_this_step = batch_idx % self.plotting_log_freq == 0 or batch_idx == len(self.train_loader)
+        self.stream_state.plot_this_step = batch_idx % self.plotting_log_freq == 0 or batch_idx == len(
+            self.train_loader)
         self.stream_state.eval_this_step = self.trainer.logger_connector.should_update_logs
         logger.debug(f"Continual eval on batch "
                      f"{batch_idx}/{len(self.train_loader)} = {self.stream_state.eval_this_step}")
@@ -713,7 +717,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         """ Load output masker at training start, to make checkpoint loading independent of the module. """
         self.model.head = torch.nn.Sequential(
             self.model.head,
-            UnseenVerbNounMaskerHead(self)
+            UnseenVerbNounMaskerHead(self.stream_state)
         )
         logger.info(f"Wrapped incremental head for model: {self.model.head}")
 
