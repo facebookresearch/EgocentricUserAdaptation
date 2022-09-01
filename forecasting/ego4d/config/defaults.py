@@ -12,13 +12,20 @@ _C = CfgNode()
 # Add paths
 _C.CONFIG_FILE_PATH = ""
 _C.PARENT_SCRIPT_FILE_PATH = ""
+_C.RUN_UID = ""
 
 # ---------------------------------------------------------------------------- #
 # GRIDSEARCH options
 # ---------------------------------------------------------------------------- #
 _C.GRID_NODES = None  # Add nodes that we gridsearch over to output path
 
-_C.NUM_USERS_PER_DEVICE = 1 # How many user-processes per gpu
+_C.NUM_USERS_PER_DEVICE = 1  # How many user-processes per gpu
+
+# ---------------------------------------------------------------------------- #
+# WANDB options
+# ---------------------------------------------------------------------------- #
+_C.WANDB = CfgNode()
+_C.WANDB.TAGS = None  # Split based on comma
 
 # ---------------------------------------------------------------------------- #
 # METHOD options
@@ -956,6 +963,20 @@ def get_cfg_by_name(cfg: CfgNode, hierarchy_cfg_name: str):
     for idx, key in enumerate(keys):  # If using dots, set in hierarchy of objects, not as single dotted-key
         target_obj = getattr(target_obj, key)
     return target_obj
+
+
+def convert_cfg_to_dict(cfg: CfgNode):
+    def _get_leafnodes_dict(cfg_node, key_list, final_dict):
+        if not isinstance(cfg_node, CfgNode):  # Final node
+            final_dict[".".join(key_list)] = cfg_node
+        else:
+            cfg_dict = dict(cfg_node)
+            for k, v in cfg_dict.items():
+                _get_leafnodes_dict(v, key_list + [k], final_dict)
+
+    res = {}
+    _get_leafnodes_dict(cfg, [], res)
+    return res
 
 
 def get_cfg():

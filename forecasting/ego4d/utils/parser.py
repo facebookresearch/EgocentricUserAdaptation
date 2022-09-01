@@ -23,7 +23,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Provide SlowFast video training and testing pipeline."
     )
-    parser.add_argument("--job_name", default="", type=str)
+    parser.add_argument("--job_name", default=None, type=str)
     parser.add_argument("--on_cluster", action="store_true")
     parser.add_argument("--working_directory", default="", type=str)
     parser.add_argument(
@@ -88,5 +88,9 @@ def load_config(args):
         cfg.RNG_SEED = args.rng_seed
     if hasattr(args, "output_dir"):
         cfg.OUTPUT_DIR = args.output_dir
+
+    # Set jobname to unique id
+    if args.job_name is not None:
+        cfg.RUN_UID = args.job_name
 
     return cfg

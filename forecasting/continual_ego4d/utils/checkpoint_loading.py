@@ -9,6 +9,7 @@ import os.path as osp
 from ego4d.config.defaults import get_cfg_by_name
 import shutil
 from pathlib import Path
+from ego4d.config.defaults import set_cfg_by_name, get_cfg_by_name, convert_cfg_to_dict
 
 logger = logging.get_logger(__name__)
 
@@ -17,6 +18,10 @@ class PathHandler:
 
     def __init__(self, cfg):
         self.main_output_dir, self.is_resuming_run = self.setup_main_output_dir(cfg)
+        self.exp_uid = "{}_{}".format(
+            cfg.METHOD.METHOD_NAME,
+            cfg.RUN_UID,
+        )
 
         # Full paths (user agnostic)
         self.meta_checkpoint_path = osp.join(self.main_output_dir, 'meta_checkpoint.pt')
@@ -25,6 +30,8 @@ class PathHandler:
         # Subdirnames
         self.results_dirname = 'user_logs'  # CSV/stdout
         self.tb_dirname = 'tb'
+        self.wandb_dirname = 'wandb'
+        self.wandb_project_name = "ContinualUserAdaptation"
         self.csv_dirname = self.results_dirname
         self.stdout_dirname = self.results_dirname
         self.checkpoint_dirname = 'checkpoints'
@@ -82,6 +89,12 @@ class PathHandler:
 
     def get_user_results_dir(self, user_id=None):
         p = osp.join(self.main_output_dir, self.results_dirname)
+        if user_id is not None:
+            p = osp.join(p, self.get_experiment_version(user_id))
+        return p
+
+    def get_user_wandb_dir(self, user_id=None):
+        p = osp.join(self.main_output_dir, self.wandb_dirname)
         if user_id is not None:
             p = osp.join(p, self.get_experiment_version(user_id))
         return p

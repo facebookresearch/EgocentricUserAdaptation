@@ -15,7 +15,7 @@ from continual_ego4d.utils.custom_logger_connector import CustomLoggerConnector
 from pytorch_lightning.loggers import WandbLogger
 import traceback
 
-from ego4d.config.defaults import set_cfg_by_name, get_cfg_by_name, convert_cfg_to_dict
+from ego4d.config.defaults import set_cfg_by_name, convert_cfg_to_dict
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
 from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
@@ -204,7 +204,7 @@ def overwrite_config_continual_learning(cfg):
     overwrite_dict = {
         "SOLVER.ACCELERATOR": "gpu",
         "NUM_SHARDS": 1,  # no DDP supported
-        # "SOLVER.MAX_EPOCH": 1, # Allow multiple for IID
+        "SOLVER.MAX_EPOCH": 1,
         "SOLVER.LR_POLICY": "constant",
         "CHECKPOINT_LOAD_MODEL_HEAD": True,  # From pretrain we also load model head
     }
