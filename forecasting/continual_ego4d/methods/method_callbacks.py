@@ -35,24 +35,23 @@ class Method:
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
 
         preds: list = self.lightning_module.forward(inputs)
-        loss1 = self.loss_fun_train(preds[0], labels[:, 0])  # Verbs
-        loss2 = self.loss_fun_train(preds[1], labels[:, 1])  # Nouns
-        loss = loss1 + loss2  # Avg losses
+        loss_action, loss_verb, loss_noun = self.get_losses_from_preds(preds, labels, self.loss_fun_train)
 
         log_results = {
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='loss'): loss.item(),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb', base_metric_name='loss'): loss1.item(),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun', base_metric_name='loss'): loss2.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='loss'):
+                loss_action.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb', base_metric_name='loss'):
+                loss_verb.item(),
+            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun', base_metric_name='loss'):
+                loss_noun.item(),
         }
-        return loss, preds, log_results
+        return loss_action, preds, log_results
 
     def prediction_step(self, inputs, labels, stream_sample_idxs: list, *args, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Default: Get all info we also get during training."""
         preds: list = self.lightning_module.forward(inputs)
-        loss_verb = self.loss_fun_pred(preds[0], labels[:, 0])  # Verbs
-        loss_noun = self.loss_fun_pred(preds[1], labels[:, 1])  # Nouns
-        loss_action = loss_verb + loss_noun  # Avg losses
+        loss_action, loss_verb, loss_noun = self.get_losses_from_preds(preds, labels, self.loss_fun_pred)
 
         sample_to_results = {}
         for batch_idx, stream_sample_idx in enumerate(stream_sample_idxs):
@@ -66,6 +65,13 @@ class Method:
             }
 
         return loss_action, preds, sample_to_results
+
+    @staticmethod
+    def get_losses_from_preds(preds, labels, loss_fun):
+        loss_verb = loss_fun(preds[0], labels[:, 0])  # Verbs
+        loss_noun = loss_fun(preds[1], labels[:, 1])  # Nouns
+        loss_action = loss_verb + loss_noun  # Avg losses
+        return loss_action, loss_verb, loss_noun
 
 
 @METHOD_REGISTRY.register()
