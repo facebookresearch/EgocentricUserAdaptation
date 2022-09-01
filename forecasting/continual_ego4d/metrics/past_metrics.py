@@ -25,7 +25,7 @@ class ConditionalOnlineForgettingMetric(Metric):
     plot_config = {
         "color": 'royalblue',
         "dpi": 600,
-        "figsize": (8, 8),
+        "figsize": (6, 6),
     }
 
     def __init__(self, base_metric_mode: str, action_mode: str, main_metric_name: str,
@@ -281,7 +281,7 @@ class ConditionalOnlineForgettingMetric(Metric):
 
     @torch.no_grad()
     def plot(self) -> Dict:
-        if not self.do_plot:  # Don't log if state is not kept
+        if not self.do_plot or len(self.action_results_over_time["delta"]) == 0:  # Don't log if state is not kept
             return {}
 
         # Get deltas on x-axis
@@ -296,6 +296,7 @@ class ConditionalOnlineForgettingMetric(Metric):
         deltas_y_per_action = self.action_results_over_time["delta"]
 
         # Plot task-agnostic
+        logger.debug(f"Plotting scatter: x={deltas_x_per_action}, y={deltas_y_per_action}")
         figure = plt.figure(figsize=self.plot_config['figsize'],
                             dpi=self.plot_config['dpi'])  # So all bars are visible!
         for action, deltas_x in deltas_x_per_action.items():
