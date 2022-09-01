@@ -12,8 +12,10 @@ from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, De
 from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 from continual_ego4d.utils.custom_logger_connector import CustomLoggerConnector
+from pytorch_lightning.loggers import WandbLogger
+import traceback
 
-from ego4d.config.defaults import set_cfg_by_name, get_cfg_by_name
+from ego4d.config.defaults import set_cfg_by_name, get_cfg_by_name, convert_cfg_to_dict
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
 from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
@@ -270,7 +272,16 @@ def online_adaptation_single_user(
         version=path_handler.get_experiment_version(user_id),
         flush_logs_every_n_steps=1
     )
-    trainer_loggers = [tb_logger, csv_logger]
+    wandb_logger = WandbLogger(
+        project=path_handler.wandb_project_name,
+        save_dir=path_handler.get_user_wandb_dir(user_id),  # Make user-specific dir
+        name=path_handler.exp_uid,  # Display name for run
+        group=path_handler.exp_uid,
+        tags=cfg.WANDB.TAGS.split(',') if cfg.WANDB.TAGS is not None else None,
+        config=convert_cfg_to_dict(cfg)  # Load full config to wandb setting
+    )
+
+    trainer_loggers = [tb_logger, csv_logger, wandb_logger]
 
     # Callbacks
     # Save model on end of stream for possibly ad-hoc usage of the model
@@ -353,6 +364,7 @@ def online_adaptation_single_user(
 
     # Cleanup process GPU-MEM allocation (Only process context will remain allocated)
     torch.cuda.empty_cache()
+    wandb_logger.finish()
 
     return interrupted, device_ids, user_id  # For multiprocessing indicate which resources are free now
 
