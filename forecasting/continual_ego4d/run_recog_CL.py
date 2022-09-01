@@ -21,7 +21,6 @@ from ego4d.utils.parser import load_config, parse_args
 from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
 
 from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
-from continual_ego4d.tasks.iid_action_recog_task import IIDMultiTaskClassificationTask
 from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 
 from scripts.slurm import copy_and_run_with_config
@@ -303,17 +302,13 @@ def online_adaptation_single_user(
     if cfg.DATA.TASK == "continual_classification":
         task = ContinualMultiTaskClassificationTask(cfg)
 
-    elif cfg.DATA.TASK == "iid_classification":
-        task = IIDMultiTaskClassificationTask(cfg)
-
     else:
         raise ValueError(f"cfg.DATA.TASK={cfg.DATA.TASK} not supported")
     logger.info(f"Initialized task as {task}")
 
     # LOAD PRETRAINED
     ckpt_task_types = [MultiTaskClassificationTask,
-                       ContinualMultiTaskClassificationTask,
-                       IIDMultiTaskClassificationTask]
+                       ContinualMultiTaskClassificationTask]
     load_pretrain_model(cfg, cfg.CHECKPOINT_FILE_PATH, task, ckpt_task_types)
 
     # There are no validation/testing phases!
@@ -354,13 +349,6 @@ def online_adaptation_single_user(
 
         interrupted = trainer.interrupted
         logger.info(f"Trainer interrupted signal = {interrupted}")
-
-    if not interrupted and cfg.TEST.ENABLE:
-        logger.info("Starting Trainer testing")  # Logs test-metrics using the same loggers
-        trainer.test(task)
-
-        interrupted = trainer.interrupted
-        logger.info(f"Trainer interrupted signal during testing = {interrupted}")
 
     # Cleanup process GPU-MEM allocation (Only process context will remain allocated)
     torch.cuda.empty_cache()
