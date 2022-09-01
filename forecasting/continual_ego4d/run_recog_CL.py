@@ -158,8 +158,8 @@ def process_users_parallel(
 
             except Exception as e:
                 traceback.print_exc()
-                print(f'Future {future} generated an exception: {e}')
-                interrupted = True
+                logger.info(f'Future {future} terminated and generated an exception: {e}')
+                continue
 
             if interrupted:
                 logger.exception(f"Process for USER {user_id} failed because of Trainer being Interrupted."
