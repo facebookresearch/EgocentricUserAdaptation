@@ -150,11 +150,19 @@ def process_users_parallel(
         submit_userprocesses_on_free_devices(scheduler_cfg.available_device_ids)
 
         for future in concurrent.futures.as_completed(futures):  # Firs completed in async process pool
-            interrupted, device_ids, user_id = future.result()
-            logger.info(f"Finished processing user {user_id}")
+
+            try:
+                interrupted, device_ids, user_id = future.result()
+                logger.info(f"Finished processing user {user_id}")
+
+            except Exception as e:
+                traceback.print_exc()
+                print(f'Future {future} generated an exception: {e}')
+                interrupted = True
 
             if interrupted:
-                logger.exception(f"Process for USER {user_id} failed because of Trainer being Interrupted")
+                logger.exception(f"Process for USER {user_id} failed because of Trainer being Interrupted."
+                                 f"Not releasing GPU as might give Out-of-Memory exception.")
                 continue
 
             # Start new user-processes on free devices
