@@ -87,14 +87,14 @@ class StreamStateTracker:
         """ A dict containing a mapping of the stream sample index to the loss on the initial pretrain model.
         The dictionary is filled in the preprocessing predict phase before training."""
 
-        self.sample_idx_to_action_list = [None] * self.total_stream_sample_count
-        """ A list containing all actions in the full stream, the array index corresponds to the stream sample idx. """
-
         # Count-sets: Current stream
         self.user_verb_freq_dict = stream_loader.dataset.verb_freq_dict
         self.user_noun_freq_dict = stream_loader.dataset.noun_freq_dict
         self.user_action_freq_dict = stream_loader.dataset.action_freq_dict
         """ Counter dictionaries from the user stream for actions/verbs/nouns. """
+
+        self.sample_idx_to_action_list = stream_loader.dataset.sample_idx_to_action_list
+        """ A list containing all actions in the full stream, the array index corresponds to the stream sample idx. """
 
         # Pretraining stats
         # From JSON: {'ACTION_LABEL': {'name': "ACTION_NAME", 'count': "ACTION_COUNT"}}
@@ -162,12 +162,21 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=shuffle_stream)
-        self.predict_loader = construct_predictstream_loader(self.train_loader, self.cfg)
 
         # State tracker of stream
         self.stream_state = StreamStateTracker(
             self.train_loader, pretrain_action_sets=cfg.COMPUTED_PRETRAIN_ACTION_SETS
         )
+
+        # Pretrain loader: Only samples that both verb and noun have been seen in pretrain
+        self.predict_phase_load_idxs = []
+        for stream_sample_idx, action in enumerate(self.stream_state.sample_idx_to_action_list):
+            verb, noun = action
+            if verb in self.stream_state.pretrain_verb_set and noun in self.stream_state.pretrain_noun_set:
+                self.predict_phase_load_idxs.append(stream_sample_idx)
+
+        self.predict_loader = construct_predictstream_loader(
+            self.train_loader, self.cfg, subset_idxes=self.predict_phase_load_idxs)
 
         # Predict phase:
         # If we first run predict phase, we can fill this dict with the results, this can then be used in trainphase
@@ -733,12 +742,49 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         for k, v in sample_to_results.items():
             self.stream_state.sample_idx_to_pretrain_loss[k] = v
 
-        # Actions in stream
-        for stream_sample_idx, label in zip(stream_sample_idxs.tolist(), labels.tolist()):
-            self.stream_state.sample_idx_to_action_list[stream_sample_idx] = tuple(label)
-
+    @torch.no_grad()
     def on_predict_end(self) -> None:
+        """ Get uniform (max entropy) classifier predictions over seen verbs/nouns in pretraining.
+        As these prototypes are unseen during pretrain, we need a proxy to calculate the delta in Adaptation Gain.
+        The proxy baseline performance we choose is this from classifier always predicting a uniform distribution,
+        or a maximum entropy classifier.
+        We only consider the pretraining prototypes of the pretraining phase for the uniform predictor.
+        As later adaptation with incremental classes is also seen as an improvement over the original pretrain model.
+        """
         logger.info(f"Predict collected over stream: {pprint.pformat(self.stream_state.sample_idx_to_pretrain_loss)}")
+
+        nb_verbs_total, nb_nouns_total = self.cfg.MODEL.NUM_CLASSES  # [ 115, 478 ]
+
+        # retrieve how many seen during pretrain
+        nb_verbs_seen_pretrain = len(self.stream_state.pretrain_verb_set)
+        nb_nouns_seen_pretrain = len(self.stream_state.pretrain_noun_set)
+        logger.info(f"Pretraining seen verbs = {nb_verbs_seen_pretrain}/{nb_verbs_total}, "
+                    f"nouns= {nb_nouns_seen_pretrain}/{nb_nouns_total}")
+
+        # Random label in unifom prediction distribution
+        gt = torch.tensor([0])  # Random label
+        verb_uniform_preds = torch.zeros(1, nb_verbs_seen_pretrain).fill_(1 / nb_verbs_seen_pretrain)
+        noun_uniform_preds = torch.zeros(1, nb_nouns_seen_pretrain).fill_(1 / nb_nouns_seen_pretrain)
+
+        loss_verb_uniform = self.method.loss_fun_train(verb_uniform_preds, gt).item()
+        loss_noun_uniform = self.method.loss_fun_train(noun_uniform_preds, gt).item()
+        loss_action_uniform = loss_verb_uniform + loss_noun_uniform
+
+        # Iterate over samples that have not been seen before
+        unseen_in_pretrain_idxs = [idx for idx in range(self.stream_state.total_stream_sample_count)
+                                   if idx not in self.predict_phase_load_idxs]
+        for unseen_in_pretrain_idx in unseen_in_pretrain_idxs:
+            self.stream_state.sample_idx_to_pretrain_loss[unseen_in_pretrain_idx] = {
+                get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='action', base_metric_name='loss'):
+                    loss_action_uniform,
+                get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='verb', base_metric_name='loss'):
+                    loss_verb_uniform,
+                get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='noun', base_metric_name='loss'):
+                    loss_noun_uniform,
+            }
+
+        logger.info(
+            f"ALL Predict including uniform classifier loss: {pprint.pformat(self.stream_state.sample_idx_to_pretrain_loss)}")
 
     # ---------------------
     # TRAINING SETUP
