@@ -115,12 +115,24 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
         # Get all unique verbs,nouns,actions and their counts
         # This should be PER INPUT-CLIP, as PER-ANNOTATION can have various time ranges
+        self.sample_idx_to_action_list = [None] * len(self.seq_input_list)  # Map sample idx to action
         self.verb_freq_dict, self.noun_freq_dict, self.action_freq_dict = \
             defaultdict(int), defaultdict(int), defaultdict(int)
-        for entry in self.seq_input_list:
-            self.verb_freq_dict[verbnoun_format(entry[1]['verb_label'])] += 1
-            self.noun_freq_dict[verbnoun_format(entry[1]['noun_label'])] += 1
-            self.action_freq_dict[verbnoun_to_action(entry[1]['verb_label'], entry[1]['noun_label'])] += 1
+
+        for sample_idx, entry in enumerate(self.seq_input_list):
+            label = entry[1]
+            action = verbnoun_to_action(label['verb_label'], label['noun_label'])
+            verb = verbnoun_format(label['verb_label'])
+            noun = verbnoun_format(label['noun_label'])
+
+            self.verb_freq_dict[verb] += 1
+            self.noun_freq_dict[noun] += 1
+            self.action_freq_dict[action] += 1
+
+            self.sample_idx_to_action_list[sample_idx] = action
+
+        # Checks
+        assert None not in self.sample_idx_to_action_list, "Failed to fill in all actions for sample idxs"
 
         # Summarize
         logger.info(

@@ -45,19 +45,20 @@ def construct_trainstream_loader(cfg, shuffle=False):
     return loader
 
 
-def construct_predictstream_loader(trainloader, cfg):
+def construct_predictstream_loader(trainloader, cfg, subset_idxes):
     """
     Constructs data loader similar to trainloader, but using max batch_size.
+    Samples that are NOT in one of the pretrain verb/noun sets are excluded.
     """
     total_mem_batch_size = cfg.TRAIN.BATCH_SIZE + cfg.CONTINUAL_EVAL.BATCH_SIZE
     if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
         batch_size = int(total_mem_batch_size / cfg.NUM_GPUS)
     else:
         batch_size = total_mem_batch_size
-    logger.info(f"Prediction dataloader has batch_size: {batch_size}")
+    logger.info(f"Prediction dataloader has batch_size: {batch_size}, and subset idxes: {subset_idxes}")
 
     loader = torch.utils.data.DataLoader(
-        trainloader.dataset,
+        torch.utils.data.Subset(trainloader.dataset, indices=subset_idxes),
         batch_size=batch_size,
         shuffle=False,
         sampler=None,
