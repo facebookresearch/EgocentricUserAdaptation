@@ -741,11 +741,19 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # registered. We can now setup the distributed process groups for each machine
         # and create the distributed data loaders.
         """ Load output masker at training start, to make checkpoint loading independent of the module. """
-        self.model.head = torch.nn.Sequential(
-            self.model.head,
-            UnseenVerbNounMaskerHead(self.stream_state)
-        )
-        logger.info(f"Wrapped incremental head for model: {self.model.head}")
+        if not self.head_masking_head_is_configured():
+            self.model.head = torch.nn.Sequential(
+                self.model.head,
+                UnseenVerbNounMaskerHead(self.stream_state)
+            )
+            logger.info(f"Wrapped incremental head for model: {self.model.head}")
+
+    def head_masking_head_is_configured(self):
+        """Is the masking already configured. """
+        for m in self.model.head.children():
+            if isinstance(m, UnseenVerbNounMaskerHead):
+                return True
+        return False
 
     def configure_optimizers(self):
         steps_in_epoch = len(self.train_loader)
