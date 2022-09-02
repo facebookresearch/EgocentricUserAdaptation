@@ -157,6 +157,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.continual_eval_freq = cfg.CONTINUAL_EVAL.FREQ
         self.plotting_log_freq = cfg.CONTINUAL_EVAL.PLOTTING_FREQ
 
+        # Sanity modes/debugging
+        self.enable_prepost_comparing = True  # Compare loss before/after update
+
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=shuffle_stream)
         self.predict_loader = construct_predictstream_loader(self.train_loader, self.cfg)
@@ -338,14 +341,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Set state
         self._set_current_batch_states(batch, batch_idx=dataloader_idx)
 
-        # Log current batch state
-        self._log_current_batch_states(batch_idx=dataloader_idx)
-
         # Update batch
         altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
         return altered_batch
 
     def _set_current_batch_states(self, batch: Any, batch_idx: int):
+        self.stream_state.batch_idx = batch_idx
+
+        # Eval or plot at this iteration
         self.stream_state.plot_this_step = batch_idx % self.plotting_log_freq == 0 or batch_idx == len(
             self.train_loader)
         self.stream_state.eval_this_step = self.trainer.logger_connector.should_update_logs
@@ -386,7 +389,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def training_step(self, batch, batch_idx):
         """ Before update: Forward and define loss. """
-        self.stream_state.batch_idx = batch_idx
+        # Log current batch state (only possible starting from training_step)
+        self._log_current_batch_states(batch_idx=batch_idx)
 
         # PREDICTIONS + LOSS
         metric_results = {}
@@ -395,8 +399,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Do method callback (Get losses etc)
         # This is the loss used for updates and the outputs of the entire batch.
         # Note that for metrics: e.g. replay we don't want to use all outputs, but only the new ones from the stream
+        fwd_inputs = inputs
+        if self.enable_prepost_comparing:  # Make copy as inputs are adapted in-place in SlowFast
+            fwd_inputs = [inputs[i].clone() for i in range(len(inputs))]
+
         loss, verbnoun_outputs, step_results = self.method.training_step(
-            inputs, labels, current_batch_stream_idxs=self.stream_state.stream_batch_idxs
+            fwd_inputs, labels, current_batch_stream_idxs=self.stream_state.stream_batch_idxs
         )
         self.add_to_dict_(metric_results, step_results)
 
@@ -557,10 +565,13 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         Measure difference of pre-update results of current batch (e.g. forward second time)
         Again we only measure on stream data, not potential replay data.
         """
-        full_inputs, full_labels, _, _ = current_batch
+        full_slowfast_inputs, full_labels, _, _ = current_batch
+        assert isinstance(full_slowfast_inputs, list) and len(full_slowfast_inputs) == 2, \
+            "Only implemented for slowfast model"
 
         # Make sure no replay data is considered
-        stream_inputs = full_inputs[:self.stream_state.stream_batch_size]
+        stream_inputs = [full_slowfast_inputs[i][:self.stream_state.stream_batch_size]
+                         for i in range(len(full_slowfast_inputs))]
         stream_labels = full_labels[:self.stream_state.stream_batch_size]
 
         post_update_preds = self.forward(stream_inputs)
@@ -569,23 +580,23 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         )
 
         # Deltas
-        pre_loss_action = self.all_metrics[
+        pre_loss_action = self.batch_metric_results[
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='loss')
         ]
-        pre_loss_verb = self.all_metrics[
+        pre_loss_verb = self.batch_metric_results[
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb', base_metric_name='loss')
         ]
-        pre_loss_noun = self.all_metrics[
+        pre_loss_noun = self.batch_metric_results[
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun', base_metric_name='loss')
         ]
 
         results = {
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='post-pre_loss'):
-                post_loss_action - pre_loss_action,
+                float(post_loss_action - pre_loss_action),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb', base_metric_name='post-pre_loss'):
-                post_loss_verb - pre_loss_verb,
+                float(post_loss_verb - pre_loss_verb),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun', base_metric_name='post-pre_loss'):
-                post_loss_noun - pre_loss_noun,
+                float(post_loss_noun - pre_loss_noun),
         }
 
         self.add_to_dict_(step_result, results)

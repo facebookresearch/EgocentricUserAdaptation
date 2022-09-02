@@ -352,7 +352,7 @@ def online_adaptation_single_user(
 
     # Cleanup process GPU-MEM allocation (Only process context will remain allocated)
     torch.cuda.empty_cache()
-    wandb_logger.finish()
+    wandb_logger.experiment.finish()
 
     return interrupted, device_ids, user_id  # For multiprocessing indicate which resources are free now
 
