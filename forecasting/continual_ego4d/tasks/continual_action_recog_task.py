@@ -381,7 +381,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 self.stream_state.total_stream_sample_count - len(self.stream_state.seen_samples_idxs),
         }
 
-        self.log_step_metrics(metric_results)
+        self.log_step_metric_results(metric_results)
         logger.debug(f"Logging state of batch_idx={batch_idx}/{len(self.train_loader)}: "
                      f"{pprint.pformat(metric_results)}")
 
@@ -417,28 +417,18 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             self.eval_future_data_(metric_results, batch_idx)
 
         # LOG results
-        self.log_step_metrics(metric_results)
+        self.log_step_metric_results(metric_results)
         logger.debug(f"PRE-UPDATE Results for batch_idx={batch_idx}/{len(self.train_loader)}: "
                      f"{pprint.pformat(metric_results)}")
 
         # Only loss should be used and stored for entire epoch (stream)
         return loss
 
-    def on_after_backward(self):
-        # Log gradients possibly
-        if (self.cfg.LOG_GRADIENT_PERIOD >= 0 and
-                self.trainer.global_step % self.cfg.LOG_GRADIENT_PERIOD == 0):
-            for name, weight in self.model.named_parameters():
-                if weight is not None:
-                    self.logger.experiment.add_histogram(
-                        name, weight, self.trainer.global_step
-                    )
-                    if weight.grad is not None:
-                        self.logger.experiment.add_histogram(
-                            f"{name}.grad", weight.grad, self.trainer.global_step
-                        )
-
     def on_train_batch_end(self, outputs, batch: Any, batch_idx: int, unused: Optional[int] = 0) -> None:
+        """
+        Past samples should always be evaluated AFTER update step. The model is otherwise just
+        updated on the latest batch in history it was just updated on (=pre-update model of the current batch).
+        """
         metric_results = {}
         inputs, labels, video_names, _ = batch
 
@@ -462,7 +452,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             self._log_plotting_metrics()
 
         # LOG results
-        self.log_step_metrics(metric_results)
+        self.log_step_metric_results(metric_results)
         logger.debug(f"POST-UPDATE Results for batch_idx={batch_idx}/{len(self.train_loader)}: "
                      f"{pprint.pformat(metric_results)}")
 
@@ -528,7 +518,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # ---------------------
     # PER-STEP EVALUATION
     # ---------------------
-    def log_step_metrics(self, log_dict):
+    def log_step_metric_results(self, log_dict):
         self.add_to_dict_(self.batch_metric_results, log_dict)  # Update state of all metrics in all phases
         for logname, logval in log_dict.items():
             self.log(logname, float(logval), on_step=True, on_epoch=False)
