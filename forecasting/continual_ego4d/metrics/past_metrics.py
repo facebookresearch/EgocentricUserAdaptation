@@ -6,15 +6,13 @@ from continual_ego4d.utils.meters import AverageMeter
 from ego4d.evaluation import lta_metrics as metrics
 from collections import defaultdict
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
-from continual_ego4d.metrics.metric import Metric, ACTION_MODES, get_metric_tag
+from continual_ego4d.metrics.metric import Metric, ACTION_MODES, get_metric_tag, TAG_PAST
 
 import matplotlib.pyplot as plt
 
 from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)
-
-TAG_PAST = 'past'
 
 
 class ConditionalOnlineForgettingMetric(Metric):

@@ -2,13 +2,11 @@ import torch
 from typing import Dict, Set, Union, Tuple, List
 from ego4d.evaluation import lta_metrics as metrics
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
-from continual_ego4d.metrics.metric import AvgMeterMetric, get_metric_tag
+from continual_ego4d.metrics.metric import AvgMeterMetric, get_metric_tag, TAG_FUTURE
 
 from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)
-
-TAG_FUTURE = 'future'
 
 
 class ConditionalOnlineMetric(AvgMeterMetric):

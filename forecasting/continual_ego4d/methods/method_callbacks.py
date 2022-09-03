@@ -6,12 +6,12 @@ from pytorch_lightning.core import LightningModule
 import torch
 from collections import defaultdict
 from continual_ego4d.metrics.metric import get_metric_tag
-from continual_ego4d.metrics.batch_metrics import TAG_BATCH
+from continual_ego4d.metrics.count_metrics import TAG_BATCH
 from collections import OrderedDict
 import random
 import itertools
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
-
+from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
 from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)
@@ -35,7 +35,7 @@ class Method:
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
 
         preds: list = self.lightning_module.forward(inputs)
-        loss_action, loss_verb, loss_noun = self.get_losses_from_preds(preds, labels, self.loss_fun_train)
+        loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(preds, labels, self.loss_fun_train)
 
         log_results = {
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='loss'):
@@ -51,7 +51,7 @@ class Method:
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Default: Get all info we also get during training."""
         preds: list = self.lightning_module.forward(inputs)
-        loss_action, loss_verb, loss_noun = self.get_losses_from_preds(preds, labels, self.loss_fun_pred)
+        loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(preds, labels, self.loss_fun_pred)
 
         sample_to_results = {}
         for batch_idx, stream_sample_idx in enumerate(stream_sample_idxs):
@@ -65,13 +65,6 @@ class Method:
             }
 
         return loss_action, preds, sample_to_results
-
-    @staticmethod
-    def get_losses_from_preds(preds, labels, loss_fun):
-        loss_verb = loss_fun(preds[0], labels[:, 0])  # Verbs
-        loss_noun = loss_fun(preds[1], labels[:, 1])  # Nouns
-        loss_action = loss_verb + loss_noun  # Avg losses
-        return loss_action, loss_verb, loss_noun
 
 
 @METHOD_REGISTRY.register()

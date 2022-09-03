@@ -1,17 +1,15 @@
 import logging
 import torch
 from typing import Dict, Set, Union, Tuple
-from continual_ego4d.metrics.metric import AvgMeterMetric, get_metric_tag
-from continual_ego4d.metrics.batch_metrics import TAG_BATCH
-
-TAG_ADAPT = 'adapt'
+from continual_ego4d.metrics.metric import AvgMeterMetric, get_metric_tag, TAG_ADAPT
+from continual_ego4d.metrics.count_metrics import TAG_BATCH
 
 
 class OnlineAdaptationGainMetric(AvgMeterMetric):
     """ Compare with pretrained model for verb, noun, or combined action loss what the delta is. """
     reset_before_batch = True
 
-    def __init__(self, unreduced_loss_fun, sample_idx_to_pretrain_loss: dict, loss_mode="action",
+    def __init__(self, metric_tag: str, unreduced_loss_fun, sample_idx_to_pretrain_loss: dict, loss_mode="action",
                  main_metric_name="AG_online"):
         """
         :param unreduced_loss_fun:
@@ -20,7 +18,7 @@ class OnlineAdaptationGainMetric(AvgMeterMetric):
         :param main_metric_name:
         """
         super().__init__(loss_mode)
-        self.name = get_metric_tag(TAG_ADAPT, action_mode=self.mode, base_metric_name=main_metric_name)
+        self.name = get_metric_tag(metric_tag, action_mode=self.mode, base_metric_name=main_metric_name)
         self.unreduced_loss_fun = unreduced_loss_fun
         self.sample_idx_to_pretrain_loss = sample_idx_to_pretrain_loss
 
@@ -69,5 +67,5 @@ class CumulativeOnlineAdaptationGainMetric(OnlineAdaptationGainMetric):
 
     @torch.no_grad()
     def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
-        """Get the metric(s) with name in dict format."""
+        """Get the metric(s) with name in dict format. Return sum as this is a cumulative metric."""
         return {self.name: self.avg_meter.sum}

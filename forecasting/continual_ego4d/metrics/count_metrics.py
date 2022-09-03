@@ -1,51 +1,8 @@
 import torch
 from typing import Dict, Set, Union, Tuple
-from continual_ego4d.utils.meters import AverageMeter
-from continual_ego4d.metrics.metric import AvgMeterMetric, Metric, get_metric_tag
-from ego4d.evaluation import lta_metrics as metrics
+from continual_ego4d.metrics.metric import AvgMeterMetric, Metric, get_metric_tag, TAG_BATCH
 from collections import Counter
 import numpy as np
-
-TAG_BATCH = 'batch'
-
-
-class OnlineTopkAccMetric(AvgMeterMetric):
-    reset_before_batch = True
-
-    def __init__(self, k: int = 1, mode="action"):
-        super().__init__(mode=mode)
-        self.k = k
-        self.name = get_metric_tag(main_parent_tag=TAG_BATCH, action_mode=mode, base_metric_name=f"top{self.k}_acc")
-        self.avg_meter = AverageMeter()
-
-        # Checks
-        if self.mode == 'action':
-            assert self.k == 1, f"Action mode only supports top1, not top-{self.k}"
-
-    @torch.no_grad()
-    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
-        """Update metric from predictions and labels."""
-        assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
-        batch_size = labels.shape[0]
-
-        # Verb/noun errors
-        if self.mode in ['verb', 'noun']:
-            topk_acc: torch.FloatTensor = metrics.distributed_topk_errors(
-                preds[self.label_idx], labels[:, self.label_idx], [self.k], return_mode='acc'
-            )[0]  # Unpack self.k
-        elif self.mode in ['action']:
-            topk_acc: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
-                preds[0], preds[1], labels[:, 0], labels[:, 1], return_mode='acc')
-
-        self.avg_meter.update(topk_acc.item(), weight=batch_size)
-
-
-class RunningAvgOnlineTopkAccMetric(OnlineTopkAccMetric):
-    reset_before_batch = False
-
-    def __init__(self, k: int = 1, mode="action"):
-        super().__init__(k, mode)
-        self.name = f"{self.name}_running_avg"
 
 
 class CountMetric(Metric):

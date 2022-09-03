@@ -24,8 +24,11 @@ from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
 from continual_ego4d.metrics.metric import get_metric_tag
-from continual_ego4d.metrics.batch_metrics import Metric, OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
+from continual_ego4d.metrics.count_metrics import Metric, \
     CountMetric, TAG_BATCH, WindowedUniqueCountMetric
+from continual_ego4d.metrics.metric import TAG_BATCH, TAG_PAST
+from continual_ego4d.metrics.standard_metrics import OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
+    OnlineLossMetric, RunningAvgOnlineLossMetric
 from continual_ego4d.metrics.adapt_metrics import OnlineAdaptationGainMetric, RunningAvgOnlineAdaptationGainMetric, \
     CumulativeOnlineAdaptationGainMetric
 from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric, \
@@ -115,7 +118,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     For all lightning hooks, see: https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html#hooks
     """
 
-    def __init__(self, cfg, future_metrics=None, past_metrics=None, shuffle_stream=False):
+    def __init__(self, cfg):
         """
 
         !Warning: In __init__ the self.device='cpu' always! After init it is set to the right device, see:
@@ -161,7 +164,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.enable_prepost_comparing = True  # Compare loss before/after update
 
         # Dataloader
-        self.train_loader = construct_trainstream_loader(self.cfg, shuffle=shuffle_stream)
+        self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
 
         # State tracker of stream
         self.stream_state = StreamStateTracker(
@@ -203,30 +206,54 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Metrics
         self.batch_metric_results = {}  # Stateful share metrics between different phases so can be reused
 
-        # CURRENT BATCH METRICS
-        verbnoun_metrics = []
-        for k, m in product([1, 5], ['verb', 'noun']):
-            verbnoun_metrics.extend([
-                OnlineTopkAccMetric(k=k, mode=m), RunningAvgOnlineTopkAccMetric(k=k, mode=m)
-            ])
+        self.current_batch_metrics = self._get_current_batch_metrics()
+        self.future_metrics = []  # Empty metric-list skips future eval
+        self.past_metrics = self._get_past_metrics()
+        self.all_metrics = [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]
 
-        action_metrics = [
-            OnlineTopkAccMetric(k=1, mode='action'),
-            RunningAvgOnlineTopkAccMetric(k=1, mode='action')
-        ]
+        logger.debug(f'Initialized {self.__class__.__name__}')
 
-        adapt_metrics = []
-        for loss_mode in ['action', 'verb', 'noun']:
-            adapt_metrics.extend([
+    # ---------------------
+    # METRICS
+    # ---------------------
+    def _get_current_batch_metrics(self):
+        batch_metrics = []
+
+        for mode in ['verb', 'noun', 'action']:
+            batch_metrics.extend([
+
+                # LOSS/ACC
+                OnlineTopkAccMetric(TAG_BATCH, k=1, mode=mode),
+                RunningAvgOnlineTopkAccMetric(TAG_BATCH, k=1, mode=mode),
+                # OnlineLossMetric -> Standard included for training
+                RunningAvgOnlineLossMetric(TAG_BATCH, loss_fun=self.loss_fun, mode=mode),
+
+                # ADAPT METRICS
                 OnlineAdaptationGainMetric(
-                    self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=loss_mode),
+                    TAG_BATCH, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
                 RunningAvgOnlineAdaptationGainMetric(
-                    self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=loss_mode),
+                    TAG_BATCH, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
                 CumulativeOnlineAdaptationGainMetric(
-                    self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=loss_mode),
+                    TAG_BATCH, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
             ])
 
-        count_metrics = []
+            # TOP5-ACC
+            if mode in ['verb', 'noun']:
+                batch_metrics.extend([
+                    OnlineTopkAccMetric(TAG_BATCH, k=5, mode=mode),
+                    RunningAvgOnlineTopkAccMetric(TAG_BATCH, k=5, mode=mode)
+                ])
+
+            # Window-counts
+            for window_size in [10, 100]:
+                batch_metrics.append(
+                    WindowedUniqueCountMetric(
+                        preceding_window_size=window_size,
+                        sample_idx_to_action_list=self.stream_state.sample_idx_to_action_list,
+                        action_mode=mode)
+                )
+
+        # ADD INTERSECTION COUNT METRICS
         for mode, seen_set, user_ref_set, pretrain_ref_set in [
             ('action', self.stream_state.stream_seen_action_set, self.stream_state.user_action_freq_dict,
              self.stream_state.pretrain_action_set),
@@ -235,7 +262,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             ('noun', self.stream_state.stream_seen_noun_set, self.stream_state.user_noun_freq_dict,
              self.stream_state.pretrain_noun_set),
         ]:
-            count_metrics.extend([  # Seen actions (history part of stream) vs full user stream actions
+            batch_metrics.extend([  # Seen actions (history part of stream) vs full user stream actions
                 CountMetric(observed_set_name="seen", observed_set=seen_set,
                             ref_set_name="stream", ref_set=user_ref_set,
                             mode=mode
@@ -247,70 +274,32 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                             ),
             ])
 
-        for window_size, mode in product([10, 100], ['action', 'verb', 'noun']):
-            count_metrics.append(
-                WindowedUniqueCountMetric(
-                    preceding_window_size=window_size,
-                    sample_idx_to_action_list=self.stream_state.sample_idx_to_action_list,
-                    action_mode=mode)
-            )
+        return batch_metrics
 
-        self.current_batch_metrics = [*verbnoun_metrics, *action_metrics, *adapt_metrics, *count_metrics]
+    def _get_past_metrics(self):
+        past_metrics = []
 
-        # FUTURE METRICS
-        self.future_metrics = []  # Empty metric-list skips future eval
+        # PAST ADAPTATION METRICS
+        for action_mode in ['action', 'verb', 'noun']:
+            past_metrics.extend([
+                # ADAPTATION METRICS
+                OnlineAdaptationGainMetric(
+                    TAG_PAST, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=action_mode),
+                RunningAvgOnlineAdaptationGainMetric(
+                    TAG_PAST, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=action_mode),
+                CumulativeOnlineAdaptationGainMetric(
+                    TAG_PAST, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=action_mode),
 
-        # PAST METRICS
-        self.past_metrics = past_metrics
-        if self.past_metrics is None:  # None = default
-            # TODO measure directly losses/accs of past data
+                # ACTION METRICS
+                OnlineTopkAccMetric(TAG_PAST, k=1, mode=action_mode),
+                OnlineLossMetric(TAG_PAST, loss_fun=self.loss_fun, mode=action_mode),
 
-            action_metrics = [
-                FullOnlineForgettingAccMetric(
-                    k=1, action_mode='action'),
-                ReexposureForgettingAccMetric(
-                    k=1, action_mode='action', keep_action_results_over_time=True),
-                CollateralForgettingAccMetric(
-                    k=1, action_mode='action'),
-                FullOnlineForgettingLossMetric(
-                    loss_fun=self.loss_fun, action_mode='action'),
-                ReexposureForgettingLossMetric(
-                    loss_fun=self.loss_fun, action_mode='action', keep_action_results_over_time=True),
-                CollateralForgettingLossMetric(
-                    loss_fun=self.loss_fun, action_mode='action'),
-            ]
-            verb_metrics = [
-                FullOnlineForgettingAccMetric(
-                    k=1, action_mode='verb'),
-                ReexposureForgettingAccMetric(
-                    k=1, action_mode='verb'),
-                CollateralForgettingAccMetric(
-                    k=1, action_mode='verb'),
-                FullOnlineForgettingLossMetric(
-                    loss_fun=self.loss_fun, action_mode='verb'),
-                ReexposureForgettingLossMetric(
-                    loss_fun=self.loss_fun, action_mode='verb'),
-                CollateralForgettingLossMetric(
-                    loss_fun=self.loss_fun, action_mode='verb'),
-            ]
-            noun_metrics = [
-                FullOnlineForgettingAccMetric(
-                    k=1, action_mode='noun'),
-                ReexposureForgettingAccMetric(
-                    k=1, action_mode='noun'),
-                CollateralForgettingAccMetric(
-                    k=1, action_mode='noun'),
-                FullOnlineForgettingLossMetric(
-                    loss_fun=self.loss_fun, action_mode='noun'),
-                ReexposureForgettingLossMetric(
-                    loss_fun=self.loss_fun, action_mode='noun'),
-                CollateralForgettingLossMetric(
-                    loss_fun=self.loss_fun, action_mode='noun'),
-            ]
-            self.past_metrics = action_metrics + verb_metrics + noun_metrics
-
-        self.all_metrics = [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]
-        logger.debug(f'Initialized {self.__class__.__name__}')
+                # TODO: Accuracy (unbalanced)
+                # TODO Track on re-exposure for scatterplot
+                # ReexposureForgettingAccMetric(
+                #     k=1, action_mode=action_mode, keep_action_results_over_time=True),
+            ])
+        return past_metrics
 
     # ---------------------
     # DECORATORS
