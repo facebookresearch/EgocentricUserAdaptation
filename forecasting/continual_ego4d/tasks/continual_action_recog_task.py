@@ -195,7 +195,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                                                    stream_idx_to_action_list=self.stream_state.sample_idx_to_action_list,
                                                    seen_action_set=self.stream_state.stream_seen_action_set,
                                                    total_capacity=self.cfg.CONTINUAL_EVAL.FUTURE_SAMPLE_CAPACITY)
-        self.past_stream_sampler = PastSampler(mode='uniform_action_uniform_instance',
+        self.past_stream_sampler = PastSampler(mode='windowed',
                                                seen_action_to_stream_idxs=self.stream_state.seen_action_to_stream_idxs,
                                                total_capacity=self.cfg.CONTINUAL_EVAL.PAST_SAMPLE_CAPACITY)
         """ Samplers to process the future and past part of the stream. """
@@ -832,6 +832,8 @@ class FutureSampler:
         self.seen_action_set = seen_action_set
 
     def __call__(self, all_future_idxs: list, *args, **kwargs) -> list:
+        raise NotImplementedError("Should not be calling before implemented windowed future sample, "
+                                  "FWT is now deprecated so 2-bin balanced sampling is not necessary")
         if self.mode == 'full' or len(all_future_idxs) <= self.total_capacity:
             logger.debug(f"Returning all remaining future samples: {len(all_future_idxs)}")
             return all_future_idxs
@@ -890,7 +892,7 @@ class FutureSampler:
 class PastSampler:
     """How to sample idxs from the history part of the stream."""
 
-    modes = ['full', 'uniform_action_uniform_instance']
+    modes = ['full', 'windowed', 'uniform_action_uniform_instance']
 
     def __init__(self, mode,
                  seen_action_to_stream_idxs: dict[tuple, list],
@@ -899,11 +901,17 @@ class PastSampler:
         self.mode = mode
         self.total_capacity = total_capacity
         self.seen_action_to_stream_idxs = seen_action_to_stream_idxs  # Mapping of all past actions to past stream idxs
+        logger.info(f"PastSampler in mode={self.mode}, capacity={self.total_capacity}")
 
     def __call__(self, all_past_idxs: list, *args, **kwargs) -> list:
         if self.mode == 'full' or len(all_past_idxs) <= self.total_capacity:
             logger.debug(f"Returning all remaining past samples: {len(all_past_idxs)}")
             return all_past_idxs
+
+        elif self.mode == 'windowed':
+            window_idxs = all_past_idxs[-self.total_capacity:]
+            logger.debug(f"Returning {self.total_capacity}-windowed past samples: {len(window_idxs)}: {window_idxs}")
+            return window_idxs
 
         elif self.mode == 'uniform_action_uniform_instance':
             return self.get_uniform_action_uniform_instance(all_past_idxs)
