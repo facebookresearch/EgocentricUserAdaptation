@@ -38,14 +38,19 @@ OVERWRITE_CFG_ARGS+=" NUM_GPUS 8"
 OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN False"
 
 # RESUME
-#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/test_exp_00/logs/2022-07-26_14-33-36_UIDd8a02398-ec4c-4d49-b81b-2d357c63bcf4"
+BACKBONE_WTS_DIR="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-09-05_10-34-05_UIDd05ed672-01c5-4c3c-b790-9d0c76548825"
+OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR ${BACKBONE_WTS_DIR}" # Start from a Lightning checkpoint
+OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS_DIR}/checkpoints/last.ckpt" # Start from a Lightning checkpoint
+OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True"
+#OVERWRITE_CFG_ARGS+=" WANDB.RESUME True"
 
 # Checkpoint loading
 # START FROM KINETICS400 pretrained model
-BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/kinetics_slowfast8x8.ckpt"
-OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model (Direclty state-dict)
-#OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS}" # Start from a Lightning checkpoint
-OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD False"
+#BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/kinetics_slowfast8x8.ckpt"
+#OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model (Direclty state-dict)
+##OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS}" # Start from a Lightning checkpoint
+#OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD False"
+
 OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE False"
 
 # Data paths

@@ -82,6 +82,14 @@ def copy_and_run_with_config(run_fn, run_config, directory, **cluster_config):
 def main(cfg):
     seed_everything(cfg.RNG_SEED)
 
+    is_resuming_run = len(cfg.RESUME_OUTPUT_DIR) > 0
+    if is_resuming_run:
+        cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR
+        print(f"Resuming run, set cfg.OUTPUT_DIR = {cfg.OUTPUT_DIR}")
+
+        assert cfg.CHECKPOINT_FILE_PATH is not None and len(cfg.CHECKPOINT_FILE_PATH) > 0
+        print(f"Resume model is set to: cfg.CHECKPOINT_FILE_PATH={cfg.CHECKPOINT_FILE_PATH}")
+
     logging.setup_logging(cfg.OUTPUT_DIR)
     logger.info("Run with config:")
     logger.info(pprint.pformat(cfg))
@@ -96,6 +104,82 @@ def main(cfg):
 
     task = TaskType(cfg)
 
+    trainer_resume_path = None
+    if is_resuming_run:
+        print(f"Resuming model from cfg.CHECKPOINT_FILE_PATH={cfg.CHECKPOINT_FILE_PATH}")
+        trainer_resume_path = cfg.CHECKPOINT_FILE_PATH
+    else:
+        load_checkpoint(task, TaskType)
+
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=osp.join(cfg.OUTPUT_DIR, 'checkpoints'),
+        every_n_epochs=1,
+        monitor=task.checkpoint_metric, mode="min",
+        save_last=True, save_top_k=1
+    )
+
+    if cfg.ENABLE_LOGGING:
+        tb_logger = TensorBoardLogger(
+            save_dir=cfg.OUTPUT_DIR,
+            name='tb',
+            version=None,  # Set automatically
+        )
+        csv_logger = CSVLogger(
+            save_dir=cfg.OUTPUT_DIR,
+            name='csv',
+            version=None,
+        )
+        wandb_logger = WandbLogger(
+            project="ContinualUserAdaptation_Pretrain",
+            # save_dir=osp.join(cfg.OUTPUT_DIR, 'wandb'),
+            save_dir=cfg.OUTPUT_DIR,
+            name=f"pretrain_e={cfg.SOLVER.MAX_EPOCH}_lr={cfg.SOLVER.BASE_LR}_sched={cfg.SOLVER.LR_POLICY}",
+            # group=None,
+            tags=cfg.WANDB.TAGS.split(',') if cfg.WANDB.TAGS is not None else None,
+            config=convert_cfg_to_dict(cfg),  # Load full config to wandb setting
+            resume=is_resuming_run,
+        )
+        args = {"logger": [tb_logger, csv_logger, wandb_logger],
+                "callbacks": [LearningRateMonitor(), checkpoint_callback, GPUStatsMonitor()]}
+    else:
+        args = {"logger": False, "callbacks": [checkpoint_callback, GPUStatsMonitor()]}
+
+    plugins = []
+    if cfg.SOLVER.ACCELERATOR == "ddp":
+        plugins.append(DDPPlugin(find_unused_parameters=False))
+
+    trainer = Trainer(
+        gpus=cfg.NUM_GPUS,
+        num_nodes=cfg.NUM_SHARDS,
+        accelerator=cfg.SOLVER.ACCELERATOR,
+        max_epochs=cfg.SOLVER.MAX_EPOCH,
+        num_sanity_val_steps=1,
+        benchmark=True,
+        # log_gpu_memory="min_max",
+        replace_sampler_ddp=False,
+        fast_dev_run=cfg.FAST_DEV_RUN,
+        log_every_n_steps=1,
+
+        default_root_dir=cfg.OUTPUT_DIR,
+        plugins=plugins,
+        **args,
+    )
+
+    if cfg.TRAIN.ENABLE and cfg.TEST.ENABLE:
+        trainer.fit(task,ckpt_path=trainer_resume_path,)
+
+        # Calling test without the lightning module arg automatically selects the best
+        # model during training.
+        return trainer.test()
+
+    elif cfg.TRAIN.ENABLE:
+        return trainer.fit(task,ckpt_path=trainer_resume_path,)
+
+    elif cfg.TEST.ENABLE:
+        return trainer.test(task)
+
+
+def load_checkpoint(task, TaskType):
     # Load model from checkpoint if checkpoint file path is given.
     ckp_path = cfg.CHECKPOINT_FILE_PATH
     if len(ckp_path) > 0 or cfg.DATA.CHECKPOINT_MODULE_FILE_PATH != "":
@@ -224,70 +308,6 @@ def main(cfg):
                 state_dict = state_dict_for_child_module[child_name]
                 missing_keys, unexpected_keys = child_module.load_state_dict(state_dict)
                 assert len(missing_keys) + len(unexpected_keys) == 0
-
-    checkpoint_callback = ModelCheckpoint(
-        every_n_epochs=1,
-        # monitor=task.checkpoint_metric, mode="min",
-        save_last=True, save_top_k=1
-    )
-
-    if cfg.ENABLE_LOGGING:
-        tb_logger = TensorBoardLogger(
-            save_dir=cfg.OUTPUT_DIR,
-            name='tb',
-            version=None,  # Set automatically
-        )
-        csv_logger = CSVLogger(
-            save_dir=cfg.OUTPUT_DIR,
-            name='csv',
-            version=None,
-        )
-        wandb_logger = WandbLogger(
-            project="ContinualUserAdaptation_Pretrain",
-            save_dir=osp.join(cfg.OUTPUT_DIR, 'wandb'),
-            name=f"pretrain_e={cfg.SOLVER.MAX_EPOCH}_lr={cfg.SOLVER.BASE_LR}_sched={cfg.SOLVER.LR_POLICY}",
-            # group=None,
-            tags=cfg.WANDB.TAGS.split(',') if cfg.WANDB.TAGS is not None else None,
-            config=convert_cfg_to_dict(cfg)  # Load full config to wandb setting
-        )
-        args = {"logger": [tb_logger, csv_logger, wandb_logger],
-                "callbacks": [LearningRateMonitor(), checkpoint_callback, GPUStatsMonitor()]}
-    else:
-        args = {"logger": False, "callbacks": [checkpoint_callback, GPUStatsMonitor()]}
-
-    plugins = []
-    if cfg.SOLVER.ACCELERATOR == "ddp":
-        plugins.append(DDPPlugin(find_unused_parameters=False))
-
-    trainer = Trainer(
-        gpus=cfg.NUM_GPUS,
-        num_nodes=cfg.NUM_SHARDS,
-        accelerator=cfg.SOLVER.ACCELERATOR,
-        max_epochs=cfg.SOLVER.MAX_EPOCH,
-        num_sanity_val_steps=1,
-        benchmark=True,
-        # log_gpu_memory="min_max",
-        replace_sampler_ddp=False,
-        fast_dev_run=cfg.FAST_DEV_RUN,
-        log_every_n_steps=1,
-
-        default_root_dir=cfg.OUTPUT_DIR,
-        plugins=plugins,
-        **args,
-    )
-
-    if cfg.TRAIN.ENABLE and cfg.TEST.ENABLE:
-        trainer.fit(task)
-
-        # Calling test without the lightning module arg automatically selects the best
-        # model during training.
-        return trainer.test()
-
-    elif cfg.TRAIN.ENABLE:
-        return trainer.fit(task)
-
-    elif cfg.TEST.ENABLE:
-        return trainer.test(task)
 
 
 if __name__ == "__main__":
