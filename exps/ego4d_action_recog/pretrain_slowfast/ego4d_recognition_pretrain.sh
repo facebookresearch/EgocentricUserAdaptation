@@ -42,7 +42,6 @@ BACKBONE_WTS_DIR="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Ma
 OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR ${BACKBONE_WTS_DIR}" # Start from a Lightning checkpoint
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS_DIR}/checkpoints/last.ckpt" # Start from a Lightning checkpoint
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True"
-#OVERWRITE_CFG_ARGS+=" WANDB.RESUME True"
 
 # Checkpoint loading
 # START FROM KINETICS400 pretrained model
