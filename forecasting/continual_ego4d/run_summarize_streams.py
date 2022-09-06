@@ -1,3 +1,7 @@
+"""
+As in-clip sequential sampling occurs on runtime, this script collects all samples and pickles them for further analysis
+in the notebooks.
+"""
 import sys
 
 from continual_ego4d.utils.checkpoint_loading import load_pretrain_model, load_meta_state, save_meta_state, PathHandler
@@ -76,7 +80,7 @@ def collect_user_dataset(
         user_dataset,
         path_handler: PathHandler,
 ) -> (str, bool):
-    """ Run single user sequentially. Returns path to user results and interruption status."""
+    """ Run single user sequentially with sequential ClipSampler, return data list of annotation entries returned by the clip sampler."""
     seed_everything(cfg.RNG_SEED)
 
     # Set user configs
