@@ -15,7 +15,7 @@ logger = logging.get_logger(__name__)
 
 
 class MultiTaskClassificationTask(VideoTask):
-    checkpoint_metric = "val_top1_noun_err"
+    checkpoint_metric = "val_action_loss"  # "val_top1_noun_err"
 
     def training_step(self, batch, batch_idx):
         inputs, labels, _, _ = batch
