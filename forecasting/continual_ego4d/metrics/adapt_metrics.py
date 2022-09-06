@@ -1,7 +1,7 @@
 import logging
 import torch
 from typing import Dict, Set, Union, Tuple
-from continual_ego4d.metrics.metric import AvgMeterMetric, get_metric_tag, TAG_ADAPT
+from continual_ego4d.metrics.metric import AvgMeterMetric, get_metric_tag
 from continual_ego4d.metrics.count_metrics import TAG_BATCH
 
 
