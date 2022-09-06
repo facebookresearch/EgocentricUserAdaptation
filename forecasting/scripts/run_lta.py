@@ -111,12 +111,24 @@ def main(cfg):
     else:
         load_checkpoint(task, TaskType)
 
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=osp.join(cfg.OUTPUT_DIR, 'checkpoints'),
-        every_n_epochs=1,
-        monitor=task.checkpoint_metric, mode="min",
-        save_last=True, save_top_k=1
-    )
+    checkpoint_callbacks = [
+        # Validation checkpoint (best model)
+        ModelCheckpoint(
+            filename=f'BEST_{{epoch}}-{{step}}-{{{task.checkpoint_metric}:.3f}}',
+            dirpath=osp.join(cfg.OUTPUT_DIR, 'checkpoints'),
+            every_n_epochs=1,
+            monitor=task.checkpoint_metric,
+            mode="min", save_top_k=1
+        ),
+        # Safe latest model (Deterministic use last to return from)
+        ModelCheckpoint(
+            filename=f'CKPT_{{epoch}}-{{step}}-{{{task.checkpoint_metric}:.3f}}',
+            dirpath=osp.join(cfg.OUTPUT_DIR, 'checkpoints'),
+            every_n_epochs=1,
+            save_last=True,
+            save_top_k=1
+        )
+    ]
 
     if cfg.ENABLE_LOGGING:
         tb_logger = TensorBoardLogger(
@@ -140,9 +152,9 @@ def main(cfg):
             resume=is_resuming_run,
         )
         args = {"logger": [tb_logger, csv_logger, wandb_logger],
-                "callbacks": [LearningRateMonitor(), checkpoint_callback, GPUStatsMonitor()]}
+                "callbacks": [LearningRateMonitor(), *checkpoint_callbacks, GPUStatsMonitor()]}
     else:
-        args = {"logger": False, "callbacks": [checkpoint_callback, GPUStatsMonitor()]}
+        args = {"logger": False, "callbacks": [*checkpoint_callbacks, GPUStatsMonitor()]}
 
     plugins = []
     if cfg.SOLVER.ACCELERATOR == "ddp":
@@ -166,14 +178,14 @@ def main(cfg):
     )
 
     if cfg.TRAIN.ENABLE and cfg.TEST.ENABLE:
-        trainer.fit(task,ckpt_path=trainer_resume_path,)
+        trainer.fit(task, ckpt_path=trainer_resume_path, )
 
         # Calling test without the lightning module arg automatically selects the best
         # model during training.
         return trainer.test()
 
     elif cfg.TRAIN.ENABLE:
-        return trainer.fit(task,ckpt_path=trainer_resume_path,)
+        return trainer.fit(task, ckpt_path=trainer_resume_path, )
 
     elif cfg.TEST.ENABLE:
         return trainer.test(task)
