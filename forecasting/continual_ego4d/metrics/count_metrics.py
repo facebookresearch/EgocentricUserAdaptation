@@ -5,7 +5,7 @@ from collections import Counter
 import numpy as np
 
 
-class CountMetric(Metric):
+class SetCountMetric(Metric):
     reset_before_batch = False
 
     modes = ["verb", "noun", "action"]
