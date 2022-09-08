@@ -25,7 +25,7 @@ from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
 from continual_ego4d.metrics.metric import get_metric_tag
 from continual_ego4d.metrics.count_metrics import Metric, \
-    CountMetric, TAG_BATCH, WindowedUniqueCountMetric
+    SetCountMetric, TAG_BATCH, WindowedUniqueCountMetric
 from continual_ego4d.metrics.metric import TAG_BATCH, TAG_PAST
 from continual_ego4d.metrics.standard_metrics import OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
     OnlineLossMetric, RunningAvgOnlineLossMetric
@@ -305,15 +305,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
              self.stream_state.pretrain_noun_set),
         ]:
             batch_metrics.extend([  # Seen actions (history part of stream) vs full user stream actions
-                CountMetric(observed_set_name="seen", observed_set=seen_set,
-                            ref_set_name="stream", ref_set=user_ref_set,
-                            mode=mode
-                            ),
+                SetCountMetric(observed_set_name="seen", observed_set=seen_set,
+                               ref_set_name="stream", ref_set=user_ref_set,
+                               mode=mode
+                               ),
                 # Seen actions (history part of stream) vs all actions seen during pretraining phase
-                CountMetric(observed_set_name="seen", observed_set=seen_set,
-                            ref_set_name="pretrain", ref_set=pretrain_ref_set,
-                            mode=mode
-                            ),
+                SetCountMetric(observed_set_name="seen", observed_set=seen_set,
+                               ref_set_name="pretrain", ref_set=pretrain_ref_set,
+                               mode=mode
+                               ),
             ])
 
         return batch_metrics
