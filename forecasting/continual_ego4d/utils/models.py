@@ -25,9 +25,9 @@ class UnseenVerbNounMaskerHead(nn.Module):
         verb_x = verbnoun_logits[0]
         seen_sets_verb = {  # Include both past seen and current seen
             x for subset in [
-                self.stream_state.pretrain_verb_set,
-                self.stream_state.stream_seen_verb_set,
-                self.stream_state.batch_verb_set]
+                self.stream_state.pretrain_verb_freq_dict,
+                self.stream_state.stream_seen_verb_freq_dict,
+                self.stream_state.batch_verb_freq_dict]
             for x in subset
         }
         masked_verb_x, nb_masked = self._mask_unseen(verb_x, seen_sets_verb)
@@ -37,9 +37,9 @@ class UnseenVerbNounMaskerHead(nn.Module):
         noun_x = verbnoun_logits[1]
         seen_sets_noun = {  # Include both past seen and current seen
             x for subset in [
-                self.stream_state.pretrain_noun_set,
-                self.stream_state.stream_seen_noun_set,
-                self.stream_state.batch_noun_set]
+                self.stream_state.pretrain_noun_freq_dict,
+                self.stream_state.stream_seen_noun_freq_dict,
+                self.stream_state.batch_noun_freq_dict]
             for x in subset
         }
         masked_noun_x, nb_masked = self._mask_unseen(noun_x, seen_sets_noun)

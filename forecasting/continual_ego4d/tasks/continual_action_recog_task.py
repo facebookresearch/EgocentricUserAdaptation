@@ -25,7 +25,7 @@ from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
 from continual_ego4d.metrics.metric import get_metric_tag
 from continual_ego4d.metrics.count_metrics import Metric, \
-    SetCountMetric, TAG_BATCH, WindowedUniqueCountMetric
+    SetCountMetric, TAG_BATCH, WindowedUniqueCountMetric, HistoryCountMetric
 from continual_ego4d.metrics.metric import TAG_BATCH, TAG_PAST
 from continual_ego4d.metrics.standard_metrics import OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
     OnlineLossMetric, RunningAvgOnlineLossMetric
@@ -77,13 +77,14 @@ class StreamStateTracker:
     ]
 
     def __init__(self, stream_loader, pretrain_action_sets):
+        self.stream_loader = stream_loader
         self.total_stream_sample_count = len(stream_loader.dataset)
 
         # Store vars of observed part of stream (Don't reassign, use ref)
         self.seen_samples_idxs = []
-        self.stream_seen_action_set = set()
-        self.stream_seen_verb_set = set()
-        self.stream_seen_noun_set = set()
+        self.stream_seen_action_freq_dict: dict = {}
+        self.stream_seen_verb_freq_dict: dict = {}
+        self.stream_seen_noun_freq_dict: dict = {}
         self.seen_action_to_stream_idxs = defaultdict(list)  # On-the-fly: For each action keep observed stream ids
         """ Summarize observed part of the stream. """
 
@@ -94,9 +95,9 @@ class StreamStateTracker:
         self.stream_batch_idxs: list = []
         self.stream_batch_size: int = 0  # Size of the new data batch sampled from the stream (exclusive replay samples)
         self.stream_batch_labels: torch.Tensor = None  # Ref for Re-exposure based forgetting
-        self.batch_action_set: set = set()
-        self.batch_verb_set: set = set()
-        self.batch_noun_set: set = set()
+        self.batch_action_freq_dict: dict = {}
+        self.batch_verb_freq_dict: dict = {}
+        self.batch_noun_freq_dict: dict = {}
         """ Variables set per iteration to share between methods. """
 
         # Prediction phase
@@ -115,10 +116,17 @@ class StreamStateTracker:
 
         # Pretraining stats
         # From JSON: {'ACTION_LABEL': {'name': "ACTION_NAME", 'count': "ACTION_COUNT"}}
-        self.pretrain_verb_set = {verbnoun_format(x) for x in pretrain_action_sets['verb_to_name_dict'].keys()}
-        self.pretrain_noun_set = {verbnoun_format(x) for x in pretrain_action_sets['noun_to_name_dict'].keys()}
-        self.pretrain_action_set = {verbnoun_to_action(*str(action).split('-'))  # Json format to tuple for actions
-                                    for action in pretrain_action_sets['action_to_name_dict'].keys()}
+        self.pretrain_verb_freq_dict = {
+            verbnoun_format(a): a_dict['count'] for a, a_dict in pretrain_action_sets['verb_to_name_dict'].items()
+        }
+        self.pretrain_noun_freq_dict = {
+            verbnoun_format(a): a_dict['count'] for a, a_dict in pretrain_action_sets['noun_to_name_dict'].items()
+        }
+        # Json format to tuple for actions
+        self.pretrain_action_freq_dict = {
+            verbnoun_to_action(*str(a).split('-')): a_dict['count']
+            for a, a_dict in pretrain_action_sets['action_to_name_dict'].items()
+        }
         """ Sets containing all the action/nouns/verbs from the pretraining phase. """
 
         # Additional dump references
@@ -147,6 +155,59 @@ class StreamStateTracker:
     def get_state_dump(self):
         dump_dict = {attr_name: getattr(self, attr_name) for attr_name in self.attr_to_dump}
         return dump_dict
+
+    def set_current_batch_states(
+            self,
+            batch: Any,
+            batch_idx: int,
+            plotting_log_freq: int,
+            eval_this_step: bool
+    ):
+        self.batch_idx = batch_idx
+
+        # Eval or plot at this iteration
+        self.plot_this_step = batch_idx % plotting_log_freq == 0 or batch_idx == len(self.stream_loader)
+        self.eval_this_step = eval_this_step
+        logger.debug(f"Continual eval on batch {batch_idx}/{len(self.stream_loader)} = {self.eval_this_step}")
+
+        # Observed idxs update before batch is altered
+        _, labels, _, stream_sample_idxs = batch
+        self.stream_batch_labels = labels
+        self.stream_batch_idxs = stream_sample_idxs.tolist()
+        self.stream_batch_size = len(self.stream_batch_idxs)
+
+        # Get new actions/verbs current batch
+        self.batch_action_freq_dict = defaultdict(int)
+        self.batch_verb_freq_dict = defaultdict(int)
+        self.batch_noun_freq_dict = defaultdict(int)
+        for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_batch_idxs):
+            action = verbnoun_to_action(verb, noun)
+            self.batch_action_freq_dict[action] += 1
+            self.batch_verb_freq_dict[verbnoun_format(verb)] += 1
+            self.batch_noun_freq_dict[verbnoun_format(noun)] += 1
+
+        logger.debug(f"current_batch_sample_idxs={self.stream_batch_idxs}")
+
+    def update_stream_seen_state(self, labels, batch_idx):
+        self.add_counter_dicts_(self.stream_seen_action_freq_dict, self.batch_action_freq_dict)
+        self.add_counter_dicts_(self.stream_seen_verb_freq_dict, self.batch_verb_freq_dict)
+        self.add_counter_dicts_(self.stream_seen_noun_freq_dict, self.batch_noun_freq_dict)
+
+        # Only iterate stream batch (not replay samples)
+        for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_batch_idxs):
+            action = verbnoun_to_action(verb, noun)
+            self.sample_to_batch_idx[sample_idx] = batch_idx  # Possibly add multiple time batch_idx
+            self.seen_action_to_stream_idxs[action].append(sample_idx)
+
+        # Update Task states
+        self.seen_samples_idxs.extend(self.stream_batch_idxs)
+        assert len(self.seen_samples_idxs) == len(np.unique(self.seen_samples_idxs)), \
+            f"Duplicate visited samples in {self.seen_samples_idxs}"
+
+    @staticmethod
+    def add_counter_dicts_(source_dict: dict, new_dict: dict):
+        for k, cnt in new_dict.items():
+            source_dict[k] += cnt
 
 
 class ContinualMultiTaskClassificationTask(LightningModule):
@@ -217,7 +278,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.predict_phase_load_idxs = []
         for stream_sample_idx, action in enumerate(self.stream_state.sample_idx_to_action_list):
             verb, noun = action
-            if verb in self.stream_state.pretrain_verb_set and noun in self.stream_state.pretrain_noun_set:
+            if verb in self.stream_state.pretrain_verb_freq_dict and noun in self.stream_state.pretrain_noun_freq_dict:
                 self.predict_phase_load_idxs.append(stream_sample_idx)
 
         self.predict_loader = construct_predictstream_loader(
@@ -235,7 +296,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Stream samplers
         self.future_stream_sampler = FutureSampler(mode='FIFO_split_seen_unseen',
                                                    stream_idx_to_action_list=self.stream_state.sample_idx_to_action_list,
-                                                   seen_action_set=self.stream_state.stream_seen_action_set,
+                                                   seen_action_set=self.stream_state.stream_seen_action_freq_dict,
                                                    total_capacity=self.cfg.CONTINUAL_EVAL.FUTURE_SAMPLE_CAPACITY)
         self.past_stream_sampler = PastSampler(mode='windowed',
                                                seen_action_to_stream_idxs=self.stream_state.seen_action_to_stream_idxs,
@@ -297,12 +358,12 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # ADD INTERSECTION COUNT METRICS
         for mode, seen_set, user_ref_set, pretrain_ref_set in [
-            ('action', self.stream_state.stream_seen_action_set, self.stream_state.user_action_freq_dict,
-             self.stream_state.pretrain_action_set),
-            ('verb', self.stream_state.stream_seen_verb_set, self.stream_state.user_verb_freq_dict,
-             self.stream_state.pretrain_verb_set),
-            ('noun', self.stream_state.stream_seen_noun_set, self.stream_state.user_noun_freq_dict,
-             self.stream_state.pretrain_noun_set),
+            ('action', self.stream_state.stream_seen_action_freq_dict, self.stream_state.user_action_freq_dict,
+             self.stream_state.pretrain_action_freq_dict),
+            ('verb', self.stream_state.stream_seen_verb_freq_dict, self.stream_state.user_verb_freq_dict,
+             self.stream_state.pretrain_verb_freq_dict),
+            ('noun', self.stream_state.stream_seen_noun_freq_dict, self.stream_state.user_noun_freq_dict,
+             self.stream_state.pretrain_noun_freq_dict),
         ]:
             batch_metrics.extend([  # Seen actions (history part of stream) vs full user stream actions
                 SetCountMetric(observed_set_name="seen", observed_set=seen_set,
@@ -314,6 +375,30 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                                ref_set_name="pretrain", ref_set=pretrain_ref_set,
                                mode=mode
                                ),
+            ])
+
+        # ADD HISTORY VS CURRENT BATCH COUNTS:
+        # how many times seen in pretrain vs how many times during stream
+        for mode, history_action_instance_count, pretrain_action_instance_count in [
+            ('action', self.stream_state.stream_seen_action_freq_dict, self.stream_state.pretrain_action_freq_dict),
+            ('verb', self.stream_state.stream_seen_verb_freq_dict, self.stream_state.pretrain_verb_freq_dict),
+            ('noun', self.stream_state.stream_seen_noun_freq_dict, self.stream_state.pretrain_noun_freq_dict),
+        ]:
+            batch_metrics.extend([
+                HistoryCountMetric(history_action_instance_count=history_action_instance_count,
+                                   action_mode=mode,
+                                   pretrain_action_instance_count=pretrain_action_instance_count,
+                                   ),
+                # Don't include pretrain counts
+                HistoryCountMetric(history_action_instance_count=history_action_instance_count,
+                                   action_mode=mode,
+                                   pretrain_action_instance_count=None,
+                                   ),
+                # Don't include action counts
+                HistoryCountMetric(history_action_instance_count=None,
+                                   action_mode=mode,
+                                   pretrain_action_instance_count=pretrain_action_instance_count,
+                                   ),
             ])
 
         return batch_metrics
@@ -382,39 +467,16 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 metric.reset()
 
         # Set state
-        self._set_current_batch_states(batch, batch_idx=dataloader_idx)
+        self.stream_state.set_current_batch_states(
+            batch,
+            batch_idx=dataloader_idx,
+            plotting_log_freq=self.plotting_log_freq,
+            eval_this_step=self.trainer.logger_connector.should_update_logs
+        )
 
         # Update batch
         altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
         return altered_batch
-
-    def _set_current_batch_states(self, batch: Any, batch_idx: int):
-        self.stream_state.batch_idx = batch_idx
-
-        # Eval or plot at this iteration
-        self.stream_state.plot_this_step = batch_idx % self.plotting_log_freq == 0 or batch_idx == len(
-            self.train_loader)
-        self.stream_state.eval_this_step = self.trainer.logger_connector.should_update_logs
-        logger.debug(f"Continual eval on batch "
-                     f"{batch_idx}/{len(self.train_loader)} = {self.stream_state.eval_this_step}")
-
-        # Observed idxs update before batch is altered
-        _, labels, _, stream_sample_idxs = batch
-        self.stream_state.stream_batch_labels = labels
-        self.stream_state.stream_batch_idxs = stream_sample_idxs.tolist()
-        self.stream_state.stream_batch_size = len(self.stream_state.stream_batch_idxs)
-
-        # Get new actions/verbs current batch
-        self.stream_state.batch_action_set = set()
-        self.stream_state.batch_verb_set = set()
-        self.stream_state.batch_noun_set = set()
-        for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_state.stream_batch_idxs):
-            action = verbnoun_to_action(verb, noun)
-            self.stream_state.batch_action_set.add(action)
-            self.stream_state.batch_verb_set.add(verbnoun_format(verb))
-            self.stream_state.batch_noun_set.add(verbnoun_format(noun))
-
-        logger.debug(f"current_batch_sample_idxs={self.stream_state.stream_batch_idxs}")
 
     def _log_current_batch_states(self, batch_idx: int):
         """ Log stats for current iteration stream. """
@@ -490,7 +552,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 metric.save_result_to_history(current_batch_idx=batch_idx)
 
         # Update counts etc
-        self._update_seen_state(labels, batch_idx)
+        self.stream_state.update_stream_seen_state(labels, batch_idx)
 
         # Plot metrics if possible
         if self.stream_state.plot_this_step:
@@ -500,49 +562,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.log_step_metric_results(metric_results)
         logger.debug(f"POST-UPDATE Results for batch_idx={batch_idx}/{len(self.train_loader)}: "
                      f"{pprint.pformat(metric_results)}")
-
-    def _update_seen_state(self, labels, batch_idx):
-        self.stream_state.stream_seen_action_set.update(self.stream_state.batch_action_set)
-        self.stream_state.stream_seen_verb_set.update(self.stream_state.batch_verb_set)
-        self.stream_state.stream_seen_noun_set.update(self.stream_state.batch_noun_set)
-
-        # Only iterate stream batch (not replay samples)
-        for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_state.stream_batch_idxs):
-            action = verbnoun_to_action(verb, noun)
-            self.stream_state.sample_to_batch_idx[sample_idx] = batch_idx  # Possibly add multiple time batch_idx
-            self.stream_state.seen_action_to_stream_idxs[action].append(sample_idx)
-
-        # Update Task states
-        self.stream_state.seen_samples_idxs.extend(self.stream_state.stream_batch_idxs)
-        assert len(self.stream_state.seen_samples_idxs) == len(np.unique(self.stream_state.seen_samples_idxs)), \
-            f"Duplicate visited samples in {self.stream_state.seen_samples_idxs}"
-
-    def _log_plotting_metrics(self):
-        """ Iterate over metrics to get Image plots. """
-
-        # Collect loggers
-        tb_loggers = [result_logger for result_logger in self.logger if isinstance(result_logger, TensorBoardLogger)]
-        if len(tb_loggers) == 0:
-            logger.info(f"No tensorboard logger found, skipping image plotting.")
-            return
-        elif len(tb_loggers) > 1:
-            raise Exception(f"Multiple tensorboard loggers found, should only define one: {tb_loggers}")
-        tb_logger = tb_loggers[0]
-
-        logger.info("Collecting figures for metric plots")
-        plot_dict = {}
-        for metric in self.all_metrics:
-            metric_plot_dict = metric.plot()
-            if metric_plot_dict is not None and len(metric_plot_dict) > 0:
-                self.add_to_dict_(plot_dict, metric_plot_dict)
-
-        # Log them
-        logger.info("Plotting tensorboard figures")
-        for name, mpl_figure in plot_dict.items():
-            tb_logger.experiment.add_figure(
-                tag=name, figure=mpl_figure
-            )
-        plt.close('all')
 
     def on_train_end(self) -> None:
         """Dump any additional stats about the training."""
@@ -605,8 +624,10 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         stream_labels = full_labels[:self.stream_state.stream_batch_size]
 
         post_update_preds = self.forward(stream_inputs)
-        post_loss_action, post_loss_verb, post_loss_noun = self.method.get_losses_from_preds(
-            post_update_preds, stream_labels, loss_fun=self.method.loss_fun_train
+        from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
+
+        post_loss_action, post_loss_verb, post_loss_noun = OnlineLossMetric.get_losses_from_preds(
+            post_update_preds, stream_labels, self.loss_fun_unred, mean=True
         )
 
         # Deltas
@@ -681,6 +702,33 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         )
         result_dict = self._get_metric_results_over_dataloader(past_dataloader, metrics=self.past_metrics)
         self.add_to_dict_(step_result, result_dict)
+
+    def _log_plotting_metrics(self):
+        """ Iterate over metrics to get Image plots. """
+
+        # Collect loggers
+        tb_loggers = [result_logger for result_logger in self.logger if isinstance(result_logger, TensorBoardLogger)]
+        if len(tb_loggers) == 0:
+            logger.info(f"No tensorboard logger found, skipping image plotting.")
+            return
+        elif len(tb_loggers) > 1:
+            raise Exception(f"Multiple tensorboard loggers found, should only define one: {tb_loggers}")
+        tb_logger = tb_loggers[0]
+
+        logger.info("Collecting figures for metric plots")
+        plot_dict = {}
+        for metric in self.all_metrics:
+            metric_plot_dict = metric.plot()
+            if metric_plot_dict is not None and len(metric_plot_dict) > 0:
+                self.add_to_dict_(plot_dict, metric_plot_dict)
+
+        # Log them
+        logger.info("Plotting tensorboard figures")
+        for name, mpl_figure in plot_dict.items():
+            tb_logger.experiment.add_figure(
+                tag=name, figure=mpl_figure
+            )
+        plt.close('all')
 
     # ---------------------
     # HELPER METHODS
@@ -777,8 +825,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         nb_verbs_total, nb_nouns_total = self.cfg.MODEL.NUM_CLASSES  # [ 115, 478 ]
 
         # retrieve how many seen during pretrain
-        nb_verbs_seen_pretrain = len(self.stream_state.pretrain_verb_set)
-        nb_nouns_seen_pretrain = len(self.stream_state.pretrain_noun_set)
+        nb_verbs_seen_pretrain = len(self.stream_state.pretrain_verb_freq_dict)
+        nb_nouns_seen_pretrain = len(self.stream_state.pretrain_noun_freq_dict)
         logger.info(f"Pretraining seen verbs = {nb_verbs_seen_pretrain}/{nb_verbs_total}, "
                     f"nouns= {nb_nouns_seen_pretrain}/{nb_nouns_total}")
 
@@ -865,7 +913,7 @@ class FutureSampler:
 
     def __init__(self, mode,
                  stream_idx_to_action_list: list,
-                 seen_action_set: set,
+                 seen_action_set: Union[set, dict],
                  total_capacity=None):
         assert mode in self.modes
         self.mode = mode
@@ -876,11 +924,11 @@ class FutureSampler:
     def __call__(self, all_future_idxs: list, *args, **kwargs) -> list:
         raise NotImplementedError("Should not be calling before implemented windowed future sample, "
                                   "FWT is now deprecated so 2-bin balanced sampling is not necessary")
-        if self.mode == 'full' or len(all_future_idxs) <= self.total_capacity:
+        if self.action_mode == 'full' or len(all_future_idxs) <= self.total_capacity:
             logger.debug(f"Returning all remaining future samples: {len(all_future_idxs)}")
             return all_future_idxs
 
-        elif self.mode == 'FIFO_split_seen_unseen':
+        elif self.action_mode == 'FIFO_split_seen_unseen':
             return self.get_FIFO_split_seen_unseen(all_future_idxs)
 
     def get_FIFO_split_seen_unseen(self, all_future_idxs) -> list:

@@ -3,9 +3,113 @@ from typing import Dict, Set, Union, Tuple
 from continual_ego4d.metrics.metric import AvgMeterMetric, Metric, get_metric_tag, TAG_BATCH
 from collections import Counter
 import numpy as np
+from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
+from continual_ego4d.utils.meters import AverageMeter
+
+
+class HistoryCountMetric(Metric):
+    """
+    For actions/verbs/nouns in current batch, returns the avg count of these actions/verbs/nouns in the observed
+    (history) part of the stream.
+    May optionally also include the pretrain count.
+    """
+    reset_before_batch = True
+    action_modes = ["verb", "noun", "action"]
+    count_modes = ["stream+pretrain", "stream", "pretrain"]
+
+    def __init__(
+            self,
+            history_action_instance_count: dict = None,
+            pretrain_action_instance_count: dict = None,
+            action_mode="action",
+    ):
+        self.history_action_instance_count = history_action_instance_count
+        self.pretrain_action_instance_count = pretrain_action_instance_count
+
+        if self.history_action_instance_count is not None \
+                and self.pretrain_action_instance_count is not None:
+            self.count_mode = 'stream+pretrain'
+            self.counter_dicts = [self.history_action_instance_count, self.pretrain_action_instance_count]
+
+        elif self.history_action_instance_count is not None:
+            self.count_mode = 'history'
+            self.counter_dicts = [self.history_action_instance_count]
+
+        elif self.pretrain_action_instance_count is not None:
+            self.count_mode = 'pretrain'
+            self.counter_dicts = [self.pretrain_action_instance_count]
+
+        else:
+            raise ValueError("At least one counter should be defined.")
+        assert self.count_mode in self.count_modes
+
+        self.action_mode = action_mode  # Action/verb/noun
+        assert self.action_mode in self.action_modes
+        if self.action_mode == 'verb':
+            self.label_idx = 0
+        elif self.action_mode == 'noun':
+            self.label_idx = 1
+        elif self.action_mode == 'action':
+            self.label_idx = None  # Not applicable
+        else:
+            raise NotImplementedError()
+
+        base_name = f"batch_{self.count_mode}_count"
+        self.name = get_metric_tag(TAG_BATCH, action_mode=self.action_mode, base_metric_name=base_name)
+
+        # Keep all results
+        self.avg_meter = AverageMeter()
+        self.iter_to_result = {}
+
+    @torch.no_grad()
+    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
+        """Update metric from predictions and labels."""
+
+        # Verb/noun errors
+        if self.action_mode in ['verb', 'noun']:
+            label_list = [verbnoun_format(x) for x in labels[:, self.label_idx].tolist()]
+
+        elif self.action_mode in ['action']:
+            label_batch_axis = 0
+            label_list = []
+            for verbnoun_t in torch.unbind(labels, dim=label_batch_axis):
+                label_list.append(verbnoun_to_action(*verbnoun_t.tolist()))
+
+        else:
+            raise ValueError()
+
+        # Avg over labels how many times counted in counter_dicts
+        for label in label_list:
+            label_history_count = 0
+
+            for counter_dict in self.counter_dicts:
+                if label in counter_dict:
+                    label_history_count += counter_dict[label]
+
+            self.avg_meter.update(label_history_count, weight=1)
+
+    @torch.no_grad()
+    def reset(self):
+        """Reset the metric."""
+        self.avg_meter.reset()
+
+    @torch.no_grad()
+    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
+        """Get the metric(s) with name in dict format."""
+        result = self.avg_meter.avg  # Avg over counts
+        self.iter_to_result[current_batch_idx] = result
+        return {self.name: result}
+
+    @torch.no_grad()
+    def dump(self) -> Dict:
+        """Optional: after training stream, a dump of states could be returned."""
+        return {f"{self.name}_PER_BATCH": self.iter_to_result}
 
 
 class SetCountMetric(Metric):
+    """Count how many elements in a set. When a reference set is defined, counts also intersection, and
+    subtracted leftover parts of the two sets.
+    """
     reset_before_batch = False
 
     modes = ["verb", "noun", "action"]
@@ -13,9 +117,9 @@ class SetCountMetric(Metric):
     def __init__(
             self,
             observed_set_name: str,
-            observed_set: set,
+            observed_set: Union[set, dict],
             ref_set_name: str = None,
-            ref_set: set = None,
+            ref_set: Union[set, dict] = None,
             mode="action"
     ):
         self.observed_set_name = observed_set_name

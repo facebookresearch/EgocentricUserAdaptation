@@ -123,7 +123,7 @@ class AvgMeterMetric(Metric):
     @torch.no_grad()
     def dump(self) -> Dict:
         """Optional: after training stream, a dump of states could be returned."""
-        return {f"{self.name}_BATCH": self.iter_to_result}
+        return {f"{self.name}_PER_BATCH": self.iter_to_result}
 
 # class AvgMeterDictMetric(Metric):
 #     reset_before_batch = True
