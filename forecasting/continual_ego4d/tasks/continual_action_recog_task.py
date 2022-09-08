@@ -56,6 +56,26 @@ class StreamStateTracker:
     recursion errors due to holding the model and optimizer.
     """
 
+    attr_to_dump = [
+        'dataset_all_entries_ordered',  # Dataset
+        'sample_to_batch_idx'
+
+        'sample_idx_to_pretrain_loss',  # Pretrain
+        'pretrain_verb_set',
+        'pretrain_noun_set',
+        'pretrain_action_set',
+
+        # New stream samples in batch performance (sample_to_batch_idx allows to average metrics over batch)
+        'sample_idx_to_feat',  # To get feature distance
+        'sample_idx_to_verb_pred',  # Label can be retrieved from dataset list to generate accuracy
+        'sample_idx_to_noun_pred',
+        'sample_idx_to_action_loss',
+        'sample_idx_to_verb_loss',
+        'sample_idx_to_noun_loss',
+
+        # TODO for replay also track losses for new/mem?
+    ]
+
     def __init__(self, stream_loader, pretrain_action_sets):
         self.total_stream_sample_count = len(stream_loader.dataset)
 
@@ -79,12 +99,6 @@ class StreamStateTracker:
         self.batch_noun_set: set = set()
         """ Variables set per iteration to share between methods. """
 
-        # For dump
-        self.action_to_batches = defaultdict(list)  # On-the-fly: For each action keep all ids when it was observed
-        self.batch_to_actions = defaultdict(list)
-        """ Track info about stream to include in final dumpfile.
-         The dumpfile is used as reference to check if user processing has finished. """
-
         # Prediction phase
         self.sample_idx_to_pretrain_loss = {}
         """ A dict containing a mapping of the stream sample index to the loss on the initial pretrain model.
@@ -106,6 +120,33 @@ class StreamStateTracker:
         self.pretrain_action_set = {verbnoun_to_action(*str(action).split('-'))  # Json format to tuple for actions
                                     for action in pretrain_action_sets['action_to_name_dict'].keys()}
         """ Sets containing all the action/nouns/verbs from the pretraining phase. """
+
+        # Additional dump references
+        self.dataset_all_entries_ordered = stream_loader.dataset.seq_input_list
+        """ Keep entire dataset list, per sample we have the action, video_path, and additional meta data. """
+
+        self.sample_to_batch_idx = [-1] * self.total_stream_sample_count
+        """ Mapping index in the stream to which batch it belongs. """
+
+        self.sample_idx_to_feat = [None] * self.total_stream_sample_count
+        self.sample_idx_to_verb_pred = [None] * self.total_stream_sample_count
+        self.sample_idx_to_noun_pred = [None] * self.total_stream_sample_count
+        self.sample_idx_to_action_loss = [None] * self.total_stream_sample_count
+        self.sample_idx_to_verb_loss = [None] * self.total_stream_sample_count
+        self.sample_idx_to_noun_loss = [None] * self.total_stream_sample_count
+        """ Per sample feat/prediction/loss. """
+
+        # Checks
+        self._check_attr_to_dump()
+
+    def _check_attr_to_dump(self):
+        """ Throw error before starting stream at init. """
+        for attr in self.attr_to_dump:
+            assert hasattr(self, attr), f"Configured to dump '{attr}', but is not existing."
+
+    def get_state_dump(self):
+        dump_dict = {attr_name: getattr(self, attr_name) for attr_name in self.attr_to_dump}
+        return dump_dict
 
 
 class ContinualMultiTaskClassificationTask(LightningModule):
@@ -155,8 +196,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Multi-task (verb/noun) has classification head, mask out unseen classifier prototype outputs
         self.model = build_model(cfg)
 
-        self.loss_fun = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="mean")  # Training
-        self.loss_fun_pred = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="none")  # Prediction
+        # Always use unreduced loss function
+        self.loss_fun_unred = losses.get_loss_func(self.cfg.MODEL.LOSS_FUNC)(reduction="none")  # Training/ prediction
+
         self.continual_eval_freq = cfg.CONTINUAL_EVAL.FREQ
         self.plotting_log_freq = cfg.CONTINUAL_EVAL.PLOTTING_FREQ
 
@@ -226,15 +268,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 OnlineTopkAccMetric(TAG_BATCH, k=1, mode=mode),
                 RunningAvgOnlineTopkAccMetric(TAG_BATCH, k=1, mode=mode),
                 # OnlineLossMetric -> Standard included for training
-                RunningAvgOnlineLossMetric(TAG_BATCH, loss_fun=self.loss_fun, mode=mode),
+                RunningAvgOnlineLossMetric(TAG_BATCH, loss_fun=self.loss_fun_unred, mode=mode),
 
                 # ADAPT METRICS
                 OnlineAdaptationGainMetric(
-                    TAG_BATCH, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
+                    TAG_BATCH, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
                 RunningAvgOnlineAdaptationGainMetric(
-                    TAG_BATCH, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
+                    TAG_BATCH, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
                 CumulativeOnlineAdaptationGainMetric(
-                    TAG_BATCH, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
+                    TAG_BATCH, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
             ])
 
             # TOP5-ACC
@@ -284,11 +326,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             past_metrics.extend([
                 # ADAPTATION METRICS
                 OnlineAdaptationGainMetric(
-                    TAG_PAST, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=action_mode),
+                    TAG_PAST, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss,
+                    loss_mode=action_mode),
                 RunningAvgOnlineAdaptationGainMetric(
-                    TAG_PAST, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=action_mode),
+                    TAG_PAST, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss,
+                    loss_mode=action_mode),
                 CumulativeOnlineAdaptationGainMetric(
-                    TAG_PAST, self.loss_fun_pred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=action_mode),
+                    TAG_PAST, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss,
+                    loss_mode=action_mode),
 
                 # ACTION METRICS
                 OnlineTopkAccMetric(TAG_PAST, k=1, mode=action_mode),
@@ -402,7 +447,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             fwd_inputs = [inputs[i].clone() for i in range(len(inputs))]
 
         loss, verbnoun_outputs, step_results = self.method.training_step(
-            fwd_inputs, labels, current_batch_stream_idxs=self.stream_state.stream_batch_idxs
+            fwd_inputs, labels, self.stream_state.stream_batch_idxs
         )
         self.add_to_dict_(metric_results, step_results)
 
@@ -464,9 +509,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Only iterate stream batch (not replay samples)
         for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_state.stream_batch_idxs):
             action = verbnoun_to_action(verb, noun)
-            self.stream_state.action_to_batches[action].append(batch_idx)  # Possibly add multiple time batch_idx
+            self.stream_state.sample_to_batch_idx[sample_idx] = batch_idx  # Possibly add multiple time batch_idx
             self.stream_state.seen_action_to_stream_idxs[action].append(sample_idx)
-            self.stream_state.batch_to_actions[batch_idx].append(action)
 
         # Update Task states
         self.stream_state.seen_samples_idxs.extend(self.stream_state.stream_batch_idxs)
@@ -502,11 +546,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def on_train_end(self) -> None:
         """Dump any additional stats about the training."""
-        dump_dict = {
-            "batch_to_actions": self.stream_state.batch_to_actions,
-            "action_to_batches": self.stream_state.action_to_batches,
-            "dataset_all_entries_ordered": self.train_dataloader().dataset.seq_input_list,
-        }
+        dump_dict = self.stream_state.get_state_dump()
+
+        # Gather states from metrics
         for metric in self.all_metrics:
             metric_dict = metric.dump()
             if metric_dict is not None and len(metric_dict) > 0:
@@ -768,8 +810,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # ---------------------
     # TRAINING SETUP
     # ---------------------
-    def forward(self, inputs):
-        return self.model(inputs)
+    def forward(self, inputs, return_feats=False):
+        return self.model(inputs, return_feats=return_feats)
 
     def setup(self, stage):
         """For distributed processes, init anything shared outside nn.Modules here. """

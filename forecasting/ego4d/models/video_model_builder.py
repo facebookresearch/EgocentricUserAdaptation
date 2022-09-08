@@ -12,10 +12,10 @@ from .batchnorm_helper import get_norm
 from . import head_helper, resnet_helper, stem_helper
 from .build import MODEL_REGISTRY
 
-import math 
+import math
 from functools import reduce
 import operator
-import numpy 
+import numpy
 
 from functools import partial
 from torch.nn.init import trunc_normal_
@@ -88,15 +88,15 @@ class FuseFastToSlow(nn.Module):
     """
 
     def __init__(
-        self,
-        dim_in,
-        fusion_conv_channel_ratio,
-        fusion_kernel,
-        alpha,
-        eps=1e-5,
-        bn_mmt=0.1,
-        inplace_relu=True,
-        norm_module=nn.BatchNorm3d,
+            self,
+            dim_in,
+            fusion_conv_channel_ratio,
+            fusion_kernel,
+            alpha,
+            eps=1e-5,
+            bn_mmt=0.1,
+            inplace_relu=True,
+            norm_module=nn.BatchNorm3d,
     ):
         """
         Args:
@@ -375,7 +375,7 @@ class SlowFast(nn.Module):
         self.head_name = "head"
         self.add_module(self.head_name, head)
 
-    def forward(self, x, bboxes=None):
+    def forward(self, x, bboxes=None, return_feats=False):
         x = self.s1(x)
         x = self.s1_fuse(x)
         x = self.s2(x)
@@ -387,15 +387,23 @@ class SlowFast(nn.Module):
         x = self.s3_fuse(x)
         x = self.s4(x)
         x = self.s4_fuse(x)
-        x = self.s5(x)
+        feats = self.s5(x)
 
+        preds = None
         if hasattr(self, "head_name"):
             head = getattr(self, self.head_name)
             if self.enable_detection:
-                x = head(x, bboxes)
+                preds = head(feats, bboxes)
             else:
-                x = head(x)
-        return x
+                preds = head(feats)
+
+        if preds is not None:
+            if return_feats:
+                return preds, feats
+            else:
+                return preds
+        else:
+            return feats
 
 
 @MODEL_REGISTRY.register()
@@ -604,14 +612,13 @@ class ResNet(nn.Module):
 def is_detection_enabled(cfg):
     try:
         detection_enabled = (
-            cfg.DATA.TASK == "detection" or cfg.DATA.TASK=="short_term_anticipation"
+                cfg.DATA.TASK == "detection" or cfg.DATA.TASK == "short_term_anticipation"
         )
     except Exception:
         # Temporary default config while still using old models without this config option
         detection_enabled = False
 
     return detection_enabled
-
 
 
 @MODEL_REGISTRY.register()
@@ -622,17 +629,17 @@ class MViT(nn.Module):
     https://arxiv.org/abs/2104.11227
     """
 
-    def __init__(self, cfg, with_head = True):
+    def __init__(self, cfg, with_head=True):
 
         super().__init__()
         # Get parameters.
         assert cfg.DATA.TRAIN_CROP_SIZE == cfg.DATA.TEST_CROP_SIZE
         self.cfg = cfg
 
-        self.num_frames = 16 #self.cfg.DATA.NUM_FRAMES
+        self.num_frames = 16  # self.cfg.DATA.NUM_FRAMES
         # Prepare input.
         spatial_size = cfg.DATA.TRAIN_CROP_SIZE
-        temporal_size =self.num_frames 
+        temporal_size = self.num_frames
 
         in_chans = cfg.DATA.INPUT_CHANNEL_NUM[0]
         use_2d_patch = cfg.MVIT.PATCH_2D
@@ -691,7 +698,6 @@ class MViT(nn.Module):
         else:
             pos_embed_dim = num_patches
 
-            
         if self.use_abs_pos:
             if self.sep_pos_embed:
                 self.pos_embed_spatial = nn.Parameter(
@@ -719,8 +725,8 @@ class MViT(nn.Module):
 
         for i in range(len(cfg.MVIT.POOL_Q_STRIDE)):
             stride_q[cfg.MVIT.POOL_Q_STRIDE[i][0]] = cfg.MVIT.POOL_Q_STRIDE[i][
-                1:
-            ]
+                                                     1:
+                                                     ]
             if cfg.MVIT.POOL_KVQ_KERNEL is not None:
                 pool_q[
                     cfg.MVIT.POOL_Q_STRIDE[i][0]
@@ -731,8 +737,8 @@ class MViT(nn.Module):
                 ]
         for i in range(len(cfg.MVIT.POOL_KV_STRIDE)):
             stride_kv[cfg.MVIT.POOL_KV_STRIDE[i][0]] = cfg.MVIT.POOL_KV_STRIDE[
-                i
-            ][1:]
+                                                           i
+                                                       ][1:]
             if cfg.MVIT.POOL_KVQ_KERNEL is not None:
                 pool_kv[
                     cfg.MVIT.POOL_KV_STRIDE[i][0]
@@ -742,14 +748,13 @@ class MViT(nn.Module):
                     s + 1 if s > 1 else s
                     for s in cfg.MVIT.POOL_KV_STRIDE[i][1:]
                 ]
-        
+
         dim_mul, head_mul = torch.ones(depth + 1), torch.ones(depth + 1)
         for i in range(len(cfg.MVIT.DIM_MUL)):
             dim_mul[cfg.MVIT.DIM_MUL[i][0]] = cfg.MVIT.DIM_MUL[i][1]
         for i in range(len(cfg.MVIT.HEAD_MUL)):
             head_mul[cfg.MVIT.HEAD_MUL[i][0]] = cfg.MVIT.HEAD_MUL[i][1]
 
-            
         self.norm_stem = norm_layer(embed_dim) if cfg.MVIT.NORM_STEM else None
         input_size = self.patch_dims
         self.blocks = nn.ModuleList()
@@ -768,7 +773,7 @@ class MViT(nn.Module):
                     dim_out=dim_out,
                     num_heads=num_heads,
                     pool_first=pool_first,
-                    input_size= input_size,
+                    input_size=input_size,
                     mlp_ratio=mlp_ratio,
                     qkv_bias=qkv_bias,
                     drop_rate=self.drop_rate,
@@ -792,7 +797,6 @@ class MViT(nn.Module):
         self.norm = norm_layer(embed_dim)
 
         if with_head:
-                
             self.head = TransformerBasicHead(
                 embed_dim,
                 num_classes,
@@ -851,7 +855,7 @@ class MViT(nn.Module):
             else:
                 downsample = x[1].shape[2] // 16
                 assert x[1].shape[2] % 16 == 0
-                x = x[1][:, : ,::downsample, : , :]
+                x = x[1][:, :, ::downsample, :, :]
         else:
             assert x[0].shape[2] == 16
 
@@ -894,7 +898,6 @@ class MViT(nn.Module):
         for blk in self.blocks:
             x, thw = blk(x, thw)
 
-        
         x = self.norm(x)
         if self.cls_embed_on:
             x = x[:, 0]
@@ -904,27 +907,28 @@ class MViT(nn.Module):
         x = self.head(x)
         return x
 
+
 class MultiScaleAttention(nn.Module):
     def __init__(
-        self,
-        dim,
-        input_size,
-        pool_first,
-        num_heads=8,
-        qkv_bias=False,
-        drop_rate=0.0,
-        kernel_q=(1, 1, 1),
-        kernel_kv=(1, 1, 1),
-        stride_q=(1, 1, 1),
-        stride_kv=(1, 1, 1),
-        norm_layer=nn.LayerNorm,
-        has_cls_embed=True,
-        # Options include `conv`, `avg`, and `max`.
-        mode="conv",
-        # If True, perform pool before projection.
-        rel_pos_spatial=False,
-        rel_pos_temporal=False,
-        cfg=None,
+            self,
+            dim,
+            input_size,
+            pool_first,
+            num_heads=8,
+            qkv_bias=False,
+            drop_rate=0.0,
+            kernel_q=(1, 1, 1),
+            kernel_kv=(1, 1, 1),
+            stride_q=(1, 1, 1),
+            stride_kv=(1, 1, 1),
+            norm_layer=nn.LayerNorm,
+            has_cls_embed=True,
+            # Options include `conv`, `avg`, and `max`.
+            mode="conv",
+            # If True, perform pool before projection.
+            rel_pos_spatial=False,
+            rel_pos_temporal=False,
+            cfg=None,
     ):
         super().__init__()
         self.pool_first = pool_first
@@ -1033,7 +1037,6 @@ class MultiScaleAttention(nn.Module):
             # if not cfg.TRAIN.CHECKPOINT_IN_INIT:
             #     trunc_normal_(self.rel_pos_t, std=0.02)
 
-
     def forward(self, x, thw_shape):
         B, N, C = x.shape
         if self.pool_first:
@@ -1064,12 +1067,11 @@ class MultiScaleAttention(nn.Module):
             #     .permute(0, 2, 1, 3)
             # )
             qkv = (
-            self.qkv(x)
-            .reshape(B, N, 3, self.num_heads, C // self.num_heads)
-            .permute(2, 0, 3, 1, 4)
+                self.qkv(x)
+                .reshape(B, N, 3, self.num_heads, C // self.num_heads)
+                .permute(2, 0, 3, 1, 4)
             )
             q, k, v = qkv[0], qkv[1], qkv[2]
-
 
         q, q_shape = attention_pool(
             q,
@@ -1153,30 +1155,31 @@ class MultiScaleAttention(nn.Module):
             x = self.proj_drop(x)
         return x, q_shape
 
+
 class MultiScaleBlock(nn.Module):
     def __init__(
-        self,
-        dim,
-        dim_out,
-        num_heads,
-        input_size,
-        pool_first,
-        mlp_ratio=4.0,
-        qkv_bias=False,
-        qk_scale=None,
-        drop_rate=0.0,
-        drop_path=0.0,
-        act_layer=nn.GELU,
-        norm_layer=nn.LayerNorm,
-        up_rate=None,
-        kernel_q=(1, 1, 1),
-        kernel_kv=(1, 1, 1),
-        stride_q=(1, 1, 1),
-        stride_kv=(1, 1, 1),
-        mode="conv",
-        has_cls_embed=True,
-        rel_pos_spatial=False,
-        rel_pos_temporal=False,
+            self,
+            dim,
+            dim_out,
+            num_heads,
+            input_size,
+            pool_first,
+            mlp_ratio=4.0,
+            qkv_bias=False,
+            qk_scale=None,
+            drop_rate=0.0,
+            drop_path=0.0,
+            act_layer=nn.GELU,
+            norm_layer=nn.LayerNorm,
+            up_rate=None,
+            kernel_q=(1, 1, 1),
+            kernel_kv=(1, 1, 1),
+            stride_q=(1, 1, 1),
+            stride_kv=(1, 1, 1),
+            mode="conv",
+            has_cls_embed=True,
+            rel_pos_spatial=False,
+            rel_pos_temporal=False,
     ):
         super().__init__()
         self.dim = dim
@@ -1244,6 +1247,7 @@ class MultiScaleBlock(nn.Module):
         x = x + self.drop_path(x_mlp)
         return x, thw_shape_new
 
+
 def drop_path(x, drop_prob: float = 0.0, training: bool = False):
     """
     Stochastic Depth per sample.
@@ -1252,7 +1256,7 @@ def drop_path(x, drop_prob: float = 0.0, training: bool = False):
         return x
     keep_prob = 1 - drop_prob
     shape = (x.shape[0],) + (1,) * (
-        x.ndim - 1
+            x.ndim - 1
     )  # work with diff dim tensors, not just 2D ConvNets
     mask = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
     mask.floor_()  # binarize
@@ -1270,14 +1274,15 @@ class DropPath(nn.Module):
     def forward(self, x):
         return drop_path(x, self.drop_prob, self.training)
 
+
 class Mlp(nn.Module):
     def __init__(
-        self,
-        in_features,
-        hidden_features=None,
-        out_features=None,
-        act_layer=nn.GELU,
-        drop_rate=0.0,
+            self,
+            in_features,
+            hidden_features=None,
+            out_features=None,
+            act_layer=nn.GELU,
+            drop_rate=0.0,
     ):
         super().__init__()
         self.drop_rate = drop_rate
@@ -1299,19 +1304,20 @@ class Mlp(nn.Module):
             x = self.drop(x)
         return x
 
+
 class PatchEmbed(nn.Module):
     """
     PatchEmbed.
     """
 
     def __init__(
-        self,
-        dim_in=3,
-        dim_out=768,
-        kernel=(1, 16, 16),
-        stride=(1, 4, 4),
-        padding=(1, 7, 7),
-        conv_2d=False,
+            self,
+            dim_in=3,
+            dim_out=768,
+            kernel=(1, 16, 16),
+            stride=(1, 4, 4),
+            padding=(1, 7, 7),
+            conv_2d=False,
     ):
         super().__init__()
         if conv_2d:
@@ -1331,6 +1337,7 @@ class PatchEmbed(nn.Module):
         # B C (T) H W -> B (T)HW C
         return x.flatten(2).transpose(1, 2)
 
+
 def round_width(width, multiplier, min_width=1, divisor=1, verbose=False):
     if not multiplier:
         return width
@@ -1346,17 +1353,18 @@ def round_width(width, multiplier, min_width=1, divisor=1, verbose=False):
         width_out += divisor
     return int(width_out)
 
+
 class TransformerBasicHead(nn.Module):
     """
     BasicHead. No pool.
     """
 
     def __init__(
-        self,
-        dim_in,
-        num_classes,
-        dropout_rate=0.0,
-        act_func="softmax",
+            self,
+            dim_in,
+            num_classes,
+            dropout_rate=0.0,
+            act_func="softmax",
     ):
         """
         Perform linear projection and activation as head for tranformers.
@@ -1403,6 +1411,7 @@ class TransformerBasicHead(nn.Module):
             x = self.act(x)
         return x
 
+
 def attention_pool(tensor, pool, thw_shape, has_cls_embed=True, norm=None):
     if pool is None:
         return tensor, thw_shape
@@ -1435,13 +1444,14 @@ def attention_pool(tensor, pool, thw_shape, has_cls_embed=True, norm=None):
     # Assert tensor_dim in [3, 4]
     if tensor_dim == 4:
         pass
-    else:  #  tensor_dim == 3:
+    else:  # tensor_dim == 3:
         tensor = tensor.squeeze(1)
     return tensor, thw_shape
 
-        
+
 def _contract(*args):
     return opt_einsum.contract(*args, backend="torch")
+
 
 def get_rel_pos(rel_pos, d):
     if isinstance(d, int):
@@ -1458,7 +1468,7 @@ def get_rel_pos(rel_pos, d):
 
             return new_pos_embed.reshape(-1, d).permute(1, 0)
 
-    
+
 def cal_rel_pos_spatial(attn, q, has_cls_embed, q_shape, k_shape, rel_pos_h, rel_pos_w):
     sp_idx = 1 if has_cls_embed else 0
     q_t, q_h, q_w = q_shape
@@ -1472,7 +1482,7 @@ def cal_rel_pos_spatial(attn, q, has_cls_embed, q_shape, k_shape, rel_pos_h, rel
     # Scale up rel pos if shapes for q and k are different.
     q_h_ratio = max(k_h / q_h, 1.0)
     k_h_ratio = max(q_h / k_h, 1.0)
-    dist_h = torch.arange(q_h)[:, None] * q_h_ratio- torch.arange(k_h)[None, :] * k_h_ratio
+    dist_h = torch.arange(q_h)[:, None] * q_h_ratio - torch.arange(k_h)[None, :] * k_h_ratio
     dist_h += (k_h - 1) * k_h_ratio
     q_w_ratio = max(k_w / q_w, 1.0)
     k_w_ratio = max(q_w / k_w, 1.0)
@@ -1502,9 +1512,9 @@ def cal_rel_pos_spatial(attn, q, has_cls_embed, q_shape, k_shape, rel_pos_h, rel
         rel_w = rel_w.view(B, n_head, q_t, q_h, q_w, k_w)
 
         attn[:, :, sp_idx:, sp_idx:] = (
-            attn[:, :, sp_idx:, sp_idx:].view(B, -1, q_t, q_h, q_w, k_t, k_h, k_w)
-            + rel_h[:, :, :, :, :, None, :, None]
-            + rel_w[:, :, :, :, :, None, None, :]
+                attn[:, :, sp_idx:, sp_idx:].view(B, -1, q_t, q_h, q_w, k_t, k_h, k_w)
+                + rel_h[:, :, :, :, :, None, :, None]
+                + rel_w[:, :, :, :, :, None, None, :]
         ).view(B, -1, q_t * q_h * q_w, k_t * k_h * k_w)
     elif q.dim() == 3 and attn.dim() == 3:
         B_n_head, q_N, dim = q.shape
@@ -1520,14 +1530,15 @@ def cal_rel_pos_spatial(attn, q, has_cls_embed, q_shape, k_shape, rel_pos_h, rel
         rel_h = rel_h.view(B_n_head, q_t, q_w, q_h, k_h).permute(0, 1, 3, 2, 4)
         rel_w = rel_w.view(B_n_head, q_t, q_h, q_w, k_w)
         attn[:, sp_idx:, sp_idx:] = (
-            attn[:, sp_idx:, sp_idx:].view(B_n_head, q_t, q_h, q_w, k_t, k_h, k_w)
-            + rel_h[:, :, :, :, None, :, None]
-            + rel_w[:, :, :, :, None, None, :]
+                attn[:, sp_idx:, sp_idx:].view(B_n_head, q_t, q_h, q_w, k_t, k_h, k_w)
+                + rel_h[:, :, :, :, None, :, None]
+                + rel_w[:, :, :, :, None, None, :]
         ).view(B_n_head, q_t * q_h * q_w, k_t * k_h * k_w)
     else:
         raise NotImplementedError(f"Unsupported q shape {q.shape}")
     return attn
-    
+
+
 def cal_rel_pos_temporal(attn, q, has_cls_embed, q_shape, k_shape, rel_pos_t):
     sp_idx = 1 if has_cls_embed else 0
     q_t, q_h, q_w = q_shape
@@ -1539,7 +1550,7 @@ def cal_rel_pos_temporal(attn, q, has_cls_embed, q_shape, k_shape, rel_pos_t):
     # Scale up rel pos if shapes for q and k are different.
     q_t_ratio = max(k_t / q_t, 1.0)
     k_t_ratio = max(q_t / k_t, 1.0)
-    dist_t = torch.arange(q_t)[:, None] * q_t_ratio- torch.arange(k_t)[None, :] * k_t_ratio
+    dist_t = torch.arange(q_t)[:, None] * q_t_ratio - torch.arange(k_t)[None, :] * k_t_ratio
     dist_t += (k_t - 1) * k_t_ratio
     Rt = rel_pos_t[dist_t.long()]
 
@@ -1553,11 +1564,11 @@ def cal_rel_pos_temporal(attn, q, has_cls_embed, q_shape, k_shape, rel_pos_t):
         # [B*H*q_h*q_w, q_t, k_t] -> [B, H, q_t, q_h, q_w, k_t]
         rel = rel.view(B, n_head, q_h, q_w, q_t, k_t).permute(0, 1, 4, 2, 3, 5)
 
-        #attn[:, :, 1:, 1:] += attn_t
+        # attn[:, :, 1:, 1:] += attn_t
         if attn.dim() == 4:
             attn[:, :, sp_idx:, sp_idx:] = (
-                attn[:, :, sp_idx:, sp_idx:].view(B, -1, q_t, q_h, q_w, k_t, k_h, k_w)
-                + rel[:, :, :, :, :, :, None, None]
+                    attn[:, :, sp_idx:, sp_idx:].view(B, -1, q_t, q_h, q_w, k_t, k_h, k_w)
+                    + rel[:, :, :, :, :, :, None, None]
             ).view(B, -1, q_t * q_h * q_w, k_t * k_h * k_w)
     elif q.dim() == 3 and attn.dim() == 3:
         B_n_head, q_N, dim = q.shape
@@ -1571,7 +1582,7 @@ def cal_rel_pos_temporal(attn, q, has_cls_embed, q_shape, k_shape, rel_pos_t):
         attn[:, sp_idx:, sp_idx:] = (
                 attn[:, sp_idx:, sp_idx:].view(B_n_head, q_t, q_h, q_w, k_t, k_h, k_w)
                 + rel[:, :, :, :, :, None, None]
-            ).view(B_n_head, q_t * q_h * q_w, k_t * k_h * k_w)
+        ).view(B_n_head, q_t * q_h * q_w, k_t * k_h * k_w)
     else:
         raise NotImplementedError(f"Unsupported q shape {q.shape}")
 

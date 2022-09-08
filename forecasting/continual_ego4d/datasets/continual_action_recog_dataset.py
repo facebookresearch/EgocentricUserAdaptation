@@ -457,17 +457,22 @@ def get_preprocessed_clips(video_annotation_list,
     return miniclip_annotation_list
 
 
-def get_formatted_entry(entry, video_path_prefix, user_id):
+def get_formatted_entry(df_row, video_path_prefix, user_id):
     """Return (video_path, annotation_info) format."""
     return (
-        os.path.join(video_path_prefix, f'{entry["clip_uid"]}.mp4'),
+        os.path.join(video_path_prefix, f'{df_row["clip_uid"]}.mp4'),
         {
-            "clip_start_sec": entry['action_clip_start_sec'],
-            "clip_end_sec": entry['action_clip_end_sec'],
-            "noun_label": entry['noun_label'],
-            "verb_label": entry['verb_label'],
-            "action_idx": entry['action_idx'],
-            "parent_video_scenarios": entry['parent_video_scenarios'],
+            "clip_start_sec": df_row['action_clip_start_sec'],
+            "clip_end_sec": df_row['action_clip_end_sec'],
+            "noun_label": df_row['noun_label'],
+            "noun": df_row['noun'],
+            "verb_label": df_row['verb_label'],
+            "verb": df_row['verb'],
+            "action_idx": df_row['action_idx'],
+            "parent_video_scenarios": df_row['parent_video_scenarios'],
             "user_id": user_id,  # Grouped by user
+
+            # Get full dataset info access in stream
+            # "meta_data": df_row.to_dict(),
         }
     )

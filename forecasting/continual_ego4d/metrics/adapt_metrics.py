@@ -68,4 +68,4 @@ class CumulativeOnlineAdaptationGainMetric(OnlineAdaptationGainMetric):
     @torch.no_grad()
     def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format. Return sum as this is a cumulative metric."""
-        return {self.name: self.avg_meter.sum}
+        return super().result(current_batch_idx, meter_attr='sum')

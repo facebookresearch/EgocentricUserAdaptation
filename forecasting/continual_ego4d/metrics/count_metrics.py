@@ -86,6 +86,11 @@ class CountMetric(Metric):
 
         return {k: v for k, v in ret}
 
+    @torch.no_grad()
+    def dump(self) -> Dict:
+        """Optional: after training stream, a dump of states could be returned."""
+        return {}
+
 
 class WindowedUniqueCountMetric(Metric):
     """ For a window preceding the current timestep, how many actions/verbs/nouns are unique. """
@@ -183,3 +188,8 @@ class WindowedUniqueCountMetric(Metric):
                 TAG_BATCH, action_mode=self.action_mode,
                 base_metric_name=f"{self.name_prefix}_freq_max"): histogram_max,
         }
+
+    @torch.no_grad()
+    def dump(self) -> Dict:
+        """Optional: after training stream, a dump of states could be returned."""
+        return {}

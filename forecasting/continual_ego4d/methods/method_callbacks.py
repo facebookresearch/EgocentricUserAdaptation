@@ -14,44 +14,115 @@ from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_
 from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
 from ego4d.utils import logging
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
+
 logger = logging.get_logger(__name__)
 
 
 class Method:
-    def __init__(self, cfg, lightning_module: LightningModule):
+    def __init__(self, cfg, lightning_module: 'ContinualMultiTaskClassificationTask'):
         self.cfg = cfg  # For method-specific params
         self.lightning_module = lightning_module
         self.trainer = self.lightning_module.trainer
 
-        self.loss_fun_train = self.lightning_module.loss_fun
-        self.loss_fun_pred = self.lightning_module.loss_fun_pred
+        self.loss_fun_train = self.lightning_module.loss_fun_unred
+        self.loss_fun_pred = self.lightning_module.loss_fun_unred
 
     def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
         return batch
 
-    def training_step(self, inputs, labels, *args, **kwargs) -> \
+    def update_stream_tracking(
+            self,
+            stream_sample_idxs: list[int],
+            new_batch_feats,
+            new_batch_verb_pred,  # Preds
+            new_batch_noun_pred,
+            new_batch_action_loss,  # Losses
+            new_batch_verb_loss,
+            new_batch_noun_loss,
+    ):
+        """ Wrapper that forwards samples but also """
+        ss = self.lightning_module.stream_state
+
+        streamtrack_to_batchval = (
+            (ss.sample_idx_to_feat, new_batch_feats),
+            (ss.sample_idx_to_verb_pred, new_batch_verb_pred),
+            (ss.sample_idx_to_noun_pred, new_batch_noun_pred),
+            (ss.sample_idx_to_action_loss, new_batch_action_loss),
+            (ss.sample_idx_to_verb_loss, new_batch_verb_loss),
+            (ss.sample_idx_to_noun_loss, new_batch_noun_loss),
+        )
+
+        # Make copies on cpu and detach from computational graph
+        streamtrack_to_batchval_cp = []
+        for streamtrack_list, batch_vals in streamtrack_to_batchval:
+            if isinstance(batch_vals, torch.Tensor):
+                batch_vals = batch_vals.cpu().detach()
+
+            # Check all same length
+            assert len(batch_vals) == len(stream_sample_idxs), \
+                f"batch_shape {len(batch_vals)} not matching len stream_idxs {len(stream_sample_idxs)}"
+
+            streamtrack_to_batchval_cp.append(
+                (streamtrack_list, batch_vals)
+            )
+        del streamtrack_to_batchval
+
+        # Add tracking values
+        for batch_idx, stream_sample_idx in enumerate(stream_sample_idxs):
+            for streamtrack_list, batch_vals in streamtrack_to_batchval_cp:
+                batch_val = batch_vals[batch_idx]
+                try:
+                    batch_val = batch_val.item()
+                except:
+                    pass
+                streamtrack_list[stream_sample_idx] = batch_val
+
+    def training_step(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs) -> \
             Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
 
-        preds: list = self.lightning_module.forward(inputs)
-        loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(preds, labels, self.loss_fun_train)
+        preds, feats = self.lightning_module.forward(inputs, return_feats=True)
+        loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
+            preds, labels, self.loss_fun_train, mean=False
+        )
+
+        self.update_stream_tracking(
+            stream_sample_idxs=current_batch_stream_idxs,
+            new_batch_feats=feats,
+            new_batch_verb_pred=preds[0],
+            new_batch_noun_pred=preds[1],
+            new_batch_action_loss=loss_action,
+            new_batch_verb_loss=loss_verb,
+            new_batch_noun_loss=loss_noun,
+        )
+
+        # Reduce
+        loss_action_m = loss_action.mean()
+        loss_verb_m = loss_verb.mean()
+        loss_noun_m = loss_noun.mean()
 
         log_results = {
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='loss'):
-                loss_action.item(),
+                loss_action_m.item(),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb', base_metric_name='loss'):
-                loss_verb.item(),
+                loss_verb_m.item(),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun', base_metric_name='loss'):
-                loss_noun.item(),
+                loss_noun_m.item(),
         }
-        return loss_action, preds, log_results
+        return loss_action_m, preds, log_results
 
     def prediction_step(self, inputs, labels, stream_sample_idxs: list, *args, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Default: Get all info we also get during training."""
         preds: list = self.lightning_module.forward(inputs)
-        loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(preds, labels, self.loss_fun_pred)
+        loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
+            preds, labels, self.loss_fun_pred, mean=False
+        )
 
         sample_to_results = {}
         for batch_idx, stream_sample_idx in enumerate(stream_sample_idxs):
@@ -72,8 +143,8 @@ class Finetuning(Method):
     def __init__(self, cfg, lightning_module):
         super().__init__(cfg, lightning_module)
 
-    def training_step(self, inputs, labels, *args, **kwargs):
-        return super().training_step(inputs, labels, *args, **kwargs)
+    def training_step(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        return super().training_step(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
 
 
 @METHOD_REGISTRY.register()
@@ -180,11 +251,10 @@ class Replay(Method):
 
         return joined_batch
 
-    def training_step(self, inputs, labels, *args, current_batch_stream_idxs: list = None, **kwargs) \
+    def training_step(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
-        assert current_batch_stream_idxs is not None, "Specify current_batch_stream_idxs for Replay"
         assert len(current_batch_stream_idxs) == self.new_batch_size, \
             "current_batch_stream_idxs should only include new-batch idxs"
         total_batch_size = labels.shape[0]
@@ -192,45 +262,60 @@ class Replay(Method):
         self.num_observed_samples += self.new_batch_size
 
         # Forward at once
-        preds: list = self.lightning_module.forward(inputs)
+        preds, feats = self.lightning_module.forward(inputs, return_feats=True)
 
         # Unreduced losses
         loss_verbs = self.loss_fun_pred(preds[0], labels[:, 0])  # Verbs
         loss_nouns = self.loss_fun_pred(preds[1], labels[:, 1])  # Nouns
 
         # Disentangle new, buffer, and total losses
-        loss_new_verbs = torch.mean(loss_verbs[:self.new_batch_size])
-        loss_new_nouns = torch.mean(loss_nouns[:self.new_batch_size])
+        loss_new_verbs = loss_verbs[:self.new_batch_size]
+        loss_new_nouns = loss_nouns[:self.new_batch_size]
         loss_new_actions = loss_new_verbs + loss_new_nouns
 
+        # Reduce
+        loss_new_verbs_m = loss_new_verbs.mean()
+        loss_new_nouns_m = loss_new_nouns.mean()
+        loss_new_actions_m = loss_new_actions.mean()
+
         if mem_batch_size > 0:  # Memory samples added
-            loss_mem_verbs = torch.mean(loss_verbs[self.new_batch_size:])
-            loss_mem_nouns = torch.mean(loss_nouns[self.new_batch_size:])
-            loss_mem_actions = loss_mem_verbs + loss_mem_nouns
+            loss_mem_verbs_m = torch.mean(loss_verbs[self.new_batch_size:])
+            loss_mem_nouns_m = torch.mean(loss_nouns[self.new_batch_size:])
+            loss_mem_actions_m = loss_mem_verbs_m + loss_mem_nouns_m
 
         else:
-            loss_mem_verbs = loss_mem_nouns = loss_mem_actions = torch.FloatTensor([0]).to(loss_verbs.device)
+            loss_mem_verbs_m = loss_mem_nouns_m = loss_mem_actions_m = torch.FloatTensor([0]).to(loss_verbs.device)
 
-        loss_total_verbs = (loss_new_verbs + loss_mem_verbs) / 2
-        loss_total_nouns = (loss_new_nouns + loss_mem_nouns) / 2
-        loss_total_actions = (loss_new_actions + loss_mem_actions) / 2
+        loss_total_verbs_m = (loss_new_verbs_m + loss_mem_verbs_m) / 2
+        loss_total_nouns_m = (loss_new_nouns_m + loss_mem_nouns_m) / 2
+        loss_total_actions_m = (loss_new_actions_m + loss_mem_actions_m) / 2
+
+        self.update_stream_tracking(
+            stream_sample_idxs=current_batch_stream_idxs,
+            new_batch_feats=feats[:self.new_batch_size],
+            new_batch_verb_pred=preds[0][:self.new_batch_size],
+            new_batch_noun_pred=preds[1][:self.new_batch_size],
+            new_batch_action_loss=loss_new_actions,
+            new_batch_verb_loss=loss_new_verbs,
+            new_batch_noun_loss=loss_new_nouns,
+        )
 
         log_results = {
             # Total
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
-                           base_metric_name=f"loss_total"): loss_total_verbs.item(),
+                           base_metric_name=f"loss_total"): loss_total_verbs_m.mean().item(),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
-                           base_metric_name=f"loss_total"): loss_total_nouns.item(),
+                           base_metric_name=f"loss_total"): loss_total_nouns_m.item(),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
-                           base_metric_name=f"loss_total"): loss_total_actions.item(),
+                           base_metric_name=f"loss_total"): loss_total_actions_m.item(),
 
             # Mem
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
-                           base_metric_name=f"loss_mem"): loss_mem_verbs.item(),
+                           base_metric_name=f"loss_mem"): loss_mem_verbs_m.item(),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
-                           base_metric_name=f"loss_mem"): loss_mem_nouns.item(),
+                           base_metric_name=f"loss_mem"): loss_mem_nouns_m.item(),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
-                           base_metric_name=f"loss_mem"): loss_mem_actions.item(),
+                           base_metric_name=f"loss_mem"): loss_mem_actions_m.item(),
 
             # New
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
@@ -241,13 +326,13 @@ class Replay(Method):
                            base_metric_name=f"loss_new"): loss_new_actions.item(),
         }
 
-        # TODO: Store samples
+        # Store samples
         self._store_samples_in_replay_memory(labels, current_batch_stream_idxs)
 
         # Update size
         self.num_samples_memory = sum(len(cond_mem) for cond_mem in self.conditional_memory.values())
 
-        return loss_total_actions, preds, log_results
+        return loss_total_actions_m, preds, log_results
 
     def _store_samples_in_replay_memory(self, labels: torch.LongTensor, current_batch_stream_idxs: list):
         """"""
