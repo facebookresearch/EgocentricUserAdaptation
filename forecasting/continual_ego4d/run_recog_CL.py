@@ -331,7 +331,7 @@ def online_adaptation_single_user(
 
         callbacks=trainer_callbacks,
         logger=trainer_loggers,
-        log_every_n_steps=cfg.CONTINUAL_EVAL.FREQ,  # Required to allow per-step log-cals for evaluation
+        log_every_n_steps=1,  # Required to allow per-step log-cals for evaluation
     )
 
     # Overwrite (Always log on first step)

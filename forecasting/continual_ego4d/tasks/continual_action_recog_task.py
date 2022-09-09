@@ -161,13 +161,13 @@ class StreamStateTracker:
             batch: Any,
             batch_idx: int,
             plotting_log_freq: int,
-            eval_this_step: bool
+            continual_eval_freq: int,
     ):
         self.batch_idx = batch_idx
 
         # Eval or plot at this iteration
         self.plot_this_step = batch_idx % plotting_log_freq == 0 or batch_idx == len(self.stream_loader)
-        self.eval_this_step = eval_this_step
+        self.eval_this_step = batch_idx % continual_eval_freq == 0 or batch_idx == len(self.stream_loader)
         logger.debug(f"Continual eval on batch {batch_idx}/{len(self.stream_loader)} = {self.eval_this_step}")
 
         # Observed idxs update before batch is altered
@@ -471,7 +471,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             batch,
             batch_idx=dataloader_idx,
             plotting_log_freq=self.plotting_log_freq,
-            eval_this_step=self.trainer.logger_connector.should_update_logs
+            continual_eval_freq=self.continual_eval_freq,
         )
 
         # Update batch
@@ -513,14 +513,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         )
         self.add_to_dict_(metric_results, step_results)
 
+        logger.debug(f"Starting PRE-UPDATE evaluation: batch_idx={batch_idx}/{len(self.train_loader)}")
+        self.eval_current_stream_batch_preupdate_(
+            metric_results,
+            [verbnoun_outputs[i][:self.stream_state.stream_batch_size] for i in range(2)],
+            labels[:self.stream_state.stream_batch_size]
+        )
         # Perform additional eval
         if self.stream_state.eval_this_step:
-            logger.debug(f"Starting PRE-UPDATE evaluation: batch_idx={batch_idx}/{len(self.train_loader)}")
-            self.eval_current_stream_batch_preupdate_(
-                metric_results,
-                [verbnoun_outputs[i][:self.stream_state.stream_batch_size] for i in range(2)],
-                labels[:self.stream_state.stream_batch_size]
-            )
             self.eval_future_data_(metric_results, batch_idx)
 
         # LOG results
