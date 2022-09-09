@@ -178,7 +178,7 @@ class Replay(Method):
         assert self.storage_policy in self.storage_policies
 
         self.train_stream_dataset = lightning_module.train_dataloader().dataset
-        self.num_workers_replay = cfg.DATA_LOADER.NUM_WORKERS  # Doubles the number of workers
+        self.num_workers_replay = 1  # Only a single batch is retrieved
 
         self.conditional_memory = OrderedDict({})  # Map <Conditional, datastream_idx_list>
         self.memory_dataloader_idxs = []  # Use this to update the memory indices of the stream
