@@ -105,6 +105,8 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             decoder=self._decoder
         )
 
+        self.clip_5min_transition_idxs, self.parent_video_transition_idxs = get_video_transitions(self.seq_input_list)
+
         if cfg.FAST_DEV_RUN:
             logger.debug(f"FAST-DEV DEBUG: cutting off user data "
                          f"from {len(self.seq_input_list)} to {cfg.FAST_DEV_DATA_CUTOFF}")
@@ -470,9 +472,41 @@ def get_formatted_entry(df_row, video_path_prefix, user_id):
             "verb": df_row['verb'],
             "action_idx": df_row['action_idx'],
             "parent_video_scenarios": df_row['parent_video_scenarios'],
+            "parent_video_uid": df_row['video_uid'],
+            "clip_5min_uid": df_row['clip_uid'],
             "user_id": user_id,  # Grouped by user
 
             # Get full dataset info access in stream
             # "meta_data": df_row.to_dict(),
         }
     )
+
+
+def get_video_transitions(seq_input_list):
+    """
+    Get transitions of 5min video clips and parent videos.
+    The first sample_idx of the new video/clip in the stream is returned as reference.
+    """
+    clip_5min_transition_idxs = []
+    parent_video_transition_idxs = []
+
+    last_clip = None
+    last_video = None
+    for sample_idx, (clip_5min_path, entry) in enumerate(seq_input_list):
+        clip_5min_uid = entry['parent_video_uid']
+        parent_video_uid = entry['clip_5min_uid']
+
+        if last_clip is not None:
+            assert last_video is not None
+
+            if last_clip != clip_5min_path:
+                clip_5min_transition_idxs.append(sample_idx)
+
+            if last_video != parent_video_uid:
+                parent_video_transition_idxs.append(sample_idx)
+
+        # Update last
+        last_clip = clip_5min_uid
+        last_video = parent_video_uid
+
+    return clip_5min_transition_idxs, parent_video_transition_idxs

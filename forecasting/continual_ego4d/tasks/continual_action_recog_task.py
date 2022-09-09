@@ -90,6 +90,8 @@ class StreamStateTracker:
 
         # Current iteration State vars (single batch)
         self.batch_idx: int = -1  # Current batch idx
+        self.is_parent_video_transition: bool = False
+        self.is_clip_5min_transition: bool = False
         self.eval_this_step: bool = False
         self.plot_this_step: bool = False
         self.stream_batch_idxs: list = []
@@ -106,6 +108,10 @@ class StreamStateTracker:
         The dictionary is filled in the preprocessing predict phase before training."""
 
         # Count-sets: Current stream
+        self.stream_dataset = stream_loader.dataset
+        self.clip_5min_transition_idx_set = set(self.stream_dataset.clip_5min_transition_idxs)
+        self.parent_video_transition_idx_set = set(self.stream_dataset.parent_video_transition_idxs)
+
         self.user_verb_freq_dict = stream_loader.dataset.verb_freq_dict
         self.user_noun_freq_dict = stream_loader.dataset.noun_freq_dict
         self.user_action_freq_dict = stream_loader.dataset.action_freq_dict
@@ -175,6 +181,16 @@ class StreamStateTracker:
         self.stream_batch_labels = labels
         self.stream_batch_idxs = stream_sample_idxs.tolist()
         self.stream_batch_size = len(self.stream_batch_idxs)
+
+        self.is_parent_video_transition = sum(
+            entry_idx in self.parent_video_transition_idx_set
+            for entry_idx in self.stream_batch_idxs
+        ) > 0
+
+        self.is_clip_5min_transition = sum(
+            entry_idx in self.clip_5min_transition_idx_set
+            for entry_idx in self.stream_batch_idxs
+        ) > 0
 
         # Get new actions/verbs current batch
         self.batch_action_freq_dict = defaultdict(int)
@@ -486,6 +502,10 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 len(self.stream_state.seen_samples_idxs),
             get_metric_tag(TAG_BATCH, base_metric_name=f"future_sample_count"):
                 self.stream_state.total_stream_sample_count - len(self.stream_state.seen_samples_idxs),
+            get_metric_tag(TAG_BATCH, base_metric_name=f"is_parent_video_transition"):
+                self.is_parent_video_transition,
+            get_metric_tag(TAG_BATCH, base_metric_name=f"is_clip_5min_transition"):
+                self.is_clip_5min_transition,
         }
 
         self.log_step_metric_results(metric_results)
@@ -673,8 +693,10 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Create new dataloader
         future_dataloader = self._get_train_dataloader_subset(
             self.train_loader,
-            batch_size=self.cfg.CONTINUAL_EVAL.BATCH_SIZE,
             subset_indices=sampled_future_idxs,  # Future data, including current
+            batch_size=self.cfg.CONTINUAL_EVAL.BATCH_SIZE,
+            num_workers=self.cfg.CONTINUAL_EVAL.NUM_WORKERS,
+            pin_memory=self.cfg.DATA_LOADER.PIN_MEMORY,
         )
 
         result_dict = self._get_metric_results_over_dataloader(future_dataloader, metrics=self.future_metrics)
@@ -697,8 +719,10 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         past_dataloader = self._get_train_dataloader_subset(
             self.train_loader,
-            batch_size=self.cfg.CONTINUAL_EVAL.BATCH_SIZE,
             subset_indices=sampled_past_idxs,  # Previous data, not including current
+            batch_size=self.cfg.CONTINUAL_EVAL.BATCH_SIZE,
+            num_workers=self.cfg.CONTINUAL_EVAL.NUM_WORKERS,
+            pin_memory=self.cfg.DATA_LOADER.PIN_MEMORY,
         )
         result_dict = self._get_metric_results_over_dataloader(past_dataloader, metrics=self.past_metrics)
         self.add_to_dict_(step_result, result_dict)
@@ -743,16 +767,16 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def _get_train_dataloader_subset(self, train_dataloader: torch.utils.data.DataLoader,
                                      subset_indices: Union[List, Tuple],
-                                     batch_size: int = None):
+                                     batch_size: int,
+                                     num_workers: int,
+                                     pin_memory: bool,
+                                     ):
         """ Get a subset of the training dataloader's dataset.
 
         !Warning!: DONT COPY SAMPLER from train_dataloader to new dataloader as __len__ is re-used
         from the parent train_dataloader in the new dataloader (which may not match the Dataset).
         """
         dataset = train_dataloader.dataset
-
-        if batch_size is None:
-            batch_size = train_dataloader.batch_size
 
         if subset_indices is not None:
             dataset = torch.utils.data.Subset(dataset, indices=subset_indices)
@@ -764,8 +788,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             batch_size=batch_size,
             shuffle=False,
             drop_last=False,
-            num_workers=self.cfg.DATA_LOADER.NUM_WORKERS,
-            pin_memory=self.cfg.DATA_LOADER.PIN_MEMORY,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
             collate_fn=None,
         )
         return loader
