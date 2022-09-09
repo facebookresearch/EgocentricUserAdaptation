@@ -1,5 +1,8 @@
 # Matthias Continual Learning Benchmark Project
 
+TODO: Only use default usersplits in config, remove others
+
+
 TODO give separate nb workers for continual_eval (e.g. 10 for batch_size 10 and stream 100), 
 predict (full stream, can take 10 processes as well) and 
 train (e.g. 3 because waiting for continual eval mostly gives a lot of time for next batch)
@@ -58,6 +61,7 @@ TODO: Add GRID_NODES in config instead: So can easily derive
 ## Pretraining on usersplit Ego4d
 See [Ego4d LTA README](forecasting/LONG_TERM_ANTICIPATION.md) for a guide on how to use pretraining in general.
 
+    python run_usersplit_ego4d_LTA.py --p_output_dir /fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits
 
 1. Make a usersplit with the script [run_usersplit_ego4d_LTA.py](forecasting/continual_ego4d/run_usersplit_ego4d_LTA.py). 
 This will generate a json split for pretraining. Use this json as input path for the config file when using pretraining for action recognition.
@@ -285,6 +289,11 @@ For Ego4D analysis notebooks see [notebooks](notebooks) directory and README.md 
   
     pip install setuptools==59.5.0
 
+
+## For notebooks
+Also install opencv: 
+
+    conda install opencv
 
 # Docs
 - PytorchVideo:
