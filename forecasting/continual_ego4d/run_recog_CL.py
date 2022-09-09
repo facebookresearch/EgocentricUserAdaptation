@@ -43,51 +43,9 @@ def main(cfg: CfgNode):
     logger.info("Run with config:")
     logger.info(pprint.pformat(cfg))
 
-    # Select user-split file based on config: Either train or test:
-    assert cfg.DATA.USER_SUBSET in ['train', 'test'], \
-        "Choose either 'train' or 'test' mode, TRAIN is the user-subset for hyperparam tuning, TEST is held-out final eval"
-    data_paths = {
-        'train': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT,
-        'test': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT,
-        'pretrain': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT,
-    }
-    data_path = data_paths[cfg.DATA.USER_SUBSET]
-    logger.info(f'Running JSON USER SPLIT "{cfg.DATA.USER_SUBSET}" in path: {data_path}')
-
-    # Current training data (for all users)
-    datasets_holder = extract_json(data_path)
-    user_datasets = datasets_holder['users']  # user-specific datasets
-    user_to_ds_len = sorted(
-        [(user_id, len(user_ds)) for user_id, user_ds in user_datasets.items()],
-        key=lambda x: x[1], reverse=True
-    )
-    all_user_ids = [x[0] for x in user_to_ds_len]  # Order users on dataset length (nb annotations as proxy)
-    logger.info(f"Processing users in order: {all_user_ids}, with sizes {user_to_ds_len}")
-
-    # Pretraining stats (e.g. action sets), cfg requires COMPUTED_ for dynamically added nodes
-    pretrain_dataset_holder = extract_json(data_paths['pretrain'])
-    cfg.COMPUTED_PRETRAIN_ACTION_SETS = copy.deepcopy(pretrain_dataset_holder['user_action_sets']['user_agnostic'])
-    del pretrain_dataset_holder
-
-    # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
-    processed_user_ids = []
-    if path_handler.is_resuming_run:
-        logger.info(f"Resuming run from {path_handler.main_output_dir}")
-        processed_user_ids = path_handler.get_processed_users_from_final_dumps()
-        logger.debug(f"LOADED META CHECKPOINT: Processed users = {processed_user_ids}")
-
-        # If ONLY TESTING, then assume all users have been processed
-        if cfg.TEST.ENABLE and not cfg.TRAIN.ENABLE:
-            logger.info(f"TEST-ONLY MODE: assuming all users have been processed")
-
-            # Checks
-            assert len(processed_user_ids) == len(all_user_ids), \
-                f"Only {len(processed_user_ids)}/{len(all_user_ids)} " \
-                f"users processed for test: {processed_user_ids}"
-            assert len(cfg.CHECKPOINT_FILE_PATH) > 0, "Need a model path to load for testing"
-            assert cfg.CHECKPOINT_LOAD_MODEL_HEAD, f"Need to load head for testing mode"
-
-            processed_user_ids = []  # For testing, all still have to be processed
+    # Dataset lists from json / users to process
+    user_datasets = load_datasets_from_jsons(cfg)
+    processed_user_ids, all_user_ids = get_user_ids(cfg, user_datasets, path_handler)
 
     # Sequential/parallel execution user jobs
     available_device_ids = get_device_ids(cfg)
@@ -105,6 +63,63 @@ def main(cfg: CfgNode):
     else:
         process_users_parallel(cfg, scheduler_cfg, user_datasets, path_handler)
     logger.info("Finished processing all users")
+
+
+def load_datasets_from_jsons(cfg):
+    """
+    Load the train OR test json.
+    The Pretrain action sets are always loaded.
+    """
+    # Select user-split file based on config: Either train or test:
+    assert cfg.DATA.USER_SUBSET in ['train', 'test'], \
+        "Choose either 'train' or 'test' mode, TRAIN is the user-subset for hyperparam tuning, TEST is held-out final eval"
+    data_paths = {
+        'train': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT,
+        'test': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT,
+        'pretrain': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT,
+    }
+    data_path = data_paths[cfg.DATA.USER_SUBSET]
+    logger.info(f'Running JSON USER SPLIT "{cfg.DATA.USER_SUBSET}" in path: {data_path}')
+
+    # Current training data (for all users)
+    datasets_holder = extract_json(data_path)
+    user_datasets = datasets_holder['users']  # user-specific datasets
+
+    # Pretraining stats (e.g. action sets), cfg requires COMPUTED_ for dynamically added nodes
+    pretrain_dataset_holder = extract_json(data_paths['pretrain'])
+    cfg.COMPUTED_PRETRAIN_ACTION_SETS = copy.deepcopy(pretrain_dataset_holder['user_action_sets']['user_agnostic'])
+    del pretrain_dataset_holder
+
+    return user_datasets
+
+
+def get_user_ids(cfg, user_datasets, path_handler):
+    """
+    Get all user_ids and the subset that is processed.
+    """
+    # Order users on dataset length (nb annotations as proxy)
+    user_to_ds_len = sorted(
+        [(user_id, len(user_ds)) for user_id, user_ds in user_datasets.items()],
+        key=lambda x: x[1], reverse=True
+    )
+    all_user_ids = [x[0] for x in user_to_ds_len]
+
+    if cfg.USER_SELECTION is not None:  # Apply user-filter
+        user_selection = cfg.USER_SELECTION.split(',')
+        for user_id in user_selection:
+            assert user_id in all_user_ids, f"Config user-id '{user_id}' is invalid. Define one in {all_user_ids}"
+        all_user_ids = list(filter(lambda x: x in user_selection, all_user_ids))
+
+    logger.info(f"Processing users in order: {all_user_ids}, with sizes {user_to_ds_len}")
+
+    # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
+    processed_user_ids = []
+    if path_handler.is_resuming_run:
+        logger.info(f"Resuming run from {path_handler.main_output_dir}")
+        processed_user_ids = path_handler.get_processed_users_from_final_dumps()
+        logger.debug(f"LOADED META CHECKPOINT: Processed users = {processed_user_ids}")
+
+    return processed_user_ids, all_user_ids
 
 
 class SchedulerConfig:
