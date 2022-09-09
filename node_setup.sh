@@ -23,6 +23,8 @@ conda init bash
 # Add pip-installed depenedencies from ego4d
 cat pip_requirements.txt | xargs -n 1 -L 1 pip install
 
+# Fix known bug with tensorboard
+pip install setuptools==59.5.0
 
 # Login to wandb logger
 pip install wandb
@@ -57,4 +59,7 @@ ln -s /home/matthiasdelange/data/ego4d/lta_video_clips clips_root_local
 #clips_root -> /fb-agios-acai-efs/Ego4D/lta_video_clips/v1/
 #clips_root_local -> /home/matthiasdelange/data/ego4d/lta_video_clips
 
-
+##################### PERMISSIONS #####################
+# Make all dirs writable for other users (different nodes) if needed:
+# In current dir:
+find . -type d -exec chmod 7577 {} \;
