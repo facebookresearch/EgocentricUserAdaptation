@@ -1,0 +1,16 @@
+name: matt_ego4d
+channels:
+  - defaults
+dependencies:
+  - python=3.9
+  - matplotlib
+  - numpy
+  - ipympl
+  - glances
+  - cudatoolkit
+  - jupyterlab
+  - pytorch
+  - torchvision
+  - jupyter
+  - python-fastjsonschema
+prefix: /home/matthiasdelange/.conda/envs/matt_ego4d

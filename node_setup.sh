@@ -10,16 +10,19 @@ cd ~/sftp_remote_projects/ContextualOracle_Matthias
 
 
 ##################### CONDA ENV #####################
-# Then get the environment setup:
-env_name=matt_ego4d
-# Locally copy explicit (must be same OS)
-#conda activate $env_name
-#conda list --explicit > spec-file.txt
+conda env remove -n matt_ego4d
+conda env export > environment.yml
+conda env export --from-history > environment_from_history.yml # Condensed to those installed in conda
 
 # On new environment create exactly same
-conda create --name matt_ego4d --file spec-file.txt
+#conda create --name matt_ego4d --file spec-file.txt # Doesn't work
+conda env create -f environment.yml
 conda activate matt_ego4d
 conda init bash
+
+# Add pip-installed depenedencies from ego4d
+cat pip_requirements.txt | xargs -n 1 -L 1 pip install
+
 
 # Login to wandb logger
 pip install wandb
