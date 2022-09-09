@@ -33,9 +33,9 @@ from continual_ego4d.metrics.adapt_metrics import OnlineAdaptationGainMetric, Ru
     CumulativeOnlineAdaptationGainMetric
 from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric, \
     GeneralizationLossMetric, FWTLossMetric
-from continual_ego4d.metrics.past_metrics import FullOnlineForgettingAccMetric, ReexposureForgettingAccMetric, \
-    CollateralForgettingAccMetric, FullOnlineForgettingLossMetric, ReexposureForgettingLossMetric, \
-    CollateralForgettingLossMetric
+# from continual_ego4d.metrics.past_metrics import FullOnlineForgettingAccMetric, ReexposureForgettingAccMetric, \
+#     CollateralForgettingAccMetric, FullOnlineForgettingLossMetric, ReexposureForgettingLossMetric, \
+#     CollateralForgettingLossMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
 from continual_ego4d.utils.models import UnseenVerbNounMaskerHead
 from pytorch_lightning.loggers import TensorBoardLogger

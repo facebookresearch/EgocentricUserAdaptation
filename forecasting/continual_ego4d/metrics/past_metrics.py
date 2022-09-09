@@ -27,23 +27,54 @@ class ConditionalOnlineForgettingMetric(Metric):
     }
 
     def __init__(self, base_metric_mode: str, action_mode: str, main_metric_name: str,
-                 current_batch_cond_set=False, in_cond_set=True,
+                 is_current_batch_cond_set=False, in_cond_set=True,
                  k: int = None, loss_fun=None,
                  keep_action_results_over_time=False,
                  do_plot=True,
                  ):
         """
-        Takes in the history stream, and calculates forgetting per action.
-        The result gives the average over all action-accuracies deltas, each minus their previous stored accuracy.
-        This delta equals to Forgetting.
+        Past data is iterated over AFTER update. This is the BEFORE update for the next batch.
 
-        The action_cond_set can be used to only consider action in the update() method that are in the cond_set
-        (if in_cond_set=True) or are NOT in the cond_set (in_cond_set=False).
+        For AFTER update on current batch Bc, and next batch Bn:
+        1) Bc:
+        - evaluated on history stream and current batch: [0, c]
+        We need to get performance for all actions in Bc, as they serve as reference for when they are encountered
+        later in the stream.
+        - We need revisit all history stream samples for the actions in Bc.
 
-        For each observed action, we keep:
-        - The sample_id of the prev instance of this action: (represents t_a)
-        - The previous accuracy (at last observed time t_a)
-        - Current AverageMeter for current Accuracy (Stops counting for t > t_a).
+        2) Bn:
+        - We need revisit all history stream samples for the actions in Bn.
+          Evaluated on history stream [0, n[ (including current batch), BUT because Bc may
+            i) include actions that are also in Bn: These have zero-delta anyway.
+            ii) have no actions in Bn: Then for the pre-update results of actions in Bn, the data of Bc is irrelevant.
+            Hence, we can evaluate on the same history stream: [0, c[
+        - We need to get performance on all actions in Bn.
+            This performance will be added as a tuple for an action a_i:
+            (AFTER-update performance for a_i at iteration t, BEFORE-update performance for a_i at current iteration >t)
+            The delta of this BEFORE-update performance and an earlier AFTER-update performance
+            gives us an indication of forgetting in between two exposures.
+
+        - Note: This result is the result reported at Bc (for Bn). Hence, there is an offset of 1 in the logging curves
+        if the batch index would be used.
+
+        For scalability: We can have per action/verb/noun a FIFO buffer of history indices for that action.
+        This means that if we have the full map of <action,history_stream_idx-list>, we take the final [-M-1:-1] of the
+        history_stream_idx as considered indices (this leaves out the final one that we used for updating).
+        Hence on both models the same set is considered.
+
+        In summary:
+        - We measure for a given action on 2 models. Just after learning on the action, and the next time the action is
+        encountered, before updating on it. The data we evaluate performance with is the latest M samples, including
+        the sample that was just updated on. This gives a good indication of forgetting in between the 2 models.
+
+        - We measure simultaneously before/after update performance, on history stream excluding current batch: [0, c[.
+        - When sampling the history, we need to collect all indices in [0,c[ that contain actions in Bn and Bc.
+        But only the latest M ones, to enable feasibility.
+
+
+        Special cases:
+        - For actions that are both in Bc and Bn, we report a delta of zero, as it concerns the same model for the same action.
+        - For Replay: We only consider re-occurrence of the new stream batch, not replay samples.
 
         Notes:
         The metric stores the accuracies for previous actions on save_result_to_history.
@@ -88,15 +119,15 @@ class ConditionalOnlineForgettingMetric(Metric):
 
         # Filtering in Update-method
         self.in_cond_set = in_cond_set  # Only consider actions in the cond set if True, Outside if False.
-        self.current_batch_cond_set = current_batch_cond_set
+        self.is_current_batch_cond_set: bool = is_current_batch_cond_set
 
         self.name = get_metric_tag(TAG_PAST, action_mode=self.action_mode, base_metric_name=basic_metric_name)
 
         # track results per action
         self.keep_action_results_over_time = keep_action_results_over_time
         self.action_results_over_time = {
-            "prev_batch_idx": defaultdict(list),  # <action, list(<prev_iter,current_iter,delta_value>)
-            "current_batch_idx": defaultdict(list),
+            "prev_batch_idx_after_update": defaultdict(list),  # <action, list(<prev_iter,current_iter,delta_value>)
+            "current_batch_idx_before_update": defaultdict(list),
             "delta": defaultdict(list),
         }
 
@@ -117,7 +148,7 @@ class ConditionalOnlineForgettingMetric(Metric):
         if self.action_mode in ['verb', 'noun']:
 
             # Use current batch as conditional set
-            if self.current_batch_cond_set:
+            if self.is_current_batch_cond_set:
                 cond_set = set(stream_batch_labels[:, self.label_idx].tolist())
 
             self._get_verbnoun_metric_result(past_preds, past_labels, cond_set)
@@ -126,7 +157,7 @@ class ConditionalOnlineForgettingMetric(Metric):
         elif self.action_mode in ['action']:
 
             # Use current batch as conditional set
-            if self.current_batch_cond_set:
+            if self.is_current_batch_cond_set:
                 cond_set = set()
                 for (verb, noun) in stream_batch_labels.tolist():
                     action = verbnoun_to_action(verb, noun)
@@ -315,28 +346,28 @@ class ConditionalOnlineForgettingMetric(Metric):
         return {self.name: figure}
 
 
-class FullOnlineForgettingAccMetric(ConditionalOnlineForgettingMetric):
-    """ Measure on history data over all actions that have already been observed."""
-
-    def __init__(self, k, action_mode, keep_action_results_over_time=False):
-        super().__init__(
-            base_metric_mode='acc', k=k, loss_fun=None,  # Acc
-            action_mode=action_mode, main_metric_name="FORG_full",
-            # current_batch_cond_set=False, in_cond_set=False  # Fixed
-            keep_action_results_over_time=keep_action_results_over_time,
-        )
-
-
-class FullOnlineForgettingLossMetric(ConditionalOnlineForgettingMetric):
-    """ Measure on history data over all actions that have already been observed."""
-
-    def __init__(self, loss_fun, action_mode, keep_action_results_over_time=False):
-        super().__init__(
-            base_metric_mode='loss', k=None, loss_fun=loss_fun,  # Acc
-            action_mode=action_mode, main_metric_name="FORG_full",
-            # current_batch_cond_set=False, in_cond_set=False  # Fixed
-            keep_action_results_over_time=keep_action_results_over_time,
-        )
+# class FullOnlineForgettingAccMetric(ConditionalOnlineForgettingMetric):
+#     """ Measure on history data over all actions that have already been observed."""
+#
+#     def __init__(self, k, action_mode, keep_action_results_over_time=False):
+#         super().__init__(
+#             base_metric_mode='acc', k=k, loss_fun=None,  # Acc
+#             action_mode=action_mode, main_metric_name="FORG_full",
+#             # current_batch_cond_set=False, in_cond_set=False  # Fixed
+#             keep_action_results_over_time=keep_action_results_over_time,
+#         )
+#
+#
+# class FullOnlineForgettingLossMetric(ConditionalOnlineForgettingMetric):
+#     """ Measure on history data over all actions that have already been observed."""
+#
+#     def __init__(self, loss_fun, action_mode, keep_action_results_over_time=False):
+#         super().__init__(
+#             base_metric_mode='loss', k=None, loss_fun=loss_fun,  # Acc
+#             action_mode=action_mode, main_metric_name="FORG_full",
+#             # current_batch_cond_set=False, in_cond_set=False  # Fixed
+#             keep_action_results_over_time=keep_action_results_over_time,
+#         )
 
 
 class ReexposureForgettingAccMetric(ConditionalOnlineForgettingMetric):
@@ -346,7 +377,7 @@ class ReexposureForgettingAccMetric(ConditionalOnlineForgettingMetric):
         super().__init__(
             base_metric_mode='acc', k=k, loss_fun=None,  # Acc
             action_mode=action_mode, main_metric_name="FORG_EXPOSE",
-            current_batch_cond_set=True, in_cond_set=True,
+            is_current_batch_cond_set=True, in_cond_set=True,
             keep_action_results_over_time=keep_action_results_over_time,
         )
 
@@ -358,32 +389,31 @@ class ReexposureForgettingLossMetric(ConditionalOnlineForgettingMetric):
         super().__init__(
             base_metric_mode='loss', k=None, loss_fun=loss_fun,  # Acc
             action_mode=action_mode, main_metric_name="FORG_EXPOSE",
-            current_batch_cond_set=True, in_cond_set=True,
+            is_current_batch_cond_set=True, in_cond_set=True,
             keep_action_results_over_time=keep_action_results_over_time,
         )
 
-
-class CollateralForgettingAccMetric(ConditionalOnlineForgettingMetric):
-    """ Measure on history data over actions that have already been observed
-    AND are NOTobserved in current mini-batch."""
-
-    def __init__(self, k, action_mode, keep_action_results_over_time=False):
-        super().__init__(
-            base_metric_mode='acc', k=k, loss_fun=None,  # Acc
-            action_mode=action_mode, main_metric_name="FORG_COLLAT",
-            current_batch_cond_set=True, in_cond_set=False,
-            keep_action_results_over_time=keep_action_results_over_time,
-        )
-
-
-class CollateralForgettingLossMetric(ConditionalOnlineForgettingMetric):
-    """ Measure on history data over actions that have already been observed
-    AND are NOTobserved in current mini-batch."""
-
-    def __init__(self, loss_fun, action_mode, keep_action_results_over_time=False):
-        super().__init__(
-            base_metric_mode='loss', k=None, loss_fun=loss_fun,  # Acc
-            action_mode=action_mode, main_metric_name="FORG_COLLAT",
-            current_batch_cond_set=True, in_cond_set=False,
-            keep_action_results_over_time=keep_action_results_over_time,
-        )
+# class CollateralForgettingAccMetric(ConditionalOnlineForgettingMetric):
+#     """ Measure on history data over actions that have already been observed
+#     AND are NOTobserved in current mini-batch."""
+#
+#     def __init__(self, k, action_mode, keep_action_results_over_time=False):
+#         super().__init__(
+#             base_metric_mode='acc', k=k, loss_fun=None,  # Acc
+#             action_mode=action_mode, main_metric_name="FORG_COLLAT",
+#             current_batch_cond_set=True, in_cond_set=False,
+#             keep_action_results_over_time=keep_action_results_over_time,
+#         )
+#
+#
+# class CollateralForgettingLossMetric(ConditionalOnlineForgettingMetric):
+#     """ Measure on history data over actions that have already been observed
+#     AND are NOTobserved in current mini-batch."""
+#
+#     def __init__(self, loss_fun, action_mode, keep_action_results_over_time=False):
+#         super().__init__(
+#             base_metric_mode='loss', k=None, loss_fun=loss_fun,  # Acc
+#             action_mode=action_mode, main_metric_name="FORG_COLLAT",
+#             current_batch_cond_set=True, in_cond_set=False,
+#             keep_action_results_over_time=keep_action_results_over_time,
+#         )
