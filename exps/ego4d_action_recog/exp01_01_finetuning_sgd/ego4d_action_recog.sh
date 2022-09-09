@@ -32,13 +32,32 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root_local/clips
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS=""
+
+#-----------------------------------------------------------------------------------------------#
+# Get GRID PARAMS
+if [[ $# -gt 0 ]]; then
+
+  GRID_CFG_NAMES=$1
+  echo "GRID_CFG_NAMES=${GRID_CFG_NAMES}"
+  OVERWRITE_CFG_ARGS+=" GRID_NODES ${GRID_CFG_NAMES}"
+
+  GRID_OVERWRITE_CFG_ARGS=$2
+  echo "GRID_OVERWRITE_CFG_ARGS=${GRID_OVERWRITE_CFG_ARGS}"
+  OVERWRITE_CFG_ARGS+="${GRID_OVERWRITE_CFG_ARGS}"
+
+  echo "OVERWRITE_CFG_ARGS from grid=${OVERWRITE_CFG_ARGS}"
+
+fi
+#exit
+#-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 10" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS '0' NUM_USERS_PER_DEVICE 2"
+OVERWRITE_CFG_ARGS+=" USER_SELECTION 104,108,30,324" # Subset of users to process
+OVERWRITE_CFG_ARGS+=" GPU_IDS '0' NUM_USERS_PER_DEVICE 1"
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # DEBUG
 #OVERWRITE_CFG_ARGS+=" GPU_IDS '0' FAST_DEV_RUN False FAST_DEV_DATA_CUTOFF 30" # DEBUG
 
 # RESUME
-OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_17-30-48_UID61c906b6-2f71-4d24-9dfa-60efa9b001bb"
+#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_17-30-48_UID61c906b6-2f71-4d24-9dfa-60efa9b001bb"
 
 # Checkpoint loading
 #BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/k400_slowfast8x8.ckpt"
