@@ -468,13 +468,6 @@ def plot_barchart(x_axis: list[list], y_vals: list[list], title, ylabel, xlabel,
     plt.title(title)
     plt.grid(grid, which='both')
 
-    if interactive:
-        annot = ax.annotate("", xy=(0, 0), xytext=(-20, 20), textcoords="offset points",
-                            bbox=dict(boxstyle="round", fc="black", ec="b", lw=2),
-                            arrowprops=dict(arrowstyle="->"))
-        annot.set_visible(False)
-        fig.canvas.mpl_connect("motion_notify_event", hover)
-
     # Save
     if output_file is not None:
         fig.savefig(output_file, bbox_inches='tight')
@@ -494,6 +487,7 @@ def df_to_per_user_formatted_json(df, user_id_list, split, user_id_col_name):
     result = {'users': defaultdict(list), 'split': split}
 
     for user_id in user_id_list:  # iterate users
+        parsed_user_id = int(float(user_id)) if user_id is not None else user_id  # 104.0 -> 104 in JSON
 
         if user_id is None:
             user_df = df.loc[df[user_id_col_name].isna()]
@@ -507,7 +501,8 @@ def df_to_per_user_formatted_json(df, user_id_list, split, user_id_col_name):
             for idx, val in row.iteritems():  # Convert col values to dict style
                 key = idx
                 parsed_row[key] = val
-            result['users'][user_id].append(parsed_row)
+
+            result['users'][parsed_user_id].append(parsed_row)
     return result
 
 
