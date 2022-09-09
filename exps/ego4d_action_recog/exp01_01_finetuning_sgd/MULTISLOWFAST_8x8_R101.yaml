@@ -10,9 +10,9 @@ TEST:
   ENABLE: False
 CONTINUAL_EVAL:
   FREQ: 1
-  BATCH_SIZE: 10 # For speedup with parallel dataloading
-  FUTURE_SAMPLE_CAPACITY: 100
-  PAST_SAMPLE_CAPACITY: 100
+  BATCH_SIZE: 8 # For speedup with parallel dataloading
+  NUM_WORKERS: 8
+  PAST_SAMPLE_CAPACITY: 64
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition

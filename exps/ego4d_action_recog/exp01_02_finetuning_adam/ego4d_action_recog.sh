@@ -52,7 +52,7 @@ fi
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 10" # Workers per dataloader (i.e. per user process)
 OVERWRITE_CFG_ARGS+=" USER_SELECTION 104,108,30,324" # Subset of users to process
-OVERWRITE_CFG_ARGS+=" GPU_IDS '0' NUM_USERS_PER_DEVICE 1"
+OVERWRITE_CFG_ARGS+=" GPU_IDS 0 NUM_USERS_PER_DEVICE 1"
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # DEBUG
 #OVERWRITE_CFG_ARGS+=" GPU_IDS '0' FAST_DEV_RUN False FAST_DEV_DATA_CUTOFF 30" # DEBUG
 

@@ -51,7 +51,7 @@ fi
 #exit
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 10" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS '3,4,5' NUM_USERS_PER_DEVICE 2"
+OVERWRITE_CFG_ARGS+=" GPU_IDS 3,4,5 NUM_USERS_PER_DEVICE 2"
 
 #OVERWRITE_CFG_ARGS+="  NUM_USERS_PER_DEVICE 1 CONTINUAL_EVAL.PAST_SAMPLE_CAPACITY 3 GPU_IDS '1' FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30 DATA_LOADER.NUM_WORKERS 8" # DEBUG
 

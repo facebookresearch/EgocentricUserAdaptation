@@ -105,7 +105,11 @@ def get_user_ids(cfg, user_datasets, path_handler):
     all_user_ids = [x[0] for x in user_to_ds_len]
 
     if cfg.USER_SELECTION is not None:  # Apply user-filter
-        user_selection = cfg.USER_SELECTION.split(',')
+        user_selection = cfg.USER_SELECTION
+        if not isinstance(user_selection, tuple):
+            user_selection = (user_selection,)
+        user_selection = list(map(str, user_selection))
+
         for user_id in user_selection:
             assert user_id in all_user_ids, f"Config user-id '{user_id}' is invalid. Define one in {all_user_ids}"
         all_user_ids = list(filter(lambda x: x in user_selection, all_user_ids))
@@ -235,17 +239,15 @@ def get_device_ids(cfg) -> list[int]:
     Make sure it's an array to define the GPU-ids. A single int indicates the number of GPUs instead.
     :return:
     """
-    if cfg.GPU_IDS is None:
+    gpu_ids = cfg.GPU_IDS
+    if gpu_ids is None:
         assert isinstance(cfg.NUM_GPUS, int) and cfg.NUM_GPUS >= 1
         device_ids = list(range(cfg.NUM_GPUS))  # Select first devices
     else:
         cfg.NUM_GPUS = None  # Need to disable
-        if isinstance(cfg.GPU_IDS, int):
-            device_ids = [cfg.GPU_IDS]
-        elif isinstance(cfg.GPU_IDS, str):
-            device_ids = list(map(int, cfg.GPU_IDS.split(',')))
-        else:
-            raise ValueError(f"cfg.GPU_IDS wrong format: {cfg.GPU_IDS}")
+        if not isinstance(gpu_ids, tuple):
+            gpu_ids = (gpu_ids,)
+        device_ids = list(map(int, gpu_ids))
 
     return device_ids
 

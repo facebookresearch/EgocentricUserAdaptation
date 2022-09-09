@@ -545,8 +545,8 @@ _C.SOLVER.ACCELERATOR = "ddp"
 # Number of GPUs to use (applies to both training and testing).
 _C.NUM_GPUS = 1
 
-# Can use a comma-split string to specify which GPU devices to use only. -1 sets to all.
-_C.GPU_IDS = "-1"
+# Can use a comma-split string to specify which GPU devices to use only. None sets to all.
+_C.GPU_IDS = None
 
 # Number of machine to use for the job.
 _C.NUM_SHARDS = 1
