@@ -6,11 +6,11 @@ def get_pretrain_sets_iterations_vs_epoch_ratio():
     See what the ratio is that we can use to increase our nb of epochs.
     """
     # USER-SPLIT DATASETS
-    train_json = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-05_18-22-53_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json"
-    test_json = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-05_18-22-53_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json"
+    train_json = '/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/2022-09-08_17-17-16_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'
+    test_json = '/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/2022-09-08_17-17-16_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'
 
     # pretrain_json_excl_nanuser = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_pretrain_usersplit_147users.json"
-    pretrain_json_incl_nanuser = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-05_18-22-53_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json"
+    pretrain_json_incl_nanuser = '/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/2022-09-08_17-17-16_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
     pretrain_json = pretrain_json_incl_nanuser
 
     train_ds = extract_json(train_json)['clips']

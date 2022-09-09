@@ -14,10 +14,10 @@ TRAIN:
   BATCH_SIZE: 10 # Process 1 new video-subsequence a time (Online)
 DATA:
   USER_SUBSET: 'train' # train or test usersplit
-  PATH_TO_DATA_SPLIT_JSON:
-    TRAIN_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-08_16-38-39_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'
-    TEST_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-08_16-38-39_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'
-    PRETRAIN_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-08_16-38-39_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
+#  PATH_TO_DATA_SPLIT_JSON:
+#    TRAIN_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-08_16-38-39_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'
+#    TEST_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-08_16-38-39_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'
+#    PRETRAIN_SPLIT: '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-08_16-38-39_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
   TARGET_FPS: 30
   NUM_FRAMES: 32
   SAMPLING_RATE: 2

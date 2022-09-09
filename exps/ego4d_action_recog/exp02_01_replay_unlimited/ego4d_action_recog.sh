@@ -51,12 +51,12 @@ fi
 #exit
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 10" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS '0,1,2,3' NUM_USERS_PER_DEVICE 2"
+OVERWRITE_CFG_ARGS+=" GPU_IDS '3,4,5' NUM_USERS_PER_DEVICE 2"
 
 #OVERWRITE_CFG_ARGS+="  NUM_USERS_PER_DEVICE 1 CONTINUAL_EVAL.PAST_SAMPLE_CAPACITY 3 GPU_IDS '1' FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30 DATA_LOADER.NUM_WORKERS 8" # DEBUG
 
 # RESUME
-#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp02_01_replay_unlimited/logs/2022-08-20_17-31-43_UID21f66e51-99a0-4ea9-90b5-0234b7adae67_GRID_METHOD-REPLAY-MEMORY_SIZE_SAMPLES=1000000_METHOD-REPLAY-STORAGE_POLICY=reservoir_action"
+#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp02_01_replay_unlimited/logs/GRID_METHOD-REPLAY-MEMORY_SIZE_SAMPLES=10_METHOD-REPLAY-STORAGE_POLICY=window/2022-08-27_20-42-24_UIDdb761907-0374-4390-b14c-c843a619c40c"
 
 # Checkpoint loading
 #BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/k400_slowfast8x8.ckpt"
@@ -75,7 +75,7 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="${run_id}_MATT"
-screen -dmS "${screenname}" \
+#screen -dmS "${screenname}" \
   python -m continual_ego4d.run_recog_CL \
   --job_name "$screenname" \
   --working_directory "${OUTPUT_DIR}" \
