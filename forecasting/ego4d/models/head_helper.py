@@ -14,15 +14,15 @@ class ResNetRoIHead(nn.Module):
     """
 
     def __init__(
-        self,
-        dim_in,
-        num_classes,
-        pool_size,
-        resolution,
-        scale_factor,
-        dropout_rate=0.0,
-        act_func="softmax",
-        aligned=True,
+            self,
+            dim_in,
+            num_classes,
+            pool_size,
+            resolution,
+            scale_factor,
+            dropout_rate=0.0,
+            act_func="softmax",
+            aligned=True,
     ):
         """
         The `__init__` method of any subclass should also contain these
@@ -63,7 +63,7 @@ class ResNetRoIHead(nn.Module):
         """
         super(ResNetRoIHead, self).__init__()
         assert (
-            len({len(pool_size), len(dim_in)}) == 1
+                len({len(pool_size), len(dim_in)}) == 1
         ), "pathway dimensions are not consistent."
         self.num_pathways = len(pool_size)
         for pathway in range(self.num_pathways):
@@ -99,7 +99,7 @@ class ResNetRoIHead(nn.Module):
 
     def forward(self, inputs, bboxes):
         assert (
-            len(inputs) == self.num_pathways
+                len(inputs) == self.num_pathways
         ), "Input tensor does not contain {} pathway".format(self.num_pathways)
         pool_out = []
         for pathway in range(self.num_pathways):
@@ -137,7 +137,7 @@ class ResNetBasicHead(nn.Module):
     """
 
     def __init__(
-        self, dim_in, num_classes, pool_size, dropout_rate=0.0, act_func="softmax"
+            self, dim_in, num_classes, pool_size, dropout_rate=0.0, act_func="softmax"
     ):
         """
         The `__init__` method of any subclass should also contain these
@@ -159,7 +159,7 @@ class ResNetBasicHead(nn.Module):
         """
         super(ResNetBasicHead, self).__init__()
         assert (
-            len({len(pool_size), len(dim_in)}) == 1
+                len({len(pool_size), len(dim_in)}) == 1
         ), "pathway dimensions are not consistent."
         self.num_pathways = len(pool_size)
 
@@ -187,7 +187,7 @@ class ResNetBasicHead(nn.Module):
 
     def forward(self, inputs):
         assert (
-            len(inputs) == self.num_pathways
+                len(inputs) == self.num_pathways
         ), "Input tensor does not contain {} pathway".format(self.num_pathways)
         pool_out = []
         for pathway in range(self.num_pathways):
@@ -210,20 +210,21 @@ class ResNetBasicHead(nn.Module):
         x = x.view(x.shape[0], -1)
         return x
 
+
 # For LTA models. One head per future action prediction
 class MultiTaskHead(nn.Module):
     def __init__(
-        self,
-        dim_in,
-        num_classes,
-        pool_size,
-        dropout_rate=0.0,
-        act_func="softmax",
-        test_noact=False,
+            self,
+            dim_in,
+            num_classes,
+            pool_size,
+            dropout_rate=0.0,
+            act_func="softmax",
+            test_noact=False,
     ):
         super(MultiTaskHead, self).__init__()
         assert (
-            len({len(pool_size), len(dim_in)}) == 1
+                len({len(pool_size), len(dim_in)}) == 1
         ), "pathway dimensions are not consistent."
         self.num_pathways = len(pool_size)
         self.test_noact = test_noact
@@ -254,10 +255,8 @@ class MultiTaskHead(nn.Module):
                 "{} is not supported as an activation" "function.".format(act_func)
             )
 
-    def forward(self, inputs):
-        assert (
-            len(inputs) == self.num_pathways
-        ), "Input tensor does not contain {} pathway".format(self.num_pathways)
+    def merge_slowfast_feats(self, inputs):
+        """ Slow and fast pathway merge. """
         pool_out = []
         for pathway in range(self.num_pathways):
             m = getattr(self, "pathway{}_avgpool".format(pathway))
@@ -266,8 +265,16 @@ class MultiTaskHead(nn.Module):
         x = torch.cat(pool_out, 1)
         # (N, C, T, H, W) -> (N, T, H, W, C).
         x = x.permute((0, 2, 3, 4, 1))
+        return x
+
+    def forward(self, inputs):
+        assert (
+                len(inputs) == self.num_pathways
+        ), "Input tensor does not contain {} pathway".format(self.num_pathways)
+
+        feat = self.merge_slowfast_feats(inputs)
+
         # Perform dropout.
-        feat = x
         if hasattr(self, "dropout"):
             feat = self.dropout(feat)
 
@@ -288,11 +295,11 @@ class MultiTaskHead(nn.Module):
 
 class MultiTaskMViTHead(nn.Module):
     def __init__(
-        self,
-        dim_in,
-        num_classes,
-        dropout_rate=0.0,
-        act_func="softmax",
+            self,
+            dim_in,
+            num_classes,
+            dropout_rate=0.0,
+            act_func="softmax",
     ):
         super(MultiTaskMViTHead, self).__init__()
         if dropout_rate > 0.0:

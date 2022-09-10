@@ -389,7 +389,6 @@ class SlowFast(nn.Module):
         x = self.s4_fuse(x)
         feats = self.s5(x)
 
-        preds = None
         if hasattr(self, "head_name"):
             head = getattr(self, self.head_name)
             if self.enable_detection:
@@ -397,13 +396,23 @@ class SlowFast(nn.Module):
             else:
                 preds = head(feats)
 
-        if preds is not None:
+            # Make sure avg-pooling and merging of pathways is applied before returning feats
             if return_feats:
+
+                preprocess_head = None
+                for module in head.children():  # If Sequential wrapper around head
+                    if hasattr(module, 'merge_slowfast_feats'):
+                        preprocess_head = module
+                        break
+                assert preprocess_head is not None, "Not found preprocessing head"
+
+                feats = preprocess_head.merge_slowfast_feats(feats)
                 return preds, feats
-            else:
-                return preds
-        else:
-            return feats
+
+            return preds
+
+        # No head was applied, return the raw feats (no avg pooling)
+        return feats
 
 
 @MODEL_REGISTRY.register()
