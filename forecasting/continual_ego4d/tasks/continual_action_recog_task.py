@@ -56,51 +56,20 @@ class StreamStateTracker:
     recursion errors due to holding the model and optimizer.
     """
 
-    attr_to_dump = [
-        'dataset_all_entries_ordered',  # Dataset
-        'sample_to_batch_idx'
-
-        'sample_idx_to_pretrain_loss',  # Pretrain
-        'pretrain_verb_set',
-        'pretrain_noun_set',
-        'pretrain_action_set',
-
-        # New stream samples in batch performance (sample_to_batch_idx allows to average metrics over batch)
-        'sample_idx_to_feat',  # To get feature distance
-        'sample_idx_to_verb_pred',  # Label can be retrieved from dataset list to generate accuracy
-        'sample_idx_to_noun_pred',
-        'sample_idx_to_action_loss',
-        'sample_idx_to_verb_loss',
-        'sample_idx_to_noun_loss',
-
-        # TODO for replay also track losses for new/mem?
-    ]
-
     def __init__(self, stream_loader, pretrain_action_sets):
-        self.stream_loader = stream_loader
+
+        # All attributes that will also be stored
+        self.init_attrs_to_save(stream_loader, pretrain_action_sets)
+
+        # Gather attr names defined before
+        self.attrs_to_dump = [attr_name for attr_name in vars(self).keys()]
+        logger.info(f"{self.__class__.__name__} attributes included in dump: {self.attrs_to_dump}")
+
+        # Attributes that are not saved
+        self.init_transient_attrs()
+
+    def init_attrs_to_save(self, stream_loader, pretrain_action_sets):
         self.total_stream_sample_count = len(stream_loader.dataset)
-
-        # Store vars of observed part of stream (Don't reassign, use ref)
-        self.seen_samples_idxs = []
-        self.stream_seen_action_freq_dict: dict = {}
-        self.stream_seen_verb_freq_dict: dict = {}
-        self.stream_seen_noun_freq_dict: dict = {}
-        self.seen_action_to_stream_idxs = defaultdict(list)  # On-the-fly: For each action keep observed stream ids
-        """ Summarize observed part of the stream. """
-
-        # Current iteration State vars (single batch)
-        self.batch_idx: int = -1  # Current batch idx
-        self.is_parent_video_transition: bool = False
-        self.is_clip_5min_transition: bool = False
-        self.eval_this_step: bool = False
-        self.plot_this_step: bool = False
-        self.stream_batch_idxs: list = []
-        self.stream_batch_size: int = 0  # Size of the new data batch sampled from the stream (exclusive replay samples)
-        self.stream_batch_labels: torch.Tensor = None  # Ref for Re-exposure based forgetting
-        self.batch_action_freq_dict: dict = {}
-        self.batch_verb_freq_dict: dict = {}
-        self.batch_noun_freq_dict: dict = {}
-        """ Variables set per iteration to share between methods. """
 
         # Prediction phase
         self.sample_idx_to_pretrain_loss = {}
@@ -150,16 +119,34 @@ class StreamStateTracker:
         self.sample_idx_to_noun_loss = [None] * self.total_stream_sample_count
         """ Per sample feat/prediction/loss. """
 
-        # Checks
-        self._check_attr_to_dump()
+        # TODO for replay also track losses for new/mem?
 
-    def _check_attr_to_dump(self):
-        """ Throw error before starting stream at init. """
-        for attr in self.attr_to_dump:
-            assert hasattr(self, attr), f"Configured to dump '{attr}', but is not existing."
+    def init_transient_attrs(self):
+        # Transient (not included in dump)
+        # Current iteration State vars (single batch)
+        self.batch_idx: int = -1  # Current batch idx
+        self.is_parent_video_transition: bool = False
+        self.is_clip_5min_transition: bool = False
+        self.eval_this_step: bool = False
+        self.plot_this_step: bool = False
+        self.stream_batch_idxs: list = []
+        self.stream_batch_size: int = 0  # Size of the new data batch sampled from the stream (exclusive replay samples)
+        self.stream_batch_labels: torch.Tensor = None  # Ref for Re-exposure based forgetting
+        self.batch_action_freq_dict: dict = {}
+        self.batch_verb_freq_dict: dict = {}
+        self.batch_noun_freq_dict: dict = {}
+        """ Variables set per iteration to share between methods. """
+
+        # Store vars of observed part of stream (Don't reassign, use ref)
+        self.seen_samples_idxs = []
+        self.stream_seen_action_freq_dict: dict = {}
+        self.stream_seen_verb_freq_dict: dict = {}
+        self.stream_seen_noun_freq_dict: dict = {}
+        self.seen_action_to_stream_idxs = defaultdict(list)  # On-the-fly: For each action keep observed stream ids
+        """ Summarize observed part of the stream. """
 
     def get_state_dump(self):
-        dump_dict = {attr_name: getattr(self, attr_name) for attr_name in self.attr_to_dump}
+        dump_dict = {attr_name: getattr(self, attr_name) for attr_name in self.attrs_to_dump}
         return dump_dict
 
     def set_current_batch_states(
@@ -172,9 +159,9 @@ class StreamStateTracker:
         self.batch_idx = batch_idx
 
         # Eval or plot at this iteration
-        self.plot_this_step = batch_idx % plotting_log_freq == 0 or batch_idx == len(self.stream_loader)
-        self.eval_this_step = batch_idx % continual_eval_freq == 0 or batch_idx == len(self.stream_loader)
-        logger.debug(f"Continual eval on batch {batch_idx}/{len(self.stream_loader)} = {self.eval_this_step}")
+        self.plot_this_step = batch_idx % plotting_log_freq == 0 or batch_idx == self.total_stream_sample_count
+        self.eval_this_step = batch_idx % continual_eval_freq == 0 or batch_idx == self.total_stream_sample_count
+        logger.debug(f"Continual eval on batch {batch_idx}/{self.total_stream_sample_count} = {self.eval_this_step}")
 
         # Observed idxs update before batch is altered
         _, labels, _, stream_sample_idxs = batch
@@ -438,7 +425,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
                 # ACTION METRICS
                 OnlineTopkAccMetric(TAG_PAST, k=1, mode=action_mode),
-                OnlineLossMetric(TAG_PAST, loss_fun=self.loss_fun, mode=action_mode),
+                OnlineLossMetric(TAG_PAST, loss_fun=self.loss_fun_unred, mode=action_mode),
 
                 # TODO: Accuracy (unbalanced)
                 # TODO Track on re-exposure for scatterplot
@@ -503,9 +490,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             get_metric_tag(TAG_BATCH, base_metric_name=f"future_sample_count"):
                 self.stream_state.total_stream_sample_count - len(self.stream_state.seen_samples_idxs),
             get_metric_tag(TAG_BATCH, base_metric_name=f"is_parent_video_transition"):
-                self.is_parent_video_transition,
+                self.stream_state.is_parent_video_transition,
             get_metric_tag(TAG_BATCH, base_metric_name=f"is_clip_5min_transition"):
-                self.is_clip_5min_transition,
+                self.stream_state.is_clip_5min_transition,
         }
 
         self.log_step_metric_results(metric_results)
