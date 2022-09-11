@@ -14,7 +14,7 @@ class PlotConditionalOnlineForgettingMetricCase(unittest.TestCase):
 
             # Optional
             main_metric_name="TESTCASE_METRIC",
-            current_batch_cond_set=False,
+            is_current_batch_cond_set=False,
             in_cond_set=False,
             k=1,
         )
