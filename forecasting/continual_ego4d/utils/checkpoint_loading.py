@@ -48,10 +48,10 @@ class PathHandler:
             grid_parent_dir_name = []
             for grid_node in cfg.GRID_NODES.split(','):
                 grid_parent_dir_name.append(
-                    f"{grid_node.replace('.', '-')}={get_cfg_by_name(cfg, grid_node)}"
+                    f"{grid_node}={get_cfg_by_name(cfg, grid_node)}"
                 )
             grid_parent_dir_name.sort()  # Make deterministic order
-            grid_parent_dir = f"GRID_{'_'.join(grid_parent_dir_name)}"
+            grid_parent_dir = f"GRID_" + '_'.join(grid_parent_dir_name).replace('.', '-')
 
         # Resume run if specified, and output to same output dir
         is_resuming_run = len(cfg.RESUME_OUTPUT_DIR) > 0
@@ -70,7 +70,7 @@ class PathHandler:
             cfg.OUTPUT_DIR = str(orig_path.parent.absolute() / grid_parent_dir / orig_path.name)
 
         # Create dir
-        os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+        os.makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
 
         # Copy files to output dir for reproducing
         for reproduce_path in [cfg.PARENT_SCRIPT_FILE_PATH, cfg.CONFIG_FILE_PATH]:
@@ -93,11 +93,20 @@ class PathHandler:
             p = osp.join(p, self.get_experiment_version(user_id))
         return p
 
-    def get_user_wandb_dir(self, user_id=None):
+    def get_user_wandb_dir(self, user_id=None, create=False):
         p = osp.join(self.main_output_dir, self.wandb_dirname)
         if user_id is not None:
             p = osp.join(p, self.get_experiment_version(user_id))
+        if create:
+            os.makedirs(p, exist_ok=True, mode=0o777)
         return p
+
+    def get_user_wandb_name(self, user_id=None):
+        wandb_name = self.exp_uid
+        if user_id is not None:
+            wandb_name = f"USER-{user_id}_{wandb_name}"
+
+        return wandb_name
 
     def get_user_streamdump_file(self, user_id):
         return osp.join(self.get_user_results_dir(user_id), self.user_streamdump_filename)

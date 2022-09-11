@@ -290,8 +290,8 @@ def online_adaptation_single_user(
     )
     wandb_logger = WandbLogger(
         project=path_handler.wandb_project_name,
-        save_dir=path_handler.get_user_wandb_dir(user_id),  # Make user-specific dir
-        name=path_handler.exp_uid,  # Display name for run
+        save_dir=path_handler.get_user_wandb_dir(user_id, create=True),  # Make user-specific dir
+        name=path_handler.get_user_wandb_name(user_id),  # Display name for run is user-specific
         group=path_handler.exp_uid,
         tags=cfg.WANDB.TAGS.split(',') if cfg.WANDB.TAGS is not None else None,
         config=convert_cfg_to_dict(cfg)  # Load full config to wandb setting
