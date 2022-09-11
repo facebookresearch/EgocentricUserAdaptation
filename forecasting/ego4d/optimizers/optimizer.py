@@ -54,7 +54,7 @@ def construct_optimizer(model, cfg):
             momentum=cfg.SOLVER.MOMENTUM,
             weight_decay=cfg.SOLVER.WEIGHT_DECAY,
             dampening=cfg.SOLVER.DAMPENING,
-            nesterov=cfg.SOLVER.NESTEROV,
+            nesterov=cfg.SOLVER.NESTEROV if cfg.SOLVER.MOMENTUM > 0 else False,
         )
     elif cfg.SOLVER.OPTIMIZING_METHOD == "adam":
         return torch.optim.Adam(
