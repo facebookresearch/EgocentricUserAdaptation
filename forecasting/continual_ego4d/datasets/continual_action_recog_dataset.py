@@ -106,6 +106,8 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
         )
 
         self.clip_5min_transition_idxs, self.parent_video_transition_idxs = get_video_transitions(self.seq_input_list)
+        logger.info(f"clip_5min_transition_idxs={self.clip_5min_transition_idxs}")
+        logger.info(f"parent_video_transition_idxs={self.parent_video_transition_idxs}")
 
         if cfg.FAST_DEV_RUN:
             logger.debug(f"FAST-DEV DEBUG: cutting off user data "
@@ -492,14 +494,14 @@ def get_video_transitions(seq_input_list):
 
     last_clip = None
     last_video = None
-    for sample_idx, (clip_5min_path, entry) in enumerate(seq_input_list):
-        clip_5min_uid = entry['parent_video_uid']
-        parent_video_uid = entry['clip_5min_uid']
+    for sample_idx, (_, entry) in enumerate(seq_input_list):
+        clip_5min_uid = entry['clip_5min_uid']
+        parent_video_uid = entry['parent_video_uid']
 
         if last_clip is not None:
             assert last_video is not None
 
-            if last_clip != clip_5min_path:
+            if last_clip != clip_5min_uid:
                 clip_5min_transition_idxs.append(sample_idx)
 
             if last_video != parent_video_uid:

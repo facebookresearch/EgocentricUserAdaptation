@@ -58,7 +58,7 @@ class Method:
 
         # Make copies on cpu and detach from computational graph
         streamtrack_to_batchval_cp = []
-        for streamtrack_list, batch_vals in streamtrack_to_batchval:
+        for entry_idx, (streamtrack_list, batch_vals) in enumerate(streamtrack_to_batchval):
             if isinstance(batch_vals, torch.Tensor):
                 batch_vals = batch_vals.cpu().detach()
 
@@ -119,7 +119,7 @@ class Method:
     def prediction_step(self, inputs, labels, stream_sample_idxs: list, *args, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Default: Get all info we also get during training."""
-        preds: list = self.lightning_module.forward(inputs)
+        preds: list = self.lightning_module.forward(inputs, return_feats=False)
         loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
             preds, labels, self.loss_fun_pred, mean=False
         )
