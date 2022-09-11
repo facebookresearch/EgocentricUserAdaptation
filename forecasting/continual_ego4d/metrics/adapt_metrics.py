@@ -3,6 +3,10 @@ import torch
 from typing import Dict, Set, Union, Tuple
 from continual_ego4d.metrics.metric import AvgMeterMetric, get_metric_tag
 from continual_ego4d.metrics.count_metrics import TAG_BATCH
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from continual_ego4d.tasks.continual_action_recog_task import StreamStateTracker
 
 
 class OnlineAdaptationGainMetric(AvgMeterMetric):
@@ -23,7 +27,7 @@ class OnlineAdaptationGainMetric(AvgMeterMetric):
         self.sample_idx_to_pretrain_loss = sample_idx_to_pretrain_loss
 
     @torch.no_grad()
-    def update(self, current_batch_idx: int, preds, labels, current_batch_sample_idxs: list):
+    def update(self, preds, labels, stream_sample_idxs, **kwargs):
         """Update metric from predictions and labels."""
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
 
@@ -44,9 +48,12 @@ class OnlineAdaptationGainMetric(AvgMeterMetric):
             pretrain_key = get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='action', base_metric_name='loss')
             current_batch_loss = loss_action
 
+        else:
+            raise ValueError()
+
         # Iterate samples
-        for batch_idx, stream_sample_idx in enumerate(current_batch_sample_idxs):
-            pretrain_sample_loss = self.sample_idx_to_pretrain_loss[stream_sample_idx][pretrain_key]
+        for batch_idx, sample_idx in enumerate(stream_sample_idxs):
+            pretrain_sample_loss = self.sample_idx_to_pretrain_loss[sample_idx][pretrain_key]
             current_sample_loss = current_batch_loss[batch_idx].item()
             adaptation_gain: float = pretrain_sample_loss - current_sample_loss
             self.avg_meter.update(adaptation_gain, weight=1)
@@ -66,6 +73,6 @@ class CumulativeOnlineAdaptationGainMetric(OnlineAdaptationGainMetric):
         super().__init__(*args, **kwargs, main_metric_name="AG_cumul")
 
     @torch.no_grad()
-    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
+    def result(self, current_batch_idx: int, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format. Return sum as this is a cumulative metric."""
         return super().result(current_batch_idx, meter_attr='sum')

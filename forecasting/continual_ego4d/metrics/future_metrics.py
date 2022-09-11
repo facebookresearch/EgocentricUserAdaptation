@@ -5,7 +5,10 @@ from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_
 from continual_ego4d.metrics.metric import AvgMeterMetric, get_metric_tag, TAG_FUTURE
 
 from ego4d.utils import logging
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from continual_ego4d.tasks.continual_action_recog_task import StreamStateTracker
 logger = logging.get_logger(__name__)
 
 
@@ -47,7 +50,7 @@ class ConditionalOnlineMetric(AvgMeterMetric):
         self.name = get_metric_tag(TAG_FUTURE, action_mode=self.mode, base_metric_name=basic_metric_name)
 
     @torch.no_grad()
-    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
+    def update(self, preds, labels, stream_sample_idxs, **kwargs):
         """Update metric from predictions and labels."""
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
 

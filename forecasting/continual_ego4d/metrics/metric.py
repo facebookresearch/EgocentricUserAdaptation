@@ -6,6 +6,11 @@ from continual_ego4d.utils.meters import AverageMeter
 from ego4d.evaluation import lta_metrics as metrics
 from collections import defaultdict
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from continual_ego4d.tasks.continual_action_recog_task import StreamStateTracker
+
 TAG_BATCH = 'batch'
 TAG_FUTURE = 'future'
 TAG_PAST = 'past'
@@ -43,10 +48,23 @@ class Metric(ABC):
 
     @abstractmethod
     @torch.no_grad()
-    def update(self, current_batch_idx: int, preds: list, labels, *args, **kwargs):
-        """Update metric from predictions and labels.
-        preds: (2 x batch_size x input_shape) -> first dim = verb/noun
-        labels: (batch_size x 2) -> second dim = verb/noun
+    def update(
+            self,
+            preds: list[torch.Tensor], labels: torch.Tensor, stream_sample_idxs: list[int],  # Any data
+            stream_state: 'StreamStateTracker' = None,
+            **kwargs,
+            # stream_current_batch_idx: int = None,  # Default not used, but can be used as kwargs
+            # stream_batch_labels: torch.Tensor = None,
+            # stream_batch_sample_idxs: list = None,
+    ):
+        """
+        Update metric from given predictions and labels (and their idxs in the stream).
+        :param preds: list of verb and noun preds. Single pred shape: (batch_size x pred_dim)
+        :param labels: Tensor of shape (batch_size x 2) -> second dim = verb/noun
+        :param stream_sample_idxs: The indexes in the stream for the preds/labels.
+        :param stream_state: Additional info no the stream_state to be used.
+        :param kwargs:
+        :return:
         """
 
     @abstractmethod
@@ -56,7 +74,7 @@ class Metric(ABC):
 
     @abstractmethod
     @torch.no_grad()
-    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
+    def result(self, current_batch_idx: int, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format."""
 
     @torch.no_grad()
@@ -98,7 +116,7 @@ class AvgMeterMetric(Metric):
         self.iter_to_result = {}
 
     @torch.no_grad()
-    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
+    def update(self, preds: list, labels: torch.Tensor, stream_sample_idxs, **kwargs):
         """Update metric from predictions and labels."""
         raise NotImplementedError()
 
@@ -108,7 +126,7 @@ class AvgMeterMetric(Metric):
         self.avg_meter.reset()
 
     @torch.no_grad()
-    def result(self, current_batch_idx: int, *args, meter_attr='avg', **kwargs) -> Dict:
+    def result(self, current_batch_idx: int, meter_attr='avg', **kwargs) -> Dict:
         """Get the metric(s) with name in dict format.
         :param: meter_attr: can be set to avg or sum. sum is useful for cumulative metrics.
         """
@@ -145,7 +163,7 @@ class AvgMeterMetric(Metric):
 #             raise NotImplementedError()
 #
 #     @torch.no_grad()
-#     def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
+#     def update(self, stream_current_batch_idx: int, preds, labels, *args, **kwargs):
 #         """Update metric from predictions and labels."""
 #         raise NotImplementedError()
 #
@@ -156,7 +174,7 @@ class AvgMeterMetric(Metric):
 #             meter.reset()
 #
 #     @torch.no_grad()
-#     def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
+#     def result(self, stream_current_batch_idx: int, *args, **kwargs) -> Dict:
 #         """Get the metric(s) with name in dict format."""
 #         if len(self.avg_meter_dict) == 0:
 #             return {}

@@ -77,14 +77,14 @@ class StreamStateTracker:
         The dictionary is filled in the preprocessing predict phase before training."""
 
         # Count-sets: Current stream
-        self.stream_dataset = stream_loader.dataset
-        self.clip_5min_transition_idx_set = set(self.stream_dataset.clip_5min_transition_idxs)
-        self.parent_video_transition_idx_set = set(self.stream_dataset.parent_video_transition_idxs)
-
         self.user_verb_freq_dict = stream_loader.dataset.verb_freq_dict
         self.user_noun_freq_dict = stream_loader.dataset.noun_freq_dict
         self.user_action_freq_dict = stream_loader.dataset.action_freq_dict
         """ Counter dictionaries from the user stream for actions/verbs/nouns. """
+
+        self.clip_5min_transition_idx_set = set(stream_loader.dataset.clip_5min_transition_idxs)
+        self.parent_video_transition_idx_set = set(stream_loader.dataset.parent_video_transition_idxs)
+        """ Current stream video and clip transitions. """
 
         self.sample_idx_to_action_list = stream_loader.dataset.sample_idx_to_action_list
         """ A list containing all actions in the full stream, the array index corresponds to the stream sample idx. """
@@ -129,7 +129,7 @@ class StreamStateTracker:
         self.is_clip_5min_transition: bool = False
         self.eval_this_step: bool = False
         self.plot_this_step: bool = False
-        self.stream_batch_idxs: list = []
+        self.stream_batch_sample_idxs: list = []
         self.stream_batch_size: int = 0  # Size of the new data batch sampled from the stream (exclusive replay samples)
         self.stream_batch_labels: torch.Tensor = None  # Ref for Re-exposure based forgetting
         self.batch_action_freq_dict: dict = {}
@@ -166,30 +166,30 @@ class StreamStateTracker:
         # Observed idxs update before batch is altered
         _, labels, _, stream_sample_idxs = batch
         self.stream_batch_labels = labels
-        self.stream_batch_idxs = stream_sample_idxs.tolist()
-        self.stream_batch_size = len(self.stream_batch_idxs)
+        self.stream_batch_sample_idxs = stream_sample_idxs.tolist()
+        self.stream_batch_size = len(self.stream_batch_sample_idxs)
 
         self.is_parent_video_transition = sum(
             entry_idx in self.parent_video_transition_idx_set
-            for entry_idx in self.stream_batch_idxs
+            for entry_idx in self.stream_batch_sample_idxs
         ) > 0
 
         self.is_clip_5min_transition = sum(
             entry_idx in self.clip_5min_transition_idx_set
-            for entry_idx in self.stream_batch_idxs
+            for entry_idx in self.stream_batch_sample_idxs
         ) > 0
 
         # Get new actions/verbs current batch
         self.batch_action_freq_dict = defaultdict(int)
         self.batch_verb_freq_dict = defaultdict(int)
         self.batch_noun_freq_dict = defaultdict(int)
-        for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_batch_idxs):
+        for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_batch_sample_idxs):
             action = verbnoun_to_action(verb, noun)
             self.batch_action_freq_dict[action] += 1
             self.batch_verb_freq_dict[verbnoun_format(verb)] += 1
             self.batch_noun_freq_dict[verbnoun_format(noun)] += 1
 
-        logger.debug(f"current_batch_sample_idxs={self.stream_batch_idxs}")
+        logger.debug(f"current_batch_sample_idxs={self.stream_batch_sample_idxs}")
 
     def update_stream_seen_state(self, labels, batch_idx):
         self.add_counter_dicts_(self.stream_seen_action_freq_dict, self.batch_action_freq_dict)
@@ -197,19 +197,21 @@ class StreamStateTracker:
         self.add_counter_dicts_(self.stream_seen_noun_freq_dict, self.batch_noun_freq_dict)
 
         # Only iterate stream batch (not replay samples)
-        for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_batch_idxs):
+        for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_batch_sample_idxs):
             action = verbnoun_to_action(verb, noun)
             self.sample_to_batch_idx[sample_idx] = batch_idx  # Possibly add multiple time batch_idx
             self.seen_action_to_stream_idxs[action].append(sample_idx)
 
         # Update Task states
-        self.seen_samples_idxs.extend(self.stream_batch_idxs)
+        self.seen_samples_idxs.extend(self.stream_batch_sample_idxs)
         assert len(self.seen_samples_idxs) == len(np.unique(self.seen_samples_idxs)), \
             f"Duplicate visited samples in {self.seen_samples_idxs}"
 
     @staticmethod
     def add_counter_dicts_(source_dict: dict, new_dict: dict):
         for k, cnt in new_dict.items():
+            if k not in source_dict:
+                source_dict[k] = 0
             source_dict[k] += cnt
 
 
@@ -516,7 +518,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             fwd_inputs = [inputs[i].clone() for i in range(len(inputs))]
 
         loss, verbnoun_outputs, step_results = self.method.training_step(
-            fwd_inputs, labels, self.stream_state.stream_batch_idxs
+            fwd_inputs, labels, self.stream_state.stream_batch_sample_idxs
         )
         self.add_to_dict_(metric_results, step_results)
 
@@ -605,7 +607,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Update metrics
         for metric in self.current_batch_metrics:
-            metric.update(self.stream_state.batch_idx, verbnoun_outputs, labels, self.stream_state.stream_batch_idxs)
+            metric.update(verbnoun_outputs, labels, self.stream_state.stream_batch_sample_idxs, stream_state=self.stream_state)
 
         # Gather results from metrics
         results = {}
@@ -672,7 +674,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         logger.debug(f"Gathering results on future data")
 
         # Include current batch
-        all_future_idxs = list(range(min(self.stream_state.stream_batch_idxs), len(self.train_loader.dataset)))
+        all_future_idxs = list(range(min(self.stream_state.stream_batch_sample_idxs), len(self.train_loader.dataset)))
         sampled_future_idxs = self.future_stream_sampler(all_future_idxs)
         logger.debug(f"SAMPLED {len(sampled_future_idxs)} from all_future_idxs interval = "
                      f"[{all_future_idxs[0]},..., {all_future_idxs[-1]}]")
@@ -786,7 +788,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Update metrics over dataloader data
         logger.debug(f"Iterating dataloader and transferring to device: {self.device}")
-        for batch_idx, (inputs, labels, _, _) in tqdm(enumerate(dataloader), total=len(dataloader)):
+        for batch_idx, (inputs, labels, _, stream_sample_idxs) in tqdm(enumerate(dataloader), total=len(dataloader)):
             # Slowfast inputs (list):
             # inputs[0].shape = torch.Size([32, 3, 8, 224, 224]) -> Slow net
             # inputs[1].shape =  torch.Size([32, 3, 32, 224, 224]) -> Fast net
@@ -797,10 +799,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             preds = self.forward(inputs)
 
             for metric in metrics:
-                metric.update(
-                    self.stream_state.batch_idx, preds, labels,
-                    stream_batch_labels=self.stream_state.stream_batch_labels
-                )
+                metric.update(preds, labels, stream_sample_idxs.tolist(),
+                              stream_state=self.stream_state
+                              )
 
         # Gather results
         avg_metric_result_dict = {}

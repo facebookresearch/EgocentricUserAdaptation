@@ -11,7 +11,10 @@ from continual_ego4d.metrics.metric import Metric, ACTION_MODES, get_metric_tag,
 import matplotlib.pyplot as plt
 
 from ego4d.utils import logging
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from continual_ego4d.tasks.continual_action_recog_task import StreamStateTracker
 logger = logging.get_logger(__name__)
 
 
@@ -135,13 +138,13 @@ class ConditionalOnlineForgettingMetric(Metric):
         self.do_plot = do_plot and self.keep_action_results_over_time
 
     @torch.no_grad()
-    def update(self, current_batch_idx: int, past_preds, past_labels, *args, stream_batch_labels=None, **kwargs):
+    def update(self, past_preds, past_labels, stream_sample_idxs, stream_state: 'StreamStateTracker' = None, **kwargs):
         """
         ASSUMPTION: The preds,labels are all from the history stream only, forwarded on the CURRENT model.
         Update per-action accuracy metric from predictions and labels.
         """
         assert past_preds[0].shape[0] == past_labels.shape[0], f"Batch sizes not matching for past in stream!"
-        assert stream_batch_labels is not None
+        assert stream_state is not None
 
         # Verb/noun errors
         cond_set = None
@@ -149,7 +152,7 @@ class ConditionalOnlineForgettingMetric(Metric):
 
             # Use current batch as conditional set
             if self.is_current_batch_cond_set:
-                cond_set = set(stream_batch_labels[:, self.label_idx].tolist())
+                cond_set = set(stream_state.stream_batch_labels[:, self.label_idx].tolist())
 
             self._get_verbnoun_metric_result(past_preds, past_labels, cond_set)
 
@@ -159,7 +162,7 @@ class ConditionalOnlineForgettingMetric(Metric):
             # Use current batch as conditional set
             if self.is_current_batch_cond_set:
                 cond_set = set()
-                for (verb, noun) in stream_batch_labels.tolist():
+                for (verb, noun) in stream_state.stream_batch_labels.tolist():
                     action = verbnoun_to_action(verb, noun)
                     cond_set.add(action)
             self._get_action_metric_result(past_preds, past_labels, cond_set)
@@ -254,7 +257,7 @@ class ConditionalOnlineForgettingMetric(Metric):
         self.action_to_current_perf = defaultdict(AverageMeter)
 
     @torch.no_grad()
-    def result(self, current_batch_idx, *args, **kwargs) -> Dict:
+    def result(self, current_batch_idx, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format.
         Averages with equal weight over all actions with a meter.
         Stores per-action results and timestamps in action_results_over_time.

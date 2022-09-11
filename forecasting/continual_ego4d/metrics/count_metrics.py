@@ -5,6 +5,10 @@ from collections import Counter
 import numpy as np
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
 from continual_ego4d.utils.meters import AverageMeter
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from continual_ego4d.tasks.continual_action_recog_task import StreamStateTracker
 
 
 class HistoryCountMetric(Metric):
@@ -15,7 +19,7 @@ class HistoryCountMetric(Metric):
     """
     reset_before_batch = True
     action_modes = ["verb", "noun", "action"]
-    count_modes = ["stream+pretrain", "stream", "pretrain"]
+    count_modes = ["history+pretrain", "history", "pretrain"]
 
     def __init__(
             self,
@@ -28,7 +32,7 @@ class HistoryCountMetric(Metric):
 
         if self.history_action_instance_count is not None \
                 and self.pretrain_action_instance_count is not None:
-            self.count_mode = 'stream+pretrain'
+            self.count_mode = 'history+pretrain'
             self.counter_dicts = [self.history_action_instance_count, self.pretrain_action_instance_count]
 
         elif self.history_action_instance_count is not None:
@@ -62,7 +66,7 @@ class HistoryCountMetric(Metric):
         self.iter_to_result = {}
 
     @torch.no_grad()
-    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
+    def update(self, preds, labels, stream_sample_idxs, **kwargs):
         """Update metric from predictions and labels."""
 
         # Verb/noun errors
@@ -94,7 +98,7 @@ class HistoryCountMetric(Metric):
         self.avg_meter.reset()
 
     @torch.no_grad()
-    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
+    def result(self, current_batch_idx: int, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format."""
         result = self.avg_meter.avg  # Avg over counts
         self.iter_to_result[current_batch_idx] = result
@@ -134,7 +138,7 @@ class SetCountMetric(Metric):
         assert self.mode in self.modes
 
     @torch.no_grad()
-    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
+    def update(self, preds, labels, stream_sample_idxs, **kwargs):
         """Update metric from predictions and labels."""
         pass
 
@@ -144,7 +148,7 @@ class SetCountMetric(Metric):
         pass
 
     @torch.no_grad()
-    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
+    def result(self, current_batch_idx: int, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format."""
         ret = []
 
@@ -228,9 +232,9 @@ class WindowedUniqueCountMetric(Metric):
         self._current_batch_min_idx: int = None
 
     @torch.no_grad()
-    def update(self, current_batch_idx: int, preds, labels, current_batch_sample_idxs: list):
+    def update(self, preds, labels, stream_sample_idxs, stream_state: 'StreamStateTracker' = None, **kwargs):
         """Update metric from predictions and labels."""
-        current_batch_min_idx = min(current_batch_sample_idxs)
+        current_batch_min_idx = min(stream_state.stream_batch_sample_idxs)
         if self._current_batch_min_idx is None:
             self._current_batch_min_idx = current_batch_min_idx
         else:
@@ -242,7 +246,7 @@ class WindowedUniqueCountMetric(Metric):
         self._current_batch_min_idx = None
 
     @torch.no_grad()
-    def result(self, current_batch_idx: int, *args, **kwargs) -> Dict:
+    def result(self, current_batch_idx: int, **kwargs) -> Dict:
         """Get the metric(s) with name in dict format."""
         assert self._current_batch_min_idx is not None, "Assign self._current_batch_min_idx first with update()"
 

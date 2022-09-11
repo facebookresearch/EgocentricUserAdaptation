@@ -5,6 +5,10 @@ from continual_ego4d.metrics.metric import AvgMeterMetric, Metric, get_metric_ta
 # from continual_ego4d.metrics.metric import AvgMeterDictMetric
 from ego4d.evaluation import lta_metrics as metrics
 from torch import Tensor
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from continual_ego4d.tasks.continual_action_recog_task import StreamStateTracker
 
 
 # class OnlineTopkAccBalancedMetric(AvgMeterDictMetric):
@@ -22,7 +26,7 @@ from torch import Tensor
 #             assert self.k == 1, f"Action mode only supports top1, not top-{self.k}"
 #
 #     @torch.no_grad()
-#     def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
+#     def update(self, stream_current_batch_idx: int, preds, labels, *args, **kwargs):
 #         """Update metric from predictions and labels."""
 #         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
 #         batch_size = labels.shape[0]
@@ -53,7 +57,7 @@ class OnlineTopkAccMetric(AvgMeterMetric):
             assert self.k == 1, f"Action mode only supports top1, not top-{self.k}"
 
     @torch.no_grad()
-    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
+    def update(self, preds, labels, stream_sample_idxs, **kwargs):
         """Update metric from predictions and labels."""
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
         batch_size = labels.shape[0]
@@ -92,12 +96,12 @@ class OnlineLossMetric(AvgMeterMetric):
         self.avg_meter = AverageMeter()
 
     @torch.no_grad()
-    def update(self, current_batch_idx: int, preds, labels, *args, **kwargs):
+    def update(self, preds, labels, stream_sample_idxs, **kwargs):
         """Update metric from predictions and labels."""
         assert preds[0].shape[0] == labels.shape[0], f"Batch sizes not matching!"
         batch_size = labels.shape[0]
 
-        loss_action, loss_verb, loss_noun = self.get_losses_from_preds(preds, labels, self.loss_fun)
+        loss_action, loss_verb, loss_noun = self.get_losses_from_preds(preds, labels, self.loss_fun, mean=True)
 
         # Verb/noun errors
         if self.mode in ['verb']:
@@ -127,6 +131,6 @@ class OnlineLossMetric(AvgMeterMetric):
 class RunningAvgOnlineLossMetric(OnlineLossMetric):
     reset_before_batch = False
 
-    def __init__(self, metric_tag, loss_fun, mode="action"):
-        super().__init__(loss_fun, metric_tag, mode)
+    def __init__(self, metric_tag: str, loss_fun, mode="action"):
+        super().__init__(metric_tag, loss_fun, mode)
         self.name = f"{self.name}_running_avg"
