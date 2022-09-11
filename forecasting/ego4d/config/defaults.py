@@ -67,8 +67,17 @@ _C.BN.NUM_SPLITS = 1
 # devices will be synchronized.
 _C.BN.NUM_SYNC_DEVICES = 1
 
+
 # ---------------------------------------------------------------------------- #
-# Training options.
+# PREDICT phase (before training) options.
+# ---------------------------------------------------------------------------- #
+_C.PREDICT_PHASE = CfgNode()
+
+_C.PREDICT_PHASE.BATCH_SIZE = 10
+_C.PREDICT_PHASE.NUM_WORKERS = 16
+
+# ---------------------------------------------------------------------------- #
+# CONTINUAL EVAL options.
 # ---------------------------------------------------------------------------- #
 _C.CONTINUAL_EVAL = CfgNode()
 

@@ -50,8 +50,8 @@ def construct_predictstream_loader(trainloader, cfg, subset_idxes):
     Constructs data loader similar to trainloader, but using max batch_size.
     Samples that are NOT in one of the pretrain verb/noun sets are excluded.
     """
-    num_workers = cfg.CONTINUAL_EVAL.NUM_WORKERS  # Optimized for inference
-    total_mem_batch_size = cfg.CONTINUAL_EVAL.BATCH_SIZE
+    num_workers = cfg.PREDICT_PHASE.NUM_WORKERS  # Optimized for inference
+    total_mem_batch_size = cfg.PREDICT_PHASE.BATCH_SIZE
     if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
         batch_size = int(total_mem_batch_size / cfg.NUM_GPUS)
     else:
