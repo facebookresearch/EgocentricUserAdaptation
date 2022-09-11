@@ -19,6 +19,7 @@ conda env export --from-history > environment_from_history.yml # Condensed to th
 conda env create -f environment.yml
 conda activate matt_ego4d
 conda init bash
+conda install pytorch==1.9.1 torchvision==0.10.1 cudatoolkit=11.3 -c pytorch -c conda-forge
 
 # Add pip-installed depenedencies from ego4d
 cat pip_requirements.txt | xargs -n 1 -L 1 pip install
@@ -28,7 +29,8 @@ pip install setuptools==59.5.0
 
 # Login to wandb logger
 pip install wandb
-wandb login --host=https://fairwandb.org
+wandb login --relogin --host https://fairwandb.org
+wandb verify
 
 ##################### .BASHRC #####################
 # Change bashrc and make symlink to current project
@@ -62,4 +64,4 @@ ln -s /home/matthiasdelange/data/ego4d/lta_video_clips clips_root_local
 ##################### PERMISSIONS #####################
 # Make all dirs writable for other users (different nodes) if needed:
 # In current dir:
-find . -type d -exec chmod 7577 {} \;
+find . -type d -exec chmod 777 {} \;
