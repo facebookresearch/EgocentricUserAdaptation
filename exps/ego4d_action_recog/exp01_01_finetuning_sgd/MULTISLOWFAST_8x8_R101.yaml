@@ -54,6 +54,7 @@ SOLVER:
   LR_POLICY: constant
   MAX_EPOCH: 1
   MOMENTUM: 0.9
+  NESTEROV: True # If 0, should set to False
   OPTIMIZING_METHOD: sgd
   WEIGHT_DECAY: 0.0
 MODEL:

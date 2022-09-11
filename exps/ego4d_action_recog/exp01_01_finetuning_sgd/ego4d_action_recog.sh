@@ -51,10 +51,14 @@ fi
 #exit
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 10" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" USER_SELECTION 104,108" # Subset of users to process
-OVERWRITE_CFG_ARGS+=" GPU_IDS 7 NUM_USERS_PER_DEVICE 1"
+OVERWRITE_CFG_ARGS+=" USER_SELECTION 104,108,324,30" # Subset of users to process
+#OVERWRITE_CFG_ARGS+=" GPU_IDS 1 NUM_USERS_PER_DEVICE 2" # 1,3,4,5,6
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # DEBUG
 #OVERWRITE_CFG_ARGS+=" GPU_IDS '0' FAST_DEV_RUN False FAST_DEV_DATA_CUTOFF 30" # DEBUG
+
+# TODO tmp
+#OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 10 TRAIN.BATCH_SIZE 1 CONTINUAL_EVAL.BATCH_SIZE 10 CONTINUAL_EVAL.PLOTTING_FREQ 1" # DEBUG
+
 
 # RESUME
 #OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_17-30-48_UID61c906b6-2f71-4d24-9dfa-60efa9b001bb"
@@ -76,7 +80,7 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="${run_id}_MATT"
-#screen -dmS "${screenname}" \
+screen -dmS "${screenname}" \
 python -m continual_ego4d.run_recog_CL \
   --job_name "$screenname" \
   --working_directory "${OUTPUT_DIR}" \
