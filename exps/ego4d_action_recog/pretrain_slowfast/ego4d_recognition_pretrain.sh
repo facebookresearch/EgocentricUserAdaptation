@@ -32,7 +32,7 @@ cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script fil
 #-----------------------------------------------------------------------------------------------#
 #export CUDA_VISIBLE_DEVICES="1,2,3,4,5" # Set as environment variable for this script
 
-OVERWRITE_CFG_ARGS=""
+OVERWRITE_CFG_ARGS="WANDB.TAGS '${p_dirname}','${pp_dirname}'"
 OVERWRITE_CFG_ARGS+=" NUM_GPUS 8"
 #OVERWRITE_CFG_ARGS+=" GPU_IDS '6,7'" # Not compatible with DDP
 OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN False"

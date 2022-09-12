@@ -31,7 +31,7 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root_local/clips
 #-----------------------------------------------------------------------------------------------#
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
-OVERWRITE_CFG_ARGS=""
+OVERWRITE_CFG_ARGS="WANDB.TAGS '${p_dirname}','${pp_dirname}'"
 
 #-----------------------------------------------------------------------------------------------#
 # Get GRID PARAMS

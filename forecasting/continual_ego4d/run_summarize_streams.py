@@ -29,7 +29,7 @@ def main(cfg):
     if resuming_run:
         cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR  # Resume run if specified, and output to same output dir
     print(f"Output is redirected to: {cfg.OUTPUT_DIR}")
-    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
+    PathHandler.makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
 
     # Assertion bypassing
     cfg.SOLVER.ACCELERATOR = "gpu"

@@ -70,7 +70,7 @@ class PathHandler:
             cfg.OUTPUT_DIR = str(orig_path.parent.absolute() / grid_parent_dir / orig_path.name)
 
         # Create dir
-        os.makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
+        PathHandler.makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
 
         # Copy files to output dir for reproducing
         for reproduce_path in [cfg.PARENT_SCRIPT_FILE_PATH, cfg.CONFIG_FILE_PATH]:
@@ -98,7 +98,7 @@ class PathHandler:
         if user_id is not None:
             p = osp.join(p, self.get_experiment_version(user_id))
         if create:
-            os.makedirs(p, exist_ok=True, mode=0o777)
+            PathHandler.makedirs(p, exist_ok=True, mode=0o777)
         return p
 
     def get_user_wandb_name(self, user_id=None):
@@ -137,6 +137,15 @@ class PathHandler:
                     break
 
         return processed_user_ids
+
+    @staticmethod
+    def makedirs(path, mode=0o777, exist_ok=True):
+        """Fix to change umask in order for makedirs to work. """
+        try:
+            original_umask = os.umask(0)
+            os.makedirs(path, mode=mode, exist_ok=exist_ok)
+        finally:
+            os.umask(original_umask)
 
 
 def save_meta_state(meta_checkpoint_path, user_id):
