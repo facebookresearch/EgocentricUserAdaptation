@@ -47,6 +47,10 @@ from pytorchvideo.transforms.functional import uniform_temporal_subsample
 from pytorchvideo.data.utils import MultiProcessSampler
 
 from ego4d.datasets.ptv_dataset_helper import UntrimmedClipSampler  # TODO MAKE SURE NOT USING THIS ONE!
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from continual_ego4d.tasks.continual_action_recog_task import PretrainState
 
 logger = logging.get_logger(__name__)
 
@@ -104,6 +108,14 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             video_path_prefix=self.cfg.DATA.PATH_PREFIX,
             decoder=self._decoder
         )
+
+        # filter out samples not seen during pretraining
+        if not cfg.ENABLE_FEW_SHOT:
+            logger.info(f"Dataset FEW-SHOT disabled, filtering out unseen samples during pretrain.")
+            self.seq_input_list = filter_dataset_only_seen_action_pretrain(
+                self.seq_input_list,
+                cfg.COMPUTED_PRETRAIN_STATE
+            )
 
         self.clip_5min_transition_idxs, self.parent_video_transition_idxs = get_video_transitions(self.seq_input_list)
         logger.info(f"clip_5min_transition_idxs={self.clip_5min_transition_idxs}")
@@ -482,6 +494,25 @@ def get_formatted_entry(df_row, video_path_prefix, user_id):
             # "meta_data": df_row.to_dict(),
         }
     )
+
+
+def filter_dataset_only_seen_action_pretrain(seq_input_list: list[dict], pretrain_state: 'PretrainState'):
+    """ Return a list that contains only sample-entries that have actions seen during pretraining."""
+    keep_idxs = []
+    for idx, (_, entry) in enumerate(seq_input_list):
+        verb = verbnoun_format(entry['verb_label'])
+        noun = verbnoun_format(entry['noun_label'])
+        action = verbnoun_to_action(verb, noun)
+
+        if action in pretrain_state.pretrain_action_freq_dict:
+            keep_idxs.append(idx)
+
+    nb_dropped = len(seq_input_list) - len(keep_idxs)
+    perc_remaining = "{:.2f}".format(len(keep_idxs) / len(seq_input_list))
+    logger.info(f"Filtered out {nb_dropped} dataset unseen samples: "
+                f"{len(keep_idxs)}/{len(seq_input_list)} remaining"
+                f"({perc_remaining}%)")
+    return [seq_input_list[idx] for idx in keep_idxs]
 
 
 def get_video_transitions(seq_input_list):

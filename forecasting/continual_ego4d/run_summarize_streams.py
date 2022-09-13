@@ -15,39 +15,44 @@ from pytorch_lightning import Trainer, seed_everything
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
 
-from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
+from continual_ego4d.tasks.continual_action_recog_task import PretrainState
 from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 
 import os
 import os.path as osp
 from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader
+from continual_ego4d.run_recog_CL import load_datasets_from_jsons
 
+logger = logging.get_logger(__name__)
 
 def main(cfg):
     """ Iterate users and aggregate. """
+
     resuming_run = len(cfg.RESUME_OUTPUT_DIR) > 0
     if resuming_run:
         cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR  # Resume run if specified, and output to same output dir
     print(f"Output is redirected to: {cfg.OUTPUT_DIR}")
     PathHandler.makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
 
+    # Logger for dataset
+    logging.setup_logging(cfg.OUTPUT_DIR, host_name='MASTER', overwrite_logfile=False)
+
     # Assertion bypassing
     cfg.SOLVER.ACCELERATOR = "gpu"
 
-    # Select user-split file based on config: Either train or test:
-    assert cfg.DATA.USER_SUBSET in ['train', 'test'], "Usersplits should be train or test"
+    # Dataset loading
     data_paths = {
         'train': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT,
-        'test': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT
+        'test': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT,
+        'pretrain': cfg.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT,
     }
     data_path = data_paths[cfg.DATA.USER_SUBSET]
 
-    user_datasets = extract_json(data_path)['users']
+    user_datasets = load_datasets_from_jsons(cfg)
     all_user_ids_s = sorted([u for u in user_datasets.keys()])  # Deterministic user order
-    print(f'Running JSON USER SPLIT "{cfg.DATA.USER_SUBSET}" in path: {data_path}')
 
     # Iterate user datasets
-    checkpoint_filename = f"dataset_entries_{cfg.DATA.USER_SUBSET}_{osp.basename(data_path).split('.')[0]}.ckpt"
+    checkpoint_filename = f"dataset_entries_{cfg.DATA.USER_SUBSET}_FEWSHOT={cfg.ENABLE_FEW_SHOT}_{osp.basename(data_path).split('.')[0]}.ckpt"
     checkpoint_path = osp.join(cfg.OUTPUT_DIR, checkpoint_filename)
     print(f"Dataset checkpoint path={checkpoint_path}")
     assert not osp.isfile(checkpoint_path), "Not overwriting summary checkpoint"
@@ -74,6 +79,9 @@ def collect_user_dataset(
     # Set user configs
     cfg.DATA.COMPUTED_USER_ID = user_id
     cfg.DATA.COMPUTED_USER_DS_ENTRIES = user_dataset
+
+    # Set pretrain stats
+    cfg.COMPUTED_PRETRAIN_STATE = PretrainState(cfg.COMPUTED_PRETRAIN_ACTION_SETS)
 
     loader = construct_trainstream_loader(cfg)
     dataset_obj = loader.dataset

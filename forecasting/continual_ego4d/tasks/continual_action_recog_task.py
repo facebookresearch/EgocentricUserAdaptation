@@ -49,45 +49,17 @@ from ego4d.utils import logging
 logger = logging.get_logger(__name__)
 
 
-class StreamStateTracker:
+class PretrainState:
     """
-    Disentangles tracking stats from the stream, form the Lightning Module.
-    This object can safely be shared as reference, as opposed to the LightningModule which is prone to
-    recursion errors due to holding the model and optimizer.
+    The pretrain state enables using the state for both dataset creation and StreamStateTracker creation.
+    The both Ego4dContinualRecognition and StreamStateTracker depend on pretrain sets.
     """
 
-    def __init__(self, stream_loader, pretrain_action_sets):
-
-        # All attributes that will also be stored
-        self.init_attrs_to_save(stream_loader, pretrain_action_sets)
-
-        # Gather attr names defined before
-        self.attrs_to_dump = [attr_name for attr_name in vars(self).keys()]
-        logger.info(f"{self.__class__.__name__} attributes included in dump: {self.attrs_to_dump}")
-
-        # Attributes that are not saved
-        self.init_transient_attrs()
-
-    def init_attrs_to_save(self, stream_loader, pretrain_action_sets):
-        self.total_stream_sample_count = len(stream_loader.dataset)
-
+    def __init__(self, pretrain_action_sets):
         # Prediction phase
         self.sample_idx_to_pretrain_loss = {}
         """ A dict containing a mapping of the stream sample index to the loss on the initial pretrain model.
         The dictionary is filled in the preprocessing predict phase before training."""
-
-        # Count-sets: Current stream
-        self.user_verb_freq_dict = stream_loader.dataset.verb_freq_dict
-        self.user_noun_freq_dict = stream_loader.dataset.noun_freq_dict
-        self.user_action_freq_dict = stream_loader.dataset.action_freq_dict
-        """ Counter dictionaries from the user stream for actions/verbs/nouns. """
-
-        self.clip_5min_transition_idx_set = set(stream_loader.dataset.clip_5min_transition_idxs)
-        self.parent_video_transition_idx_set = set(stream_loader.dataset.parent_video_transition_idxs)
-        """ Current stream video and clip transitions. """
-
-        self.sample_idx_to_action_list = stream_loader.dataset.sample_idx_to_action_list
-        """ A list containing all actions in the full stream, the array index corresponds to the stream sample idx. """
 
         # Pretraining stats
         # From JSON: {'ACTION_LABEL': {'name': "ACTION_NAME", 'count': "ACTION_COUNT"}}
@@ -104,6 +76,42 @@ class StreamStateTracker:
         }
         """ Sets containing all the action/nouns/verbs from the pretraining phase. """
 
+
+class StreamStateTracker:
+    """
+    Disentangles tracking stats from the stream, form the Lightning Module.
+    This object can safely be shared as reference, as opposed to the LightningModule which is prone to
+    recursion errors due to holding the model and optimizer.
+    """
+
+    def __init__(self, stream_loader, pretrain_state: PretrainState):
+
+        # All attributes that will also be stored
+        self.init_attrs_to_save(stream_loader, pretrain_state)
+
+        # Gather attr names defined before
+        self.attrs_to_dump = [attr_name for attr_name in vars(self).keys()]
+        logger.info(f"{self.__class__.__name__} attributes included in dump: {self.attrs_to_dump}")
+
+        # Attributes that are not saved
+        self.init_transient_attrs()
+
+    def init_attrs_to_save(self, stream_loader, pretrain_state: PretrainState):
+        self.total_stream_sample_count = len(stream_loader.dataset)
+
+        # Count-sets: Current stream
+        self.user_verb_freq_dict = stream_loader.dataset.verb_freq_dict
+        self.user_noun_freq_dict = stream_loader.dataset.noun_freq_dict
+        self.user_action_freq_dict = stream_loader.dataset.action_freq_dict
+        """ Counter dictionaries from the user stream for actions/verbs/nouns. """
+
+        self.clip_5min_transition_idx_set = set(stream_loader.dataset.clip_5min_transition_idxs)
+        self.parent_video_transition_idx_set = set(stream_loader.dataset.parent_video_transition_idxs)
+        """ Current stream video and clip transitions. """
+
+        self.sample_idx_to_action_list = stream_loader.dataset.sample_idx_to_action_list
+        """ A list containing all actions in the full stream, the array index corresponds to the stream sample idx. """
+
         # Additional dump references
         self.dataset_all_entries_ordered = stream_loader.dataset.seq_input_list
         """ Keep entire dataset list, per sample we have the action, video_path, and additional meta data. """
@@ -118,6 +126,11 @@ class StreamStateTracker:
         self.sample_idx_to_verb_loss = [None] * self.total_stream_sample_count
         self.sample_idx_to_noun_loss = [None] * self.total_stream_sample_count
         """ Per sample feat/prediction/loss. """
+
+        # PRETRAIN STATES
+        for name, val in vars(pretrain_state):
+            setattr(self, name, val)
+        """Add all pretraining states as attributes of the stream to save for dump."""
 
         # TODO for replay also track losses for new/mem?
 
@@ -271,19 +284,21 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Sanity modes/debugging
         self.enable_prepost_comparing = True  # Compare loss before/after update
 
+        # Pretrain state
+        self.pretrain_state = PretrainState(cfg.COMPUTED_PRETRAIN_ACTION_SETS)
+        self.cfg.COMPUTED_PRETRAIN_STATE = self.pretrain_state # Set for dataset creation
+
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)
 
         # State tracker of stream
-        self.stream_state = StreamStateTracker(
-            self.train_loader, pretrain_action_sets=cfg.COMPUTED_PRETRAIN_ACTION_SETS
-        )
+        self.stream_state = StreamStateTracker(self.train_loader, self.pretrain_state)
 
         # Pretrain loader: Only samples that both verb and noun have been seen in pretrain
         self.predict_phase_load_idxs = []
         for stream_sample_idx, action in enumerate(self.stream_state.sample_idx_to_action_list):
             verb, noun = action
-            if verb in self.stream_state.pretrain_verb_freq_dict and noun in self.stream_state.pretrain_noun_freq_dict:
+            if verb in self.pretrain_state.pretrain_verb_freq_dict and noun in self.pretrain_state.pretrain_noun_freq_dict:
                 self.predict_phase_load_idxs.append(stream_sample_idx)
 
         self.predict_loader = construct_predictstream_loader(
@@ -338,11 +353,11 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
                 # ADAPT METRICS
                 OnlineAdaptationGainMetric(
-                    TAG_BATCH, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
+                    TAG_BATCH, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss, loss_mode=mode),
                 RunningAvgOnlineAdaptationGainMetric(
-                    TAG_BATCH, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
+                    TAG_BATCH, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss, loss_mode=mode),
                 CumulativeOnlineAdaptationGainMetric(
-                    TAG_BATCH, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss, loss_mode=mode),
+                    TAG_BATCH, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss, loss_mode=mode),
             ])
 
             # TOP5-ACC
@@ -364,11 +379,11 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # ADD INTERSECTION COUNT METRICS
         for mode, seen_set, user_ref_set, pretrain_ref_set in [
             ('action', self.stream_state.stream_seen_action_freq_dict, self.stream_state.user_action_freq_dict,
-             self.stream_state.pretrain_action_freq_dict),
+             self.pretrain_state.pretrain_action_freq_dict),
             ('verb', self.stream_state.stream_seen_verb_freq_dict, self.stream_state.user_verb_freq_dict,
-             self.stream_state.pretrain_verb_freq_dict),
+             self.pretrain_state.pretrain_verb_freq_dict),
             ('noun', self.stream_state.stream_seen_noun_freq_dict, self.stream_state.user_noun_freq_dict,
-             self.stream_state.pretrain_noun_freq_dict),
+             self.pretrain_state.pretrain_noun_freq_dict),
         ]:
             batch_metrics.extend([  # Seen actions (history part of stream) vs full user stream actions
                 SetCountMetric(observed_set_name="seen", observed_set=seen_set,
@@ -385,9 +400,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # ADD HISTORY VS CURRENT BATCH COUNTS:
         # how many times seen in pretrain vs how many times during stream
         for mode, history_action_instance_count, pretrain_action_instance_count in [
-            ('action', self.stream_state.stream_seen_action_freq_dict, self.stream_state.pretrain_action_freq_dict),
-            ('verb', self.stream_state.stream_seen_verb_freq_dict, self.stream_state.pretrain_verb_freq_dict),
-            ('noun', self.stream_state.stream_seen_noun_freq_dict, self.stream_state.pretrain_noun_freq_dict),
+            ('action', self.stream_state.stream_seen_action_freq_dict, self.pretrain_state.pretrain_action_freq_dict),
+            ('verb', self.stream_state.stream_seen_verb_freq_dict, self.pretrain_state.pretrain_verb_freq_dict),
+            ('noun', self.stream_state.stream_seen_noun_freq_dict, self.pretrain_state.pretrain_noun_freq_dict),
         ]:
             batch_metrics.extend([
                 HistoryCountMetric(history_action_instance_count=history_action_instance_count,
@@ -416,13 +431,13 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             past_metrics.extend([
                 # ADAPTATION METRICS
                 OnlineAdaptationGainMetric(
-                    TAG_PAST, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss,
+                    TAG_PAST, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
                     loss_mode=action_mode),
                 RunningAvgOnlineAdaptationGainMetric(
-                    TAG_PAST, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss,
+                    TAG_PAST, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
                     loss_mode=action_mode),
                 CumulativeOnlineAdaptationGainMetric(
-                    TAG_PAST, self.loss_fun_unred, self.stream_state.sample_idx_to_pretrain_loss,
+                    TAG_PAST, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
                     loss_mode=action_mode),
 
                 # ACTION METRICS
@@ -607,7 +622,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Update metrics
         for metric in self.current_batch_metrics:
-            metric.update(verbnoun_outputs, labels, self.stream_state.stream_batch_sample_idxs, stream_state=self.stream_state)
+            metric.update(verbnoun_outputs, labels, self.stream_state.stream_batch_sample_idxs,
+                          stream_state=self.stream_state)
 
         # Gather results from metrics
         results = {}
@@ -821,7 +837,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Loss per sample
         _, _, sample_to_results = self.method.prediction_step(inputs, labels, stream_sample_idxs.tolist())
         for k, v in sample_to_results.items():
-            self.stream_state.sample_idx_to_pretrain_loss[k] = v
+            self.pretrain_state.sample_idx_to_pretrain_loss[k] = v
 
     @torch.no_grad()
     def on_predict_end(self) -> None:
@@ -832,13 +848,13 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         We only consider the pretraining prototypes of the pretraining phase for the uniform predictor.
         As later adaptation with incremental classes is also seen as an improvement over the original pretrain model.
         """
-        logger.info(f"Predict collected over stream: {pprint.pformat(self.stream_state.sample_idx_to_pretrain_loss)}")
+        logger.info(f"Predict collected over stream: {pprint.pformat(self.pretrain_state.sample_idx_to_pretrain_loss)}")
 
         nb_verbs_total, nb_nouns_total = self.cfg.MODEL.NUM_CLASSES  # [ 115, 478 ]
 
         # retrieve how many seen during pretrain
-        nb_verbs_seen_pretrain = len(self.stream_state.pretrain_verb_freq_dict)
-        nb_nouns_seen_pretrain = len(self.stream_state.pretrain_noun_freq_dict)
+        nb_verbs_seen_pretrain = len(self.pretrain_state.pretrain_verb_freq_dict)
+        nb_nouns_seen_pretrain = len(self.pretrain_state.pretrain_noun_freq_dict)
         logger.info(f"Pretraining seen verbs = {nb_verbs_seen_pretrain}/{nb_verbs_total}, "
                     f"nouns= {nb_nouns_seen_pretrain}/{nb_nouns_total}")
 
@@ -855,7 +871,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         unseen_in_pretrain_idxs = [idx for idx in range(self.stream_state.total_stream_sample_count)
                                    if idx not in self.predict_phase_load_idxs]
         for unseen_in_pretrain_idx in unseen_in_pretrain_idxs:
-            self.stream_state.sample_idx_to_pretrain_loss[unseen_in_pretrain_idx] = {
+            self.pretrain_state.sample_idx_to_pretrain_loss[unseen_in_pretrain_idx] = {
                 get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='action', base_metric_name='loss'):
                     loss_action_uniform,
                 get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='verb', base_metric_name='loss'):
@@ -865,7 +881,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             }
 
         logger.info(
-            f"ALL Predict including uniform classifier loss: {pprint.pformat(self.stream_state.sample_idx_to_pretrain_loss)}")
+            f"ALL Predict including uniform classifier loss: {pprint.pformat(self.pretrain_state.sample_idx_to_pretrain_loss)}")
 
     # ---------------------
     # TRAINING SETUP
