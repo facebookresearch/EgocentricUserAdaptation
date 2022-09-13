@@ -21,6 +21,13 @@ _C.GRID_NODES = None  # Add nodes that we gridsearch over to output path
 _C.NUM_USERS_PER_DEVICE = 1  # How many user-processes per gpu
 _C.USER_SELECTION = None  # Only process specific users, comma-seperated str
 
+
+# ---------------------------------------------------------------------------- #
+# CL STREAM options
+# ---------------------------------------------------------------------------- #
+# Include actions that have not been seen during pretraining
+_C.ENABLE_FEW_SHOT = False
+
 # ---------------------------------------------------------------------------- #
 # WANDB options
 # ---------------------------------------------------------------------------- #

@@ -310,7 +310,7 @@ def online_adaptation_single_user(
         # DeviceStatsMonitor(), # Way too detailed
         GPUStatsMonitor(),
         Timer(duration=None, interval='epoch'),
-        Timer(duration=None, interval='step')
+        Timer(duration=None, interval='step'),
         # LearningRateMonitor(), # Cst LR by default
     ]
 
