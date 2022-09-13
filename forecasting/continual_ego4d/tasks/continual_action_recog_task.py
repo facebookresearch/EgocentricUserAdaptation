@@ -128,7 +128,7 @@ class StreamStateTracker:
         """ Per sample feat/prediction/loss. """
 
         # PRETRAIN STATES
-        for name, val in vars(pretrain_state):
+        for name, val in vars(pretrain_state).items():
             setattr(self, name, val)
         """Add all pretraining states as attributes of the stream to save for dump."""
 

@@ -10,7 +10,10 @@ if TYPE_CHECKING:
 
 
 class OnlineAdaptationGainMetric(AvgMeterMetric):
-    """ Compare with pretrained model for verb, noun, or combined action loss what the delta is. """
+    """
+    Compare with pretrained model for verb, noun, or combined action loss what the delta is.
+    Returns average over updates.
+    """
     reset_before_batch = True
 
     def __init__(self, metric_tag: str, unreduced_loss_fun, sample_idx_to_pretrain_loss: dict, loss_mode="action",
