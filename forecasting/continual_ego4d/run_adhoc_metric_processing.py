@@ -32,14 +32,10 @@ Out[6]:
 76                          NaN                   25
 """
 
-# TODO check csv
-
 import pandas as pd
 import wandb
-from io import StringIO
 import pprint
-import time
-import datetime
+import os
 
 api = wandb.Api()
 
@@ -131,37 +127,6 @@ def get_selected_group_names(selected_group_names_csv_path):
     return group_names
 
 
-# # Project is specified by <entity/project-name>
-# runs = api.runs("matthiasdelange/ContinualUserAdaptation")
-#
-# summary_list, config_list, name_list = [], [], []
-# history_list = []  # Contains all data tracked over time (e.g. our metrics) in a DF
-# for run in runs:
-#     # .summary contains the output keys/values for metrics like accuracy.
-#     #  We call ._json_dict to omit large files
-#     summary_list.append(run.summary._json_dict)
-#
-#     # .config contains the hyperparameters.
-#     #  We remove special values that start with _.
-#     config_list.append(
-#         {k: v for k, v in run.config.items()
-#          if not k.startswith('_')})
-#
-#     # .name is the human-readable name of the run.
-#     name_list.append(run.name)
-#
-#     history_list.append(run.name)
-#
-#     run.group
-#
-# runs_df = pd.DataFrame({
-#     "summary": summary_list,
-#     "config": config_list,
-#     "name": name_list
-# })
-#
-# runs_df.to_csv("project.csv")
-
 if __name__ == "__main__":
     # selected_group_names_csv = StringIO(
     #
@@ -178,9 +143,8 @@ if __name__ == "__main__":
     #     "Finetuning_2022-09-13_09-33-53_UIDa6fe4344-2d3e-4d95-9b80-bcc5005eba30_MATT","finished","Finetuning","-","matthiasdelange","","2022-09-13T16:34:43.000Z","19063","0.001","0","sgd","/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/final01_01_finetuning_sgd/../../../results/ego4d_action_recog/final01_01_finetuning_sgd/logs/GRID_SOLVER-BASE_LR=0-001_SOLVER-MOMENTUM=0-0_SOLVER-NESTEROV=True/2022-09-13_09-33-53_UIDa6fe4344-2d3e-4d95-9b80-bcc5005eba30"
     #     """)
     # )
-    import os
 
-    csv_dirname = '/home/mattdl/projects/ContextualOracle_Matthias/adhoc_results'
+    csv_dirname = '/home/mattdl/projects/ContextualOracle_Matthias/adhoc_results'  # Move file in this dir
     csv_filename = 'wandb_export_2022-09-13T16_24_31.761-07_00.csv'  # TODO copy file here and past name here
     csv_path = os.path.join(csv_dirname, csv_filename)
     assert os.path.isfile(csv_path)

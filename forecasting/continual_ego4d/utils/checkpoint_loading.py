@@ -6,10 +6,9 @@ import torch
 from ego4d.utils import logging
 from ego4d.utils.c2_model_loading import get_name_convert_func
 import os.path as osp
-from ego4d.config.defaults import get_cfg_by_name
 import shutil
 from pathlib import Path
-from ego4d.config.defaults import set_cfg_by_name, get_cfg_by_name, convert_cfg_to_dict
+from ego4d.config.defaults import get_cfg_by_name
 
 logger = logging.get_logger(__name__)
 
