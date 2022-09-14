@@ -53,7 +53,9 @@ class PathHandler:
             grid_parent_dir = f"GRID_" + '_'.join(grid_parent_dir_name).replace('.', '-')
 
         # Resume run if specified, and output to same output dir
+        output_dir = None
         is_resuming_run = len(cfg.RESUME_OUTPUT_DIR) > 0
+        assert not (cfg.GRID_RESUME_LATEST and is_resuming_run), "Can only specify one of either"
         if is_resuming_run:
 
             # Check GRID_NODES and current resume-path are matching
@@ -62,13 +64,29 @@ class PathHandler:
                     f"Defined resume path and gridsearch nodes are not matching. " \
                     f"Resume_dir={cfg.RESUME_OUTPUT_DIR}, grid_parent_dir={grid_parent_dir}"
 
-            cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR
+            output_dir = cfg.RESUME_OUTPUT_DIR
+            logger.info(f"RESUMING RUN: {output_dir}")
+
+        elif cfg.GRID_RESUME_LATEST:  # Resume grid run
+            # Resume latest run that already exists in the grid parent dir
+            grid_parent_path = str(orig_path.parent.absolute() / grid_parent_dir)
+            subdirs = sorted([user_subdir.name for user_subdir in os.scandir(grid_parent_path) if user_subdir.is_dir()])
+
+            if len(subdirs) > 0:
+                latest_subdir = subdirs[-1]
+                output_dir = str(orig_path.parent.absolute() / grid_parent_dir / latest_subdir)
+                is_resuming_run = True
+                logger.info(f"RESUMING RUN (LATEST FROM GRID): {output_dir}")
 
         # Add gridsearch config nodes to add a grouping gridsearch parent dir
-        elif grid_parent_dir is not None:
-            cfg.OUTPUT_DIR = str(orig_path.parent.absolute() / grid_parent_dir / orig_path.name)
+        if output_dir is None:
+            if grid_parent_dir is not None:
+                output_dir = str(orig_path.parent.absolute() / grid_parent_dir / orig_path.name)
+            else:
+                output_dir = cfg.OUTPUT_DIR
 
         # Create dir
+        cfg.OUTPUT_DIR = output_dir
         PathHandler.makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
 
         # Copy files to output dir for reproducing

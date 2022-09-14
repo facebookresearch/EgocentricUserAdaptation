@@ -18,6 +18,8 @@ _C.RUN_UID = ""
 # GRIDSEARCH options
 # ---------------------------------------------------------------------------- #
 _C.GRID_NODES = None  # Add nodes that we gridsearch over to output path
+_C.GRID_RESUME_LATEST = False  # Resume from latest in grid
+
 _C.NUM_USERS_PER_DEVICE = 1  # How many user-processes per gpu
 _C.USER_SELECTION = None  # Only process specific users, comma-seperated str
 
