@@ -1,3 +1,5 @@
+GRID_RESUME_LATEST: True
+GRID_NODES: "SOLVER.BASE_LR,SOLVER.MOMENTUM,SOLVER.NESTEROV"
 FAST_DEV_RUN: False
 OUTPUT_DIR: "" # OVERWRITTEN IN CALLING-SCRIPT
 RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/

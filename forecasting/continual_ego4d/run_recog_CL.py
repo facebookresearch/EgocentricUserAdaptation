@@ -173,19 +173,18 @@ def process_users_parallel(
     # Shared queue
     queue = mp.Queue()
 
-    initial_processes = []
+    user_to_process = {}
     for device_id in scheduler_cfg.available_device_ids:
         user_id = user_queue.popleft()
         submitted_users.append(user_id)
-        initial_processes.append(
-            mp.Process(target=online_adaptation_single_user,
-                       args=(cfg, user_id, user_datasets[user_id], device_id, path_handler, queue),
-                       daemon=False  # Needs to have children for num_workers
-                       )
+        user_to_process[user_id] = mp.Process(
+            target=online_adaptation_single_user,
+            args=(cfg, user_id, user_datasets[user_id], device_id, path_handler, queue),
+            daemon=False  # Needs to have children for num_workers
         )
 
     # Start processes
-    for p in initial_processes:
+    for p in user_to_process.values():
         p.start()
     # for p in initial_processes: # Don't use Queue and join with non-daemon
     #     p.join()  # Blocks main process until processes finished
@@ -205,6 +204,9 @@ def process_users_parallel(
                              f"Not releasing GPU as might give Out-of-Memory exception.")
             continue
 
+        # Zombie is finished process never joined, join to avoid
+        user_to_process[finished_user_id].join()
+
         # Launch new user with new process
         if len(user_queue) > 0:
             new_user_id = user_queue.popleft()
@@ -215,7 +217,7 @@ def process_users_parallel(
                 args=(cfg, new_user_id, user_datasets[new_user_id], device_id, path_handler, queue),
                 daemon=False  # Needs to have children for num_workers
             )
-
+            user_to_process[new_user_id] = user_process
             user_process.start()
             # user_process.join()
         else:
