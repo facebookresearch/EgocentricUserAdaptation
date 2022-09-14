@@ -14,6 +14,9 @@ CONTINUAL_EVAL:
   BATCH_SIZE: 8 # For speedup with parallel dataloading
   NUM_WORKERS: 8 # Half for not overloading server
   PAST_SAMPLE_CAPACITY: 64
+PREDICT_PHASE:
+  BATCH_SIZE: 20
+  NUM_WORKERS: 8
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition

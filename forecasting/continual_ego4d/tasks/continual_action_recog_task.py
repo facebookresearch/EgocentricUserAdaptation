@@ -270,7 +270,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # CFG checks
         self.cfg = cfg
-        self.save_hyperparameters()  # Save cfg to '
+        self.save_hyperparameters(logger=False)  # Save cfg to hparams file, don't send to
 
         # Multi-task (verb/noun) has classification head, mask out unseen classifier prototype outputs
         self.model = build_model(cfg)
@@ -286,7 +286,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Pretrain state
         self.pretrain_state = PretrainState(cfg.COMPUTED_PRETRAIN_ACTION_SETS)
-        self.cfg.COMPUTED_PRETRAIN_STATE = self.pretrain_state # Set for dataset creation
+        self.cfg.COMPUTED_PRETRAIN_STATE = self.pretrain_state  # Set for dataset creation
 
         # Dataloader
         self.train_loader = construct_trainstream_loader(self.cfg, shuffle=False)

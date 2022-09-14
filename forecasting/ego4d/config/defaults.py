@@ -21,7 +21,6 @@ _C.GRID_NODES = None  # Add nodes that we gridsearch over to output path
 _C.NUM_USERS_PER_DEVICE = 1  # How many user-processes per gpu
 _C.USER_SELECTION = None  # Only process specific users, comma-seperated str
 
-
 # ---------------------------------------------------------------------------- #
 # CL STREAM options
 # ---------------------------------------------------------------------------- #
@@ -74,7 +73,6 @@ _C.BN.NUM_SPLITS = 1
 # devices will be synchronized.
 _C.BN.NUM_SYNC_DEVICES = 1
 
-
 # ---------------------------------------------------------------------------- #
 # PREDICT phase (before training) options.
 # ---------------------------------------------------------------------------- #
@@ -103,8 +101,6 @@ _C.CONTINUAL_EVAL.FREQ = 10
 
 # When to plot figures for metrics
 _C.CONTINUAL_EVAL.PLOTTING_FREQ = 100
-
-
 
 # ---------------------------------------------------------------------------- #
 # Training options.
@@ -986,17 +982,21 @@ def get_cfg_by_name(cfg: CfgNode, hierarchy_cfg_name: str):
     return target_obj
 
 
-def convert_cfg_to_dict(cfg: CfgNode):
+def convert_cfg_to_flat_dict(cfg: CfgNode, key_exclude_set: set = None):
+    """ Dict hierarchy is transformed to '.'-separated string keys, to values."""
+
     def _get_leafnodes_dict(cfg_node, key_list, final_dict):
         if not isinstance(cfg_node, CfgNode):  # Final node
             final_dict[".".join(key_list)] = cfg_node
         else:
             cfg_dict = dict(cfg_node)
             for k, v in cfg_dict.items():
-                _get_leafnodes_dict(v, key_list + [k], final_dict)
+                if k not in key_exclude_set:
+                    _get_leafnodes_dict(v, key_list + [k], final_dict)
 
     res = {}
     _get_leafnodes_dict(cfg, [], res)
+
     return res
 
 

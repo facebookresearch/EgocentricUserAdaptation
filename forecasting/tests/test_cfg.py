@@ -1,6 +1,6 @@
 import unittest
 
-from forecasting.ego4d.config.defaults import get_cfg, convert_cfg_to_dict
+from forecasting.ego4d.config.defaults import get_cfg, convert_cfg_to_flat_dict
 import pprint
 
 
@@ -9,7 +9,7 @@ class TestConfig(unittest.TestCase):
         self.default_cfg = get_cfg()
 
     def test_config_to_dict(self):
-        cfg_dict = convert_cfg_to_dict(self.default_cfg)
+        cfg_dict = convert_cfg_to_flat_dict(self.default_cfg)
 
         print(pprint.pprint(cfg_dict))
 

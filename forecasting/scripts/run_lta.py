@@ -34,7 +34,7 @@ from ego4d.utils.parser import load_config, parse_args
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, GPUStatsMonitor
 from pytorch_lightning.plugins import DDPPlugin
-from ego4d.config.defaults import convert_cfg_to_dict
+from ego4d.config.defaults import convert_cfg_to_flat_dict
 import copy
 
 logger = logging.get_logger(__name__)
@@ -148,7 +148,7 @@ def main(cfg):
             name=f"pretrain_e={cfg.SOLVER.MAX_EPOCH}_lr={cfg.SOLVER.BASE_LR}_sched={cfg.SOLVER.LR_POLICY}",
             # group=None,
             tags=cfg.WANDB.TAGS if cfg.WANDB.TAGS is not None else None,
-            config=convert_cfg_to_dict(cfg),  # Load full config to wandb setting
+            config=convert_cfg_to_flat_dict(cfg),  # Load full config to wandb setting
             resume=is_resuming_run,
         )
         args = {"logger": [tb_logger, csv_logger, wandb_logger],

@@ -15,7 +15,7 @@ from continual_ego4d.utils.custom_logger_connector import CustomLoggerConnector
 from pytorch_lightning.loggers import WandbLogger
 import traceback
 
-from ego4d.config.defaults import set_cfg_by_name, convert_cfg_to_dict
+from ego4d.config.defaults import set_cfg_by_name, convert_cfg_to_flat_dict
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
 from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
@@ -295,7 +295,11 @@ def online_adaptation_single_user(
         name=path_handler.get_user_wandb_name(user_id),  # Display name for run is user-specific
         group=path_handler.exp_uid,
         tags=cfg.WANDB.TAGS if cfg.WANDB.TAGS is not None else None,
-        config=convert_cfg_to_dict(cfg)  # Load full config to wandb setting
+        config=convert_cfg_to_flat_dict(cfg, key_exclude_set={
+            'COMPUTED_USER_DUMP_FILE',
+            'COMPUTED_PRETRAIN_ACTION_SETS',
+            'COMPUTED_USER_DS_ENTRIES'
+        })  # Load full config to wandb setting
     )
 
     trainer_loggers = [tb_logger, csv_logger, wandb_logger]
