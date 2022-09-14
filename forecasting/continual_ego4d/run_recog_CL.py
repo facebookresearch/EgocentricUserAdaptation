@@ -58,6 +58,7 @@ def main(cfg: CfgNode):
         userprocesses_per_device=cfg.NUM_USERS_PER_DEVICE,
     )
 
+    assert cfg.TRAIN.ENABLE, "Enable training mode for this script in cfg.TRAIN.ENABLE"
     if len(scheduler_cfg.available_device_ids) == 1:
         process_users_sequentially(cfg, scheduler_cfg, user_datasets, path_handler)
     else:
@@ -139,57 +140,88 @@ class SchedulerConfig:
         self.available_device_ids: list[int] = available_device_ids * self.userprocesses_per_device
 
 
+import multiprocessing as mp
+
+
 def process_users_parallel(
         cfg: CfgNode,
         scheduler_cfg: SchedulerConfig,
         user_datasets: dict[str, list[tuple]],
         path_handler: PathHandler,
 ):
-    """ This process is master process that spawn user-specific processes on free GPU devices once they are free. """
-    users_to_process = deque([u for u in scheduler_cfg.all_user_ids if u not in scheduler_cfg.processed_user_ids])
-    nb_available_devices = len(scheduler_cfg.available_device_ids)
+    """ This process is master process that spawn user-specific processes on free GPU devices once they are free.
+    There is a known bug in Pytorch: https://github.com/pytorch/pytorch/issues/44156
+    GPU memory is not freed after job completion. BUT if using the same process on the same device, it will reuse this
+    memory. (e.g. for finished jobs about 2G memory remains, but if a next user-job is launched it will reuse this memory).
 
-    # Multi-process env
-    with concurrent.futures.ProcessPoolExecutor(max_workers=nb_available_devices) as executor:
-        futures = []
+    Solution:
+    Python API multiprocessing: https://docs.python.org/3/library/multiprocessing.html
+    Create new Process manually and listen for output in shared queue.
+    - Non-daemon(ic) process: Can create child-processes. Is required for our num_workers in dataloaders.
+    - 2 reasons not to use join explicitly:
+        - 'non-daemonic processes will be joined automatically'
+        - Using join before queue.get() can result in deadlock:
+        https://docs.python.org/3/library/multiprocessing.html#all-start-methods
+        - If want to join explicitly: do so for processes that returned a value in the queue
 
-        def submit_userprocesses_on_free_devices(free_device_ids):
-            for device_id in free_device_ids:
-                if len(users_to_process) == 0:
-                    logger.info(f"All users processed, skipping allocation to new devices")
-                    return
-                user_id = users_to_process.popleft()
-                logger.info(f"{'*' * 20} USER {user_id} (device_id={device_id}) {'*' * 20}")
-                futures.append(
-                    executor.submit(
-                        online_adaptation_single_user,
-                        cfg, user_id, user_datasets[user_id], [device_id], path_handler
-                    )
-                )
+    """
+    user_queue = deque([u for u in scheduler_cfg.all_user_ids if u not in scheduler_cfg.processed_user_ids])
+    submitted_users = []
+    finished_users = []
+    nb_total_users = len(user_queue)
 
-        # Initially fill all devices with user-processes
-        submit_userprocesses_on_free_devices(scheduler_cfg.available_device_ids)
+    # Shared queue
+    queue = mp.Queue()
 
-        for future in concurrent.futures.as_completed(futures):  # Firs completed in async process pool
+    initial_processes = []
+    for device_id in scheduler_cfg.available_device_ids:
+        user_id = user_queue.popleft()
+        submitted_users.append(user_id)
+        initial_processes.append(
+            mp.Process(target=online_adaptation_single_user,
+                       args=(cfg, user_id, user_datasets[user_id], device_id, path_handler, queue),
+                       daemon=False  # Needs to have children for num_workers
+                       )
+        )
 
-            try:
-                interrupted, device_ids, user_id = future.result()
-                logger.info(f"Finished processing user {user_id}")
+    # Start processes
+    for p in initial_processes:
+        p.start()
+    # for p in initial_processes: # Don't use Queue and join with non-daemon
+    #     p.join()  # Blocks main process until processes finished
+    logger.info(f"Started and joined processes for users: {submitted_users}")
 
-            except Exception as e:
-                traceback.print_exc()
-                logger.info(f'Future {future} terminated and generated an exception: {e}')
-                continue
+    # Receive results for ALL user-processes, also the last ones
+    while len(finished_users) < nb_total_users:
+        # Get first next ready result
+        interrupted, device_id, finished_user_id = queue.get(block=True)
+        finished_users.append(finished_user_id)
 
-            if interrupted:
-                logger.exception(f"Process for USER {user_id} failed because of Trainer being Interrupted."
-                                 f"Not releasing GPU as might give Out-of-Memory exception.")
-                continue
+        logger.info(f"Finished processing user {finished_user_id}"
+                    f" -> users_to_process= {user_queue}, available_devices={device_id}")
 
-            # Start new user-processes on free devices
-            if len(users_to_process) > 0:
-                logger.info(f"Submitting processes for free devices {len(device_ids)}")
-                submit_userprocesses_on_free_devices(device_ids)
+        if interrupted:
+            logger.exception(f"Process for USER {finished_user_id} failed because of Trainer being Interrupted."
+                             f"Not releasing GPU as might give Out-of-Memory exception.")
+            continue
+
+        # Launch new user with new process
+        if len(user_queue) > 0:
+            new_user_id = user_queue.popleft()
+            submitted_users.append(new_user_id)
+            logger.info(f"{'*' * 20} LAUNCHING USER {new_user_id} (device_id={device_id}) {'*' * 20}")
+            user_process = mp.Process(
+                target=online_adaptation_single_user,
+                args=(cfg, new_user_id, user_datasets[new_user_id], device_id, path_handler, queue),
+                daemon=False  # Needs to have children for num_workers
+            )
+
+            user_process.start()
+            # user_process.join()
+        else:
+            logger.info(f"Not scheduling new user-process as all are finished or running.")
+
+    logger.info(f"Processed all users")
 
 
 def process_users_sequentially(
@@ -210,8 +242,9 @@ def process_users_sequentially(
             copy.deepcopy(cfg),  # Cfg doesn't allow resetting COMPUTED_ attributes
             user_id,
             user_datasets[user_id],
-            scheduler_cfg.available_device_ids,
-            path_handler
+            scheduler_cfg.available_device_ids[0],
+            path_handler,
+            mp_queue=None
         )
         if interrupted:
             logger.exception(f"Shutting down on USER {user_id}, because of Trainer being Interrupted")
@@ -257,8 +290,9 @@ def online_adaptation_single_user(
         cfg: CfgNode,
         user_id: str,
         user_dataset: list[tuple],
-        device_ids: list[int],
+        device_id: int,
         path_handler: PathHandler,
+        mp_queue: mp.Queue = None,
 ) -> (bool, str, str):
     """ Run single user sequentially. Returns path to user results and interruption status."""
     seed_everything(cfg.RNG_SEED)
@@ -273,7 +307,7 @@ def online_adaptation_single_user(
     # Loggers
     logging.setup_logging(  # Stdout logging
         [path_handler.get_user_results_dir(user_id)],
-        host_name=f'USER-{user_id}|GPU-{device_ids}|PID-{os.getpid()}',
+        host_name=f'USER-{user_id}|GPU-{device_id}|PID-{os.getpid()}',
         overwrite_logfile=False,
     )
 
@@ -345,7 +379,7 @@ def online_adaptation_single_user(
         fast_dev_run=False,  # For CL Should NOT define fast_dev_run in lightning! Doesn't log results then
 
         # Devices/distributed
-        devices=device_ids,
+        devices=[device_id],
         gpus=None,  # Determined by devices
         # auto_select_gpus=True,
         # plugins=DDPPlugin(find_unused_parameters=False), # DDP specific
@@ -359,24 +393,32 @@ def online_adaptation_single_user(
     # Overwrite (Always log on first step)
     trainer.logger_connector = CustomLoggerConnector(trainer, trainer.logger_connector.log_gpu_memory)
 
-    interrupted = False
-    if cfg.TRAIN.ENABLE:
-        # Dependent on task: Might need to run prediction first (gather per-sample results for init model)
-        if task.run_predict_before_train:
-            logger.info("Starting Trainer Prediction round before fitting")
-            trainer.predict(task)  # Skip validation
-
-        logger.info("Starting Trainer fitting")
-        trainer.fit(task, val_dataloaders=None)  # Skip validation
-
-        interrupted = trainer.interrupted
-        logger.info(f"Trainer interrupted signal = {interrupted}")
+    # TRAIN
+    interrupted = train(trainer, task)
 
     # Cleanup process GPU-MEM allocation (Only process context will remain allocated)
     torch.cuda.empty_cache()
     wandb_logger.experiment.finish()
 
-    return interrupted, device_ids, user_id  # For multiprocessing indicate which resources are free now
+    ret = (interrupted, device_id, user_id)
+    if mp_queue is not None:
+        mp_queue.put(ret)
+
+    return ret  # For multiprocessing indicate which resources are free now
+
+
+def train(trainer, task):
+    # Dependent on task: Might need to run prediction first (gather per-sample results for init model)
+    if task.run_predict_before_train:
+        logger.info("Starting Trainer Prediction round before fitting")
+        trainer.predict(task)  # Skip validation
+
+    logger.info("Starting Trainer fitting")
+    trainer.fit(task, val_dataloaders=None)  # Skip validation
+
+    interrupted = trainer.interrupted
+    logger.info(f"Trainer interrupted signal = {interrupted}")
+    return interrupted
 
 
 if __name__ == "__main__":
