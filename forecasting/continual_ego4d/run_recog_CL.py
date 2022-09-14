@@ -114,6 +114,7 @@ def get_user_ids(cfg, user_datasets, path_handler):
             assert user_id in all_user_ids, f"Config user-id '{user_id}' is invalid. Define one in {all_user_ids}"
         all_user_ids = list(filter(lambda x: x in user_selection, all_user_ids))
 
+    cfg.DATA.COMPUTED_ALL_USER_IDS = all_user_ids
     logger.info(f"Processing users in order: {all_user_ids}, with sizes {user_to_ds_len}")
 
     # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
