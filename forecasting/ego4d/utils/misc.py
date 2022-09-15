@@ -15,7 +15,6 @@ from .datasets_utils import pack_pathway_output
 
 logger = logging.get_logger(__name__)
 
-
 def params_count(model):
     """
     Compute the number of parameters.

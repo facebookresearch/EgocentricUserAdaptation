@@ -9,6 +9,7 @@ import os.path as osp
 import shutil
 from pathlib import Path
 from ego4d.config.defaults import get_cfg_by_name
+from continual_ego4d.utils.misc import makedirs
 
 logger = logging.get_logger(__name__)
 
@@ -87,11 +88,18 @@ class PathHandler:
 
         # Create dir
         cfg.OUTPUT_DIR = output_dir
-        PathHandler.makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
+        makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
 
         # Copy files to output dir for reproducing
         for reproduce_path in [cfg.PARENT_SCRIPT_FILE_PATH, cfg.CONFIG_FILE_PATH]:
-            shutil.copy2(reproduce_path, cfg.OUTPUT_DIR)
+            try:
+                shutil.copy2(reproduce_path, cfg.OUTPUT_DIR)
+            except PermissionError as e:
+                logger.exception(f"File may already exist, skipping copy to: {e}")
+
+        # TODO TMP FIX PERMISSION ERRORS
+        # import subprocess
+        # subprocess.run(rf"find '{cfg.OUTPUT_DIR}' -type d -exec chmod 777 {{}} \;", shell=True)
 
         return cfg.OUTPUT_DIR, is_resuming_run
 
@@ -115,7 +123,7 @@ class PathHandler:
         if user_id is not None:
             p = osp.join(p, self.get_experiment_version(user_id))
         if create:
-            PathHandler.makedirs(p, exist_ok=True, mode=0o777)
+            makedirs(p, exist_ok=True, mode=0o777)
         return p
 
     def get_user_wandb_name(self, user_id=None):
@@ -154,15 +162,6 @@ class PathHandler:
                     break
 
         return processed_user_ids
-
-    @staticmethod
-    def makedirs(path, mode=0o777, exist_ok=True):
-        """Fix to change umask in order for makedirs to work. """
-        try:
-            original_umask = os.umask(0)
-            os.makedirs(path, mode=mode, exist_ok=exist_ok)
-        finally:
-            os.umask(original_umask)
 
 
 def save_meta_state(meta_checkpoint_path, user_id):
