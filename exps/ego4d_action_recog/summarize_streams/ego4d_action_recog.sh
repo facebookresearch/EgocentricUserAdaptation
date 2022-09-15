@@ -34,16 +34,16 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root_local/clips
 # All that matters for this script is to define which config (data paths in config) to summarize
 CONFIG="$this_script_dirpath/MULTISLOWFAST_8x8_R101.yaml"
 
-OVERWRITE_CFG_ARGS=""
+OVERWRITE_CFG_ARGS="WANDB.TAGS '${p_dirname}','${pp_dirname}'"
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
 
 # Resume previous run (use ckpts)
 #OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/summarize_streams/../../..//results/ego4d_action_recog/summarize_streams/logs/2022-08-04_18-05-40_UID8f0427cb-8048-47d5-b70e-bc3878a1cb3a"
 
 # TODO: Define your paths here to summarize
-OVERWRITE_CFG_ARGS+=" DATA.USER_SUBSET 'train'" # Check train or test set
-OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'"
-OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'"
+#OVERWRITE_CFG_ARGS+=" DATA.USER_SUBSET 'train'" # Check train or test set
+#OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'"
+#OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'"
 
 #OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ''"         # Start from Kinetics model

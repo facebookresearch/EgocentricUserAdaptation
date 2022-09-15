@@ -31,7 +31,7 @@ cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script fil
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
 
-OVERWRITE_CFG_ARGS=""
+OVERWRITE_CFG_ARGS="WANDB.TAGS '${p_dirname}','${pp_dirname}'"
 OVERWRITE_CFG_ARGS+=" NUM_GPUS 1" # For solid benchmarking
 export CUDA_VISIBLE_DEVICES="4" # Set as environment variable for this script
 

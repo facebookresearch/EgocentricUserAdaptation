@@ -11,7 +11,7 @@ METHOD:
 TEST:
   ENABLE: False
 CONTINUAL_EVAL:
-  FREQ: 1
+  FREQ: 10
   BATCH_SIZE: 8 # For speedup with parallel dataloading
   NUM_WORKERS: 8
   PAST_SAMPLE_CAPACITY: 64
@@ -58,6 +58,7 @@ SOLVER:
   MOMENTUM: 0.9
   OPTIMIZING_METHOD: sgd
   WEIGHT_DECAY: 0.0
+  NESTEROV: False # If 0, should set to False
 MODEL:
   NUM_CLASSES: [ 115, 478 ] # Verbs, nouns
   ARCH: slowfast

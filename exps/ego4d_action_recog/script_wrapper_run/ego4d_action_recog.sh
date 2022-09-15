@@ -34,7 +34,7 @@ EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root_local/clips
 # All that matters for this script is to define which config (data paths in config) to summarize
 CONFIG="$this_script_dirpath/MULTISLOWFAST_8x8_R101.yaml"
 
-OVERWRITE_CFG_ARGS=""
+OVERWRITE_CFG_ARGS="WANDB.TAGS '${p_dirname}','${pp_dirname}'"
 OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. per user process)
 
 # Resume previous run (use ckpts)
