@@ -39,13 +39,21 @@ import os
 
 api = wandb.Api()
 
-PROJECT_NAME = "matthiasdelange/ContinualUserAdaptation"
-TIMEOUT_S = 5
-NB_EXPECTED_USERS = 4
-NEW_METRIC_PREFIX = 'adhoc_users_aggregate'
+train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
 
+# Adapt settings
+csv_filename = 'wandb_export_2022-09-15T09_58_01.353-07_00.csv'  # TODO copy file here and past name here
+NB_EXPECTED_USERS = len(train_users)
+
+# Fixed Settings
+csv_dirname = '/home/mattdl/projects/ContextualOracle_Matthias/adhoc_results'  # Move file in this dir
+PROJECT_NAME = "matthiasdelange/ContinualUserAdaptation"
+
+# New uploaded keys
+NEW_METRIC_PREFIX = 'adhoc_users_aggregate'
 NEW_METRIC_PREFIX_MEAN = 'mean'
 NEW_METRIC_PREFIX_SE = 'SE'  # Unbiased standard error
+USER_AGGREGATE_COUNT = f"{NEW_METRIC_PREFIX}/user_aggregate_count"  # Over how many users added, also used to check if processed
 
 
 def main(selected_group_names_csv_path):
@@ -56,24 +64,12 @@ def main(selected_group_names_csv_path):
     # Iterate groups (a collective of independent user-runs)
     for group_name in selected_group_names:
 
-        # Get metrics over runs(users)
-        final_stream_metrics_to_avg = {
-            'train_action_batch/AG_cumul': [],
-            'train_verb_batch/AG_cumul': [],
-            'train_noun_batch/AG_cumul': [],
-        }
-        user_ids = []  # all processed users
-        total_iters_per_user = []  # nb of steps per user-stream
-
-        # summary = final value (excludes NaN rows)
-        # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
-        for user_run in get_group_run_iterator(group_name):  # ACTS LIKE ITERATOR, CAN ONLY CALL LIKE THIS!
-            user_ids.append(user_run.config['DATA.COMPUTED_USER_ID'])
-            total_iters_per_user.append(user_run.summary['trainer/global_step'])
-
-            for metric_name, val_list in final_stream_metrics_to_avg.items():
-                user_metric_val = user_run.summary[metric_name]
-                val_list.append(user_metric_val)
+        try:
+            user_ids, total_iters_per_user, final_stream_metrics_to_avg = collect_users(group_name)
+        except Exception as e:
+            print(e)
+            print(f"SKIPPING: contains error: Group ={group_name}")
+            continue
 
         # Check if all users:
         if len(user_ids) < NB_EXPECTED_USERS:
@@ -101,7 +97,7 @@ def main(selected_group_names_csv_path):
         updated_metrics_df_norm = updated_metrics_df[new_metric_names].div(
             updated_metrics_df.total_iters_per_user, axis=0)
 
-        final_update_metrics_dict = {f"{NEW_METRIC_PREFIX}/user_aggregate_count": len(user_ids)}
+        final_update_metrics_dict = {USER_AGGREGATE_COUNT: len(user_ids)}
         for col in updated_metrics_df_norm.columns.tolist():
             final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_MEAN}"] = updated_metrics_df_norm[col].mean()
             final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_SE}"] = updated_metrics_df_norm[col].sem()
@@ -116,9 +112,33 @@ def main(selected_group_names_csv_path):
 
 def get_group_run_iterator(group_name):
     group_runs = api.runs(PROJECT_NAME, {
-        "group": group_name
+        "group": group_name,
+        "finished_run": True,
     })
     return group_runs
+
+
+def collect_users(group_name):
+    # Get metrics over runs(users)
+    final_stream_metrics_to_avg = {
+        'train_action_batch/AG_cumul': [],
+        'train_verb_batch/AG_cumul': [],
+        'train_noun_batch/AG_cumul': [],
+    }
+    user_ids = []  # all processed users
+    total_iters_per_user = []  # nb of steps per user-stream
+
+    # summary = final value (excludes NaN rows)
+    # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
+    for user_run in get_group_run_iterator(group_name):  # ACTS LIKE ITERATOR, CAN ONLY CALL LIKE THIS!
+        user_ids.append(user_run.config['DATA.COMPUTED_USER_ID'])
+        total_iters_per_user.append(user_run.summary['trainer/global_step'])
+
+        for metric_name, val_list in final_stream_metrics_to_avg.items():
+            user_metric_val = user_run.summary[metric_name]
+            val_list.append(user_metric_val)
+
+    return user_ids, total_iters_per_user, final_stream_metrics_to_avg
 
 
 def get_selected_group_names(selected_group_names_csv_path):
@@ -143,9 +163,6 @@ if __name__ == "__main__":
     #     "Finetuning_2022-09-13_09-33-53_UIDa6fe4344-2d3e-4d95-9b80-bcc5005eba30_MATT","finished","Finetuning","-","matthiasdelange","","2022-09-13T16:34:43.000Z","19063","0.001","0","sgd","/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/final01_01_finetuning_sgd/../../../results/ego4d_action_recog/final01_01_finetuning_sgd/logs/GRID_SOLVER-BASE_LR=0-001_SOLVER-MOMENTUM=0-0_SOLVER-NESTEROV=True/2022-09-13_09-33-53_UIDa6fe4344-2d3e-4d95-9b80-bcc5005eba30"
     #     """)
     # )
-
-    csv_dirname = '/home/mattdl/projects/ContextualOracle_Matthias/adhoc_results'  # Move file in this dir
-    csv_filename = 'wandb_export_2022-09-13T16_24_31.761-07_00.csv'  # TODO copy file here and past name here
     csv_path = os.path.join(csv_dirname, csv_filename)
     assert os.path.isfile(csv_path)
 
