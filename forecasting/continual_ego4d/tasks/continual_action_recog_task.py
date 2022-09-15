@@ -507,7 +507,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         batch = self._init_training_step(batch, batch_idx)
 
         # PREDICTIONS + LOSS
-        metric_results = {}
         inputs, labels, video_names, _ = batch
 
         # Do method callback (Get losses etc)
@@ -520,24 +519,20 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         loss, verbnoun_outputs, step_results = self.method.training_step(
             fwd_inputs, labels, self.stream_state.stream_batch_sample_idxs
         )
-        self.add_to_dict_(metric_results, step_results)
+        self.add_to_dict_(self.batch_metric_results, step_results)
 
         logger.debug(f"Starting PRE-UPDATE evaluation: batch_idx={batch_idx}/{len(self.train_loader)}")
         self.eval_current_stream_batch_preupdate_(
-            metric_results,
+            self.batch_metric_results,
             [verbnoun_outputs[i][:self.stream_state.stream_batch_size] for i in range(2)],
             labels[:self.stream_state.stream_batch_size]
         )
         # Perform additional eval
         if self.stream_state.eval_this_step:
-            self.eval_future_data_(metric_results, batch_idx)
-
-        # LOG results
-        self.log_step_metric_results(metric_results)
-        logger.debug(f"PRE-UPDATE Results for batch_idx={batch_idx}/{len(self.train_loader)}: "
-                     f"{pprint.pformat(metric_results)}")
+            self.eval_future_data_(self.batch_metric_results, batch_idx)
 
         # Only loss should be used and stored for entire epoch (stream)
+        logger.debug(f"Finished training_step batch_idx={batch_idx}/{len(self.train_loader)}")
         return loss
 
     def on_train_batch_end(self, outputs, batch: Any, batch_idx: int, unused: Optional[int] = 0) -> None:
@@ -545,17 +540,16 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         Past samples should always be evaluated AFTER update step. The model is otherwise just
         updated on the latest batch in history it was just updated on (=pre-update model of the current batch).
         """
-        metric_results = {}
         inputs, labels, video_names, _ = batch
 
         # Measure difference of pre-update results of current batch (e.g. forward second time)
         if self.cfg.CHECK_POST_VS_PRE_LOSS_DELTA:
-            self.eval_current_stream_batch_postupdate_(metric_results, batch)
+            self.eval_current_stream_batch_postupdate_(self.batch_metric_results, batch)
 
         # Do post-update evaluation of the past
         if self.stream_state.eval_this_step:
             logger.debug(f"Starting POST-UPDATE evaluation on batch_idx={batch_idx}/{len(self.train_loader)}")
-            self.eval_past_data_(metric_results, batch_idx)
+            self.eval_past_data_(self.batch_metric_results, batch_idx)
 
             # (optionally) Save metrics after batch
             for metric in self.all_metrics:
@@ -569,9 +563,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             self._log_plotting_metrics()
 
         # LOG results
-        self.log_step_metric_results(metric_results)
-        logger.debug(f"POST-UPDATE Results for batch_idx={batch_idx}/{len(self.train_loader)}: "
-                     f"{pprint.pformat(metric_results)}")
+        self.log_step_metric_results(self.batch_metric_results)
+        logger.debug(f"Results for batch_idx={batch_idx}/{len(self.train_loader)}: "
+                     f"{pprint.pformat(self.batch_metric_results)}")
 
     def on_train_end(self) -> None:
         """Dump any additional stats about the training."""
@@ -593,7 +587,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # PER-STEP EVALUATION
     # ---------------------
     def log_step_metric_results(self, log_dict):
-        self.add_to_dict_(self.batch_metric_results, log_dict)  # Update state of all metrics in all phases
         for logname, logval in log_dict.items():
             self.log(logname, float(logval), on_step=True, on_epoch=False)
 
@@ -611,9 +604,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 self.stream_state.is_clip_5min_transition,
         }
 
-        self.log_step_metric_results(metric_results)
-        logger.debug(f"Logging state of batch_idx={batch_idx}/{len(self.train_loader)}: "
-                     f"{pprint.pformat(metric_results)}")
+        self.add_to_dict_(self.batch_metric_results, metric_results)
+        logger.debug(f"batch_metric_results: Added state of batch_idx={batch_idx}/{len(self.train_loader)}")
 
     @torch.no_grad()
     @_eval_in_train_decorator
