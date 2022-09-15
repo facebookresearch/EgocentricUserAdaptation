@@ -14,6 +14,7 @@ from pytorch_lightning import Trainer, seed_everything
 
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
+from continual_ego4d.utils.misc import makedirs
 
 from continual_ego4d.tasks.continual_action_recog_task import PretrainState
 from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
@@ -32,7 +33,7 @@ def main(cfg):
     if resuming_run:
         cfg.OUTPUT_DIR = cfg.RESUME_OUTPUT_DIR  # Resume run if specified, and output to same output dir
     print(f"Output is redirected to: {cfg.OUTPUT_DIR}")
-    PathHandler.makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
+    makedirs(cfg.OUTPUT_DIR, exist_ok=True, mode=0o777)
 
     # Logger for dataset
     logging.setup_logging(cfg.OUTPUT_DIR, host_name='MASTER', overwrite_logfile=False)

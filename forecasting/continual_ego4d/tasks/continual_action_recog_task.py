@@ -20,6 +20,7 @@ from continual_ego4d.datasets.continual_dataloader import construct_trainstream_
 import os.path as osp
 import random
 from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
+import wandb
 
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
@@ -584,6 +585,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         torch.save(dump_dict, self.dumpfile)
         logger.debug(f"Logged stream info to dumpfile {self.dumpfile}")
+
+        # Let WandB logger know that run is fully executed
+        wandb.log({"finished_run": True})
 
     # ---------------------
     # PER-STEP EVALUATION

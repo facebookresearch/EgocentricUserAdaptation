@@ -71,6 +71,7 @@ def main(cfg: CfgNode):
     else:
         process_users_parallel(cfg, scheduler_cfg, user_datasets, path_handler)
     logger.info("Finished processing all users")
+    logger.info(f"All results over users can be found in OUTPUT-DIR={path_handler.main_output_dir}")
 
 
 def load_datasets_from_jsons(cfg):
@@ -211,7 +212,9 @@ def process_users_parallel(
         finished_users.append(finished_user_id)
 
         logger.info(f"Finished processing user {finished_user_id}"
-                    f" -> users_to_process= {user_queue}, available_devices={device_id}")
+                    f" -> users_to_process= {user_queue}, "
+                    f"available_devices={device_id}, "
+                    f"finished users={finished_users}")
 
         if interrupted:
             logger.exception(f"Process for USER {finished_user_id} failed because of Trainer being Interrupted."
@@ -219,7 +222,7 @@ def process_users_parallel(
             continue
 
         # Zombie is finished process never joined, join to avoid
-        user_to_process[finished_user_id].join()
+        # user_to_process[finished_user_id].join()
 
         # Launch new user with new process
         if len(user_queue) > 0:
@@ -266,8 +269,6 @@ def process_users_sequentially(
         if interrupted:
             logger.exception(f"Shutting down on USER {user_id}, because of Trainer being Interrupted")
             raise Exception()
-
-    logger.info(f"All results over users can be found in OUTPUT-DIR={path_handler.main_output_dir}")
 
 
 def overwrite_config_continual_learning(cfg):
@@ -344,7 +345,7 @@ def online_adaptation_single_user(
         project=path_handler.wandb_project_name,
         save_dir=path_handler.get_user_wandb_dir(user_id, create=True),  # Make user-specific dir
         name=path_handler.get_user_wandb_name(user_id),  # Display name for run is user-specific
-        group=path_handler.exp_uid,
+        group=path_handler.get_wandb_group_name(),
         tags=cfg.WANDB.TAGS if cfg.WANDB.TAGS is not None else None,
         config=convert_cfg_to_flat_dict(cfg, key_exclude_set={
             'COMPUTED_USER_DUMP_FILE',

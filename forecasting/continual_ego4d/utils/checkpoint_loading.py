@@ -17,11 +17,22 @@ logger = logging.get_logger(__name__)
 class PathHandler:
 
     def __init__(self, cfg):
-        self.main_output_dir, self.is_resuming_run = self.setup_main_output_dir(cfg)
-        self.exp_uid = "{}_{}".format(
+        """
+        We group runs based on the same parent OUTPUT_DIR.
+        This grouping is also persisted to WandB logger.
+        Runs can have different identifiers (with timestamp), but the group will remain the same when resuming in
+        the same OUTPUT_DIR.
+        """
+        self.main_output_dir, run_group_uid, self.is_resuming_run = self.setup_main_output_dir(cfg)
+
+        # Use same group_id as the one resuming from
+        self.run_group_uid = "{}_{}".format(
             cfg.METHOD.METHOD_NAME,
-            cfg.RUN_UID,
+            run_group_uid,
         )
+
+        # The single run_id can still be different from OUTPUT_DIR and run_group, e.g. for wandb
+        self.run_uid = cfg.RUN_UID
 
         # Full paths (user agnostic)
         self.meta_checkpoint_path = osp.join(self.main_output_dir, 'meta_checkpoint.pt')
@@ -101,7 +112,9 @@ class PathHandler:
         # import subprocess
         # subprocess.run(rf"find '{cfg.OUTPUT_DIR}' -type d -exec chmod 777 {{}} \;", shell=True)
 
-        return cfg.OUTPUT_DIR, is_resuming_run
+        run_id = os.path.basename(os.path.normpath(cfg.OUTPUT_DIR))
+
+        return cfg.OUTPUT_DIR, run_id, is_resuming_run
 
     def get_experiment_version(self, user_id):
         return self.userid_to_userdir(user_id)
@@ -126,8 +139,13 @@ class PathHandler:
             makedirs(p, exist_ok=True, mode=0o777)
         return p
 
+    def get_wandb_group_name(self):
+        """ When resuming, reuses the same group as the resuming run."""
+        return self.run_group_uid
+
     def get_user_wandb_name(self, user_id=None):
-        wandb_name = self.exp_uid
+        """ When resuming, has new identifier. """
+        wandb_name = self.run_uid
         if user_id is not None:
             wandb_name = f"USER-{user_id}_{wandb_name}"
 

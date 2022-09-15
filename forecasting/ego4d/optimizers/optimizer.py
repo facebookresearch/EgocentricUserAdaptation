@@ -6,6 +6,9 @@
 import torch
 
 from . import lr_policy
+from ego4d.utils import logging
+
+logger = logging.get_logger(__name__)
 
 
 def construct_optimizer(model, cfg):
@@ -48,20 +51,29 @@ def construct_optimizer(model, cfg):
     )
 
     if cfg.SOLVER.OPTIMIZING_METHOD == "sgd":
+        settings_dict = {
+            "lr": cfg.SOLVER.BASE_LR,
+            "momentum": cfg.SOLVER.MOMENTUM,
+            "weight_decay": cfg.SOLVER.WEIGHT_DECAY,
+            "dampening": cfg.SOLVER.DAMPENING,
+            "nesterov": cfg.SOLVER.NESTEROV if cfg.SOLVER.MOMENTUM > 0 else False,
+        }
+        logger.info(f"Init SGD with params: {settings_dict}")
         return torch.optim.SGD(
             optim_params,
-            lr=cfg.SOLVER.BASE_LR,
-            momentum=cfg.SOLVER.MOMENTUM,
-            weight_decay=cfg.SOLVER.WEIGHT_DECAY,
-            dampening=cfg.SOLVER.DAMPENING,
-            nesterov=cfg.SOLVER.NESTEROV if cfg.SOLVER.MOMENTUM > 0 else False,
+            **settings_dict
         )
     elif cfg.SOLVER.OPTIMIZING_METHOD == "adam":
+        settings_dict = {
+            "lr": cfg.SOLVER.BASE_LR,
+            "betas": (0.9, 0.999),
+            "weight_decay": cfg.SOLVER.WEIGHT_DECAY,
+        }
+        logger.info(f"Init Adam with params: {settings_dict}")
+
         return torch.optim.Adam(
             optim_params,
-            lr=cfg.SOLVER.BASE_LR,
-            betas=(0.9, 0.999),
-            weight_decay=cfg.SOLVER.WEIGHT_DECAY,
+            **settings_dict
         )
     else:
         raise NotImplementedError(
