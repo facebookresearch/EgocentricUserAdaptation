@@ -253,6 +253,7 @@ def process_users_sequentially(
     for user_id in scheduler_cfg.all_user_ids:
         if user_id in scheduler_cfg.processed_user_ids:  # SKIP PROCESSED USER
             logger.info(f"Skipping USER {user_id} as already processed, result_path={path_handler.main_output_dir}")
+            continue
 
         interrupted, *_ = online_adaptation_single_user(
             copy.deepcopy(cfg),  # Cfg doesn't allow resetting COMPUTED_ attributes
