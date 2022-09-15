@@ -2,6 +2,7 @@ import copy
 import sys
 
 from continual_ego4d.utils.checkpoint_loading import load_pretrain_model, load_meta_state, save_meta_state, PathHandler
+import multiprocessing as mp
 
 import pprint
 import concurrent.futures
@@ -57,6 +58,12 @@ def main(cfg: CfgNode):
         processed_user_ids=processed_user_ids,
         userprocesses_per_device=cfg.NUM_USERS_PER_DEVICE,
     )
+
+    if scheduler_cfg.is_all_users_processed():
+        logger.info("All users already processed, skipping execution. "
+                    f"All users={scheduler_cfg.all_user_ids}, "
+                    f"processed={scheduler_cfg.processed_user_ids}")
+        return
 
     assert cfg.TRAIN.ENABLE, "Enable training mode for this script in cfg.TRAIN.ENABLE"
     if len(scheduler_cfg.available_device_ids) == 1:
@@ -139,8 +146,8 @@ class SchedulerConfig:
         assert self.userprocesses_per_device >= 1
         self.available_device_ids: list[int] = available_device_ids * self.userprocesses_per_device
 
-
-import multiprocessing as mp
+    def is_all_users_processed(self):
+        return len(self.processed_user_ids) >= len(self.all_user_ids)
 
 
 def process_users_parallel(
@@ -169,6 +176,13 @@ def process_users_parallel(
     submitted_users = []
     finished_users = []
     nb_total_users = len(user_queue)
+
+    if len(user_queue) == 0:
+        return
+
+    if len(user_queue) < len(scheduler_cfg.available_device_ids):
+        scheduler_cfg.available_device_ids = scheduler_cfg.available_device_ids[:len(user_queue)]
+        logger.info(f"Defined more devices than users, only using devices: {scheduler_cfg.available_device_ids}")
 
     # Shared queue
     queue = mp.Queue()
