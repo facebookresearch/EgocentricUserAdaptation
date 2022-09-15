@@ -19,6 +19,7 @@ from ego4d.models import build_model
 from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader, construct_predictstream_loader
 import os.path as osp
 import random
+from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
 
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
@@ -172,7 +173,8 @@ class StreamStateTracker:
         self.batch_idx = batch_idx
 
         # Eval or plot at this iteration
-        self.plot_this_step = batch_idx % plotting_log_freq == 0 or batch_idx == self.total_stream_sample_count
+        self.plot_this_step = batch_idx != 0 and (
+                batch_idx % plotting_log_freq == 0 or batch_idx == self.total_stream_sample_count)
         self.eval_this_step = batch_idx % continual_eval_freq == 0 or batch_idx == self.total_stream_sample_count
         logger.debug(f"Continual eval on batch {batch_idx}/{self.total_stream_sample_count} = {self.eval_this_step}")
 
@@ -296,10 +298,16 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Pretrain loader: Only samples that both verb and noun have been seen in pretrain
         self.predict_phase_load_idxs = []
+
         for stream_sample_idx, action in enumerate(self.stream_state.sample_idx_to_action_list):
             verb, noun = action
-            if verb in self.pretrain_state.pretrain_verb_freq_dict and noun in self.pretrain_state.pretrain_noun_freq_dict:
+            if verb in self.pretrain_state.pretrain_verb_freq_dict \
+                    and noun in self.pretrain_state.pretrain_noun_freq_dict:
                 self.predict_phase_load_idxs.append(stream_sample_idx)
+
+        if not self.cfg.ENABLE_FEW_SHOT:
+            assert len(self.predict_phase_load_idxs) == len(self.stream_state.sample_idx_to_action_list), \
+                f"Should load all idxs for prediction phase in non-few-shot mode, as all actions are seen in pretrain."
 
         self.predict_loader = construct_predictstream_loader(
             self.train_loader, self.cfg, subset_idxes=self.predict_phase_load_idxs)
@@ -473,53 +481,29 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # ---------------------
     # TRAINING FLOW CALLBACKS
     # ---------------------
-
-    def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
-        """
-        Override to alter or apply batch augmentations to your batch before it is transferred to the device.
-        e.g. Replay adds samples.
-        Happens before on_train_batch_start (although differently documented).
-        """
+    def _init_training_step(self, batch: Any, batch_idx: int) -> Any:
         # Reset metrics
         self.batch_metric_results = {}
         for metric in self.all_metrics:
             if metric.reset_before_batch:
                 metric.reset()
 
-        # Set state
+        # Set state and log
         self.stream_state.set_current_batch_states(
             batch,
-            batch_idx=dataloader_idx,
+            batch_idx=batch_idx,
             plotting_log_freq=self.plotting_log_freq,
             continual_eval_freq=self.continual_eval_freq,
         )
+        self._log_current_batch_states(batch_idx=batch_idx)
 
         # Update batch
-        altered_batch = self.method.on_before_batch_transfer(batch, dataloader_idx)
+        altered_batch = self.method.train_before_update_batch_adapt(batch, batch_idx)
         return altered_batch
-
-    def _log_current_batch_states(self, batch_idx: int):
-        """ Log stats for current iteration stream. """
-        # Before-update counts
-        metric_results = {
-            get_metric_tag(TAG_BATCH, base_metric_name=f"history_sample_count"):
-                len(self.stream_state.seen_samples_idxs),
-            get_metric_tag(TAG_BATCH, base_metric_name=f"future_sample_count"):
-                self.stream_state.total_stream_sample_count - len(self.stream_state.seen_samples_idxs),
-            get_metric_tag(TAG_BATCH, base_metric_name=f"is_parent_video_transition"):
-                self.stream_state.is_parent_video_transition,
-            get_metric_tag(TAG_BATCH, base_metric_name=f"is_clip_5min_transition"):
-                self.stream_state.is_clip_5min_transition,
-        }
-
-        self.log_step_metric_results(metric_results)
-        logger.debug(f"Logging state of batch_idx={batch_idx}/{len(self.train_loader)}: "
-                     f"{pprint.pformat(metric_results)}")
 
     def training_step(self, batch, batch_idx):
         """ Before update: Forward and define loss. """
-        # Log current batch state (only possible starting from training_step)
-        self._log_current_batch_states(batch_idx=batch_idx)
+        batch = self._init_training_step(batch, batch_idx)
 
         # PREDICTIONS + LOSS
         metric_results = {}
@@ -609,6 +593,24 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         for logname, logval in log_dict.items():
             self.log(logname, float(logval), on_step=True, on_epoch=False)
 
+    def _log_current_batch_states(self, batch_idx: int):
+        """ Log stats for current iteration stream. """
+        # Before-update counts
+        metric_results = {
+            get_metric_tag(TAG_BATCH, base_metric_name=f"history_sample_count"):
+                len(self.stream_state.seen_samples_idxs),
+            get_metric_tag(TAG_BATCH, base_metric_name=f"future_sample_count"):
+                self.stream_state.total_stream_sample_count - len(self.stream_state.seen_samples_idxs),
+            get_metric_tag(TAG_BATCH, base_metric_name=f"is_parent_video_transition"):
+                self.stream_state.is_parent_video_transition,
+            get_metric_tag(TAG_BATCH, base_metric_name=f"is_clip_5min_transition"):
+                self.stream_state.is_clip_5min_transition,
+        }
+
+        self.log_step_metric_results(metric_results)
+        logger.debug(f"Logging state of batch_idx={batch_idx}/{len(self.train_loader)}: "
+                     f"{pprint.pformat(metric_results)}")
+
     @torch.no_grad()
     @_eval_in_train_decorator
     def eval_current_stream_batch_preupdate_(self, step_result, verbnoun_outputs, labels):
@@ -650,7 +652,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         stream_labels = full_labels[:self.stream_state.stream_batch_size]
 
         post_update_preds = self.forward(stream_inputs)
-        from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
 
         post_loss_action, post_loss_verb, post_loss_noun = OnlineLossMetric.get_losses_from_preds(
             post_update_preds, stream_labels, self.loss_fun_unred, mean=True
@@ -859,30 +860,31 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         logger.info(f"Pretraining seen verbs = {nb_verbs_seen_pretrain}/{nb_verbs_total}, "
                     f"nouns= {nb_nouns_seen_pretrain}/{nb_nouns_total}")
 
-        # Random label in unifom prediction distribution
-        gt = torch.tensor([0])  # Random label
-        verb_uniform_preds = torch.zeros(1, nb_verbs_seen_pretrain).fill_(1 / nb_verbs_seen_pretrain)
-        noun_uniform_preds = torch.zeros(1, nb_nouns_seen_pretrain).fill_(1 / nb_nouns_seen_pretrain)
+        if self.cfg.ENABLE_FEW_SHOT:  # Reference uniform distr for unseen classes in pretrain for AG metric.
+            # Random label in uniform prediction distribution
+            gt = torch.tensor([0])  # Random label
+            verb_uniform_preds = torch.zeros(1, nb_verbs_seen_pretrain).fill_(1 / nb_verbs_seen_pretrain)
+            noun_uniform_preds = torch.zeros(1, nb_nouns_seen_pretrain).fill_(1 / nb_nouns_seen_pretrain)
 
-        loss_verb_uniform = self.method.loss_fun_train(verb_uniform_preds, gt).item()
-        loss_noun_uniform = self.method.loss_fun_train(noun_uniform_preds, gt).item()
-        loss_action_uniform = loss_verb_uniform + loss_noun_uniform
+            loss_verb_uniform = self.method.loss_fun_train(verb_uniform_preds, gt).item()
+            loss_noun_uniform = self.method.loss_fun_train(noun_uniform_preds, gt).item()
+            loss_action_uniform = loss_verb_uniform + loss_noun_uniform
 
-        # Iterate over samples that have not been seen before
-        unseen_in_pretrain_idxs = [idx for idx in range(self.stream_state.total_stream_sample_count)
-                                   if idx not in self.predict_phase_load_idxs]
-        for unseen_in_pretrain_idx in unseen_in_pretrain_idxs:
-            self.pretrain_state.sample_idx_to_pretrain_loss[unseen_in_pretrain_idx] = {
-                get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='action', base_metric_name='loss'):
-                    loss_action_uniform,
-                get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='verb', base_metric_name='loss'):
-                    loss_verb_uniform,
-                get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='noun', base_metric_name='loss'):
-                    loss_noun_uniform,
-            }
+            # Iterate over samples that have not been seen before
+            unseen_in_pretrain_idxs = [idx for idx in range(self.stream_state.total_stream_sample_count)
+                                       if idx not in self.predict_phase_load_idxs]
+            for unseen_in_pretrain_idx in unseen_in_pretrain_idxs:
+                self.pretrain_state.sample_idx_to_pretrain_loss[unseen_in_pretrain_idx] = {
+                    get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='action', base_metric_name='loss'):
+                        loss_action_uniform,
+                    get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='verb', base_metric_name='loss'):
+                        loss_verb_uniform,
+                    get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='noun', base_metric_name='loss'):
+                        loss_noun_uniform,
+                }
 
-        logger.info(
-            f"ALL Predict including uniform classifier loss: {pprint.pformat(self.pretrain_state.sample_idx_to_pretrain_loss)}")
+            logger.info(
+                f"ALL Predict including uniform classifier loss: {pprint.pformat(self.pretrain_state.sample_idx_to_pretrain_loss)}")
 
     # ---------------------
     # TRAINING SETUP
