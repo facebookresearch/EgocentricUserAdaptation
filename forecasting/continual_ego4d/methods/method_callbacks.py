@@ -31,7 +31,7 @@ class Method:
         self.loss_fun_train = self.lightning_module.loss_fun_unred
         self.loss_fun_pred = self.lightning_module.loss_fun_unred
 
-    def on_before_batch_transfer(self, batch: Any, dataloader_idx: int) -> Any:
+    def train_before_update_batch_adapt(self, batch: Any, batch_idx: int) -> Any:
         return batch
 
     def update_stream_tracking(
@@ -191,7 +191,7 @@ class Replay(Method):
         self.num_observed_samples = 0
         self.num_samples_memory = 0
 
-    def on_before_batch_transfer(self, new_batch: Any, dataloader_idx: int) -> Any:
+    def train_before_update_batch_adapt(self, new_batch: Any, batch_idx: int) -> Any:
         _, new_batch_labels, *_ = new_batch
         self.new_batch_size = new_batch_labels.shape[0]
 
