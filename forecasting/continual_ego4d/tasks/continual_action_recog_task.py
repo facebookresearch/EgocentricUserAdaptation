@@ -564,7 +564,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         inputs, labels, video_names, _ = batch
 
         # Measure difference of pre-update results of current batch (e.g. forward second time)
-        self.eval_current_stream_batch_postupdate_(metric_results, batch)
+        if self.cfg.CHECK_POST_VS_PRE_LOSS_DELTA:
+            self.eval_current_stream_batch_postupdate_(metric_results, batch)
 
         # Do post-update evaluation of the past
         if self.stream_state.eval_this_step:

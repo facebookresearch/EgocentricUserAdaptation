@@ -15,6 +15,11 @@ _C.PARENT_SCRIPT_FILE_PATH = ""
 _C.RUN_UID = ""
 
 # ---------------------------------------------------------------------------- #
+# DEBUG options
+# ---------------------------------------------------------------------------- #
+_C.CHECK_POST_VS_PRE_LOSS_DELTA = False
+
+# ---------------------------------------------------------------------------- #
 # GRIDSEARCH options
 # ---------------------------------------------------------------------------- #
 _C.GRID_NODES = None  # Add nodes that we gridsearch over to output path
@@ -81,7 +86,7 @@ _C.BN.NUM_SYNC_DEVICES = 1
 _C.PREDICT_PHASE = CfgNode()
 
 _C.PREDICT_PHASE.BATCH_SIZE = 10
-_C.PREDICT_PHASE.NUM_WORKERS = 16
+_C.PREDICT_PHASE.NUM_WORKERS = 8
 
 # ---------------------------------------------------------------------------- #
 # CONTINUAL EVAL options.
