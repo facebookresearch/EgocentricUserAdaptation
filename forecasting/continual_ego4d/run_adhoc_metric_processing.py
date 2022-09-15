@@ -78,6 +78,11 @@ def main(selected_group_names_csv_path):
         elif len(user_ids) > NB_EXPECTED_USERS:
             raise Exception(f"Might need to readjust EXPECTED USERS? -> user_ids={user_ids}")
 
+        # Check no double users
+        if len(set(user_ids)) != len(user_ids):
+            print(f"[SKIPPING]: Contains duplicate finished users: {user_ids}: Group ={group_name}")
+            continue
+
         for name, user_val_list in final_stream_metrics_to_avg.items():
             assert len(user_val_list) == NB_EXPECTED_USERS, f"{name} has not all user values: {user_val_list}"
 
