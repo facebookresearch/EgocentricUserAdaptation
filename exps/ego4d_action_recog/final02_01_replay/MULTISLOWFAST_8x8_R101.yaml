@@ -10,7 +10,7 @@ METHOD:
     MEMORY_SIZE_SAMPLES: 1000000
     STORAGE_POLICY: "reservoir_stream"
 CONTINUAL_EVAL:
-  FREQ: 64
+  FREQ: 10000 # SKIP
   BATCH_SIZE: 8 # For speedup with parallel dataloading
   NUM_WORKERS: 8 # Half for not overloading server
   PAST_SAMPLE_CAPACITY: 64
