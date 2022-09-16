@@ -13,6 +13,7 @@ import itertools
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
 from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
 from ego4d.utils import logging
+import pprint
 
 from typing import TYPE_CHECKING
 
@@ -194,15 +195,17 @@ class Replay(Method):
     def train_before_update_batch_adapt(self, new_batch: Any, batch_idx: int) -> Any:
         _, new_batch_labels, *_ = new_batch
         self.new_batch_size = new_batch_labels.shape[0]
+        device = new_batch_labels.device
 
         # Retrieve from memory
         mem_batch = None
         num_samples_retrieve = min(self.new_batch_size, self.num_samples_memory)
         if num_samples_retrieve > 0:
-            mem_batch = self.retrieve_rnd_batch_from_mem(mem_batch_size=num_samples_retrieve)
+            mem_batch = self.retrieve_rnd_batch_from_mem(
+                mem_batch_size=num_samples_retrieve)
 
         # unpack and join mem and new
-        joined_batch = self.concat_batches(new_batch, mem_batch) if mem_batch is not None else new_batch
+        joined_batch = self.concat_batches(new_batch, mem_batch, device) if mem_batch is not None else new_batch
 
         return joined_batch
 
@@ -232,19 +235,19 @@ class Replay(Method):
         return mem_batch
 
     @staticmethod
-    def concat_batches(batch1, batch2):
+    def concat_batches(batch1, batch2, device):
         # inputs, labels, video_names, stream_sample_idxs = batch
         joined_batch = [None] * 4
 
         # Input is 2dim-list (verb,noun) of input-tensors
         joined_batch[0] = [
-            torch.cat([batch1[0][idx], batch2[0][idx]], dim=0) for idx in range(2)
+            torch.cat([batch1[0][idx].to(device), batch2[0][idx].to(device)], dim=0) for idx in range(2)
         ]
 
         # Tensors concat directly in batch dim
         tensor_idxs = [1, 3]
-        for tensor_idx in tensor_idxs:
-            joined_batch[tensor_idx] = torch.cat([batch1[tensor_idx], batch2[tensor_idx]], dim=0)  # Add in batch dim
+        for tensor_idx in tensor_idxs:  # Add in batch dim
+            joined_batch[tensor_idx] = torch.cat([batch1[tensor_idx].to(device), batch2[tensor_idx].to(device)], dim=0)
 
         # List
         joined_batch[2] = batch1[2] + batch2[2]
@@ -303,7 +306,7 @@ class Replay(Method):
         log_results = {
             # Total
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
-                           base_metric_name=f"loss_total"): loss_total_verbs_m.mean().item(),
+                           base_metric_name=f"loss_total"): loss_total_verbs_m.item(),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
                            base_metric_name=f"loss_total"): loss_total_nouns_m.item(),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
@@ -319,11 +322,11 @@ class Replay(Method):
 
             # New
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
-                           base_metric_name=f"loss_new"): loss_new_verbs.item(),
+                           base_metric_name=f"loss_new"): loss_new_verbs_m.item(),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
-                           base_metric_name=f"loss_new"): loss_new_nouns.item(),
+                           base_metric_name=f"loss_new"): loss_new_nouns_m.item(),
             get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
-                           base_metric_name=f"loss_new"): loss_new_actions.item(),
+                           base_metric_name=f"loss_new"): loss_new_actions_m.item(),
         }
 
         # Store samples
@@ -331,11 +334,12 @@ class Replay(Method):
 
         # Update size
         self.num_samples_memory = sum(len(cond_mem) for cond_mem in self.conditional_memory.values())
+        logger.info(f"[REPLAY] nb samples in memory = {self.num_samples_memory}/{self.total_mem_size},"
+                    f"mem_size_per_conditional={self.mem_size_per_conditional}")
 
         return loss_total_actions_m, preds, log_results
 
     def _store_samples_in_replay_memory(self, labels: torch.LongTensor, current_batch_stream_idxs: list):
-        """"""
 
         if self.storage_policy == 'reservoir_stream':
             self.conditional_memory[None] = self.reservoir_sampling(
@@ -356,6 +360,7 @@ class Replay(Method):
 
         else:
             raise ValueError()
+        logger.info(f"[REPLAY] buffer = \n{pprint.pformat(self.conditional_memory)}")
 
     def reservoir_action_storage_policy(self, labels: torch.LongTensor, current_batch_stream_idxs: list):
         """ Memory is divided in equal memory bins per observed action.
@@ -411,7 +416,7 @@ class Replay(Method):
                 memory.append(new_stream_idx)
             else:  # Replace with probability mem_size/num_observed_samples
                 rnd_idx = random.randint(0, self.num_observed_samples)  # [a,b]
-                if rnd_idx < mem_size_limit:  # Replace if sampled in memory
+                if rnd_idx < mem_size_limit:  # Replace if sampled in memory, Prob = M / (b-a)
                     memory[rnd_idx] = new_stream_idx
 
         return memory

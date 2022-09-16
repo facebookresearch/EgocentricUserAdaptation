@@ -285,7 +285,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.plotting_log_freq = cfg.CONTINUAL_EVAL.PLOTTING_FREQ
 
         # Sanity modes/debugging
-        self.enable_prepost_comparing = True  # Compare loss before/after update
+        self.enable_prepost_comparing = cfg.CHECK_POST_VS_PRE_LOSS_DELTA  # Compare loss before/after update
 
         # Pretrain state
         self.pretrain_state = PretrainState(cfg.COMPUTED_PRETRAIN_ACTION_SETS)
@@ -543,7 +543,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         inputs, labels, video_names, _ = batch
 
         # Measure difference of pre-update results of current batch (e.g. forward second time)
-        if self.cfg.CHECK_POST_VS_PRE_LOSS_DELTA:
+        if self.enable_prepost_comparing:
             self.eval_current_stream_batch_postupdate_(self.batch_metric_results, batch)
 
         # Do post-update evaluation of the past
