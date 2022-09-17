@@ -1,27 +1,16 @@
 #!/usr/bin/env bash
 
 # For sgd
-grid_cfg_names="SOLVER.BASE_LR,SOLVER.MOMENTUM,SOLVER.NESTEROV" # Split by comma
+grid_cfg_names="SOLVER.BASE_LR" # Split by comma
 grid_overwrite_args=""
 
-val_idx=0 # TODO RUN
+val_idx=2 # TODO RUN
 gridvals=( "1e-1" "1e-2" "1e-3")
 grid_arg="SOLVER.BASE_LR ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
-val_idx=2
-gridvals=( "0." "0.3" "0.6" "0.9" ) 
-grid_arg="SOLVER.MOMENTUM ${gridvals[${val_idx}]}"
-grid_overwrite_args+=" ${grid_arg}"
-
-val_idx=0
-gridvals=( True False )
-grid_arg="SOLVER.NESTEROV ${gridvals[${val_idx}]}"
-grid_overwrite_args+=" ${grid_arg}"
-
-
 # Grid specific resources
-grid_overwrite_args+=" GPU_IDS 1,3 NUM_USERS_PER_DEVICE 2 GRID_RESUME_LATEST True" # 0,7
+grid_overwrite_args+=" GPU_IDS 4,5 NUM_USERS_PER_DEVICE 2 GRID_RESUME_LATEST False" # 1,6
 
 # Report final
 echo "grid_overwrite_args=$grid_overwrite_args"

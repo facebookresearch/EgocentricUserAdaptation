@@ -62,6 +62,7 @@ SOLVER:
   OPTIMIZING_METHOD: sgd
   WEIGHT_DECAY: 0.0
 MODEL:
+  FREEZE_BACKBONE: True
   NUM_CLASSES: [ 115, 478 ] # Verbs, nouns
   ARCH: slowfast
   MODEL_NAME: MultiTaskSlowFast

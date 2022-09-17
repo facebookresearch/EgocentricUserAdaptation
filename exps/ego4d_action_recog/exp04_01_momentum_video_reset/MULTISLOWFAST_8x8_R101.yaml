@@ -1,4 +1,3 @@
-ENABLE_FEW_SHOT: False
 FAST_DEV_RUN: False
 OUTPUT_DIR: "" # OVERWRITTEN IN CALLING-SCRIPT
 RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/
@@ -6,17 +5,14 @@ CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
 CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
 NUM_USERS_PER_DEVICE: 1
 METHOD:
-  METHOD_NAME: "Finetuning"
+  METHOD_NAME: "FinetuningMomentumReset"
 TEST:
   ENABLE: False
 CONTINUAL_EVAL:
   FREQ: 64
   BATCH_SIZE: 8 # For speedup with parallel dataloading
-  NUM_WORKERS: 8 # Half for not overloading server
-  PAST_SAMPLE_CAPACITY: 64
-PREDICT_PHASE:
-  BATCH_SIZE: 10
   NUM_WORKERS: 8
+  PAST_SAMPLE_CAPACITY: 64
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition
@@ -68,7 +64,7 @@ MODEL:
   LOSS_FUNC: cross_entropy
   DROPOUT_RATE: 0.5
 DATA_LOADER:
-  NUM_WORKERS: 2 # Only current-training batch, and due to eval next one will have quite some time
+  NUM_WORKERS: 4 # Only current-training batch, and due to eval next one will have quite some time
   PIN_MEMORY: True
 NUM_GPUS: 1
 NUM_SHARDS: 1

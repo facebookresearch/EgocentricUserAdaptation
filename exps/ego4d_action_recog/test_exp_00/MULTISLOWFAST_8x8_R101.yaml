@@ -5,7 +5,7 @@ CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
 CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
 NUM_USERS_PER_DEVICE: 1
 METHOD:
-  METHOD_NAME: "Replay"
+  METHOD_NAME: "FinetuningMomentumReset"
   REPLAY:
     MEMORY_SIZE_SAMPLES: 10
     STORAGE_POLICY: "reservoir_stream"
