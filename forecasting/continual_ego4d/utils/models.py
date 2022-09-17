@@ -5,11 +5,49 @@ from ego4d.utils import logging
 
 # Avoid circular dependencies (not imported at runtime, but typechecking does enable defining the type)
 from typing import TYPE_CHECKING
+from collections import defaultdict
 
 if TYPE_CHECKING:
     from continual_ego4d.tasks.continual_action_recog_task import StreamStateTracker
 
 logger = logging.get_logger(__name__)
+
+
+def reset_optimizer_stats_(optimizer):
+    """ Reset stats of optimizer, such as momentum. """
+    optimizer.__setstate__({'state': defaultdict(dict)})
+    logger.info("Optimizer state is reset.")
+
+
+def freeze_backbone_not_head(model):
+    """ Freeze all params except the head. """
+    for param in model.parameters():
+        param.requires_grad = False
+
+    # Never freeze head.
+    for param in model.head.parameters():
+        param.requires_grad = True
+
+
+def model_trainable_summary(model):
+    """Summarize trainable params over full model and head only. """
+    full_train_p = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    full_total_p = sum(p.numel() for p in model.parameters())
+    full_perc = "{:.1f}".format(full_train_p / full_total_p * 100)
+
+    head_train_p = sum(p.numel() for p in model.head.parameters() if p.requires_grad)
+    head_total_p = sum(p.numel() for p in model.head.parameters())
+    head_perc = "{:.1f}".format(full_train_p / full_total_p * 100)
+
+    excl_head_train_p = full_train_p - head_train_p
+    excl_head_total_p = full_total_p - head_total_p
+    excl_head_perc = "{:.1f}".format(excl_head_train_p / excl_head_total_p * 100)
+
+    logger.info(f"[FROZEN backbone] Trainable parameters: FULL={full_train_p}/{full_total_p} ({full_perc}), "
+                f"EXCL-HEAD={excl_head_train_p}/{excl_head_total_p} ({excl_head_perc})"
+                f"HEAD-ONLY={head_train_p}/{head_total_p} ({head_perc})")
+
+    return (full_train_p, full_total_p), (head_train_p, head_total_p)
 
 
 class UnseenVerbNounMaskerHead(nn.Module):

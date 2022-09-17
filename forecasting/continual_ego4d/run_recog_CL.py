@@ -27,6 +27,8 @@ from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 from scripts.slurm import copy_and_run_with_config
 import os
 
+from continual_ego4d.utils.models import freeze_backbone_not_head, model_trainable_summary
+
 from fvcore.common.config import CfgNode
 
 logger = logging.get_logger(__name__)
@@ -173,6 +175,7 @@ def process_users_parallel(
         - If want to join explicitly: do so for processes that returned a value in the queue
 
     """
+    process_timeout_s = 60 * 60 * 10  # 10-hours timeout for single run
     user_queue = deque([u for u in scheduler_cfg.all_user_ids if u not in scheduler_cfg.processed_user_ids])
     submitted_users = []
     finished_users = []
@@ -208,13 +211,13 @@ def process_users_parallel(
     # Receive results for ALL user-processes, also the last ones
     while len(finished_users) < nb_total_users:
         # Get first next ready result
-        interrupted, device_id, finished_user_id = queue.get(block=True)
+        interrupted, device_id, finished_user_id = queue.get(block=True, timeout=process_timeout_s)
         finished_users.append(finished_user_id)
 
         logger.info(f"Finished processing user {finished_user_id}"
                     f" -> users_to_process= {user_queue}, "
                     f"available_devices={device_id}, "
-                    f"finished users={finished_users}")
+                    f"finished users={finished_users} out of #{nb_total_users}")
 
         if interrupted:
             logger.exception(f"Process for USER {finished_user_id} failed because of Trainer being Interrupted."
@@ -276,7 +279,7 @@ def overwrite_config_continual_learning(cfg):
         "SOLVER.ACCELERATOR": "gpu",
         "NUM_SHARDS": 1,  # no DDP supported
         "SOLVER.MAX_EPOCH": 1,
-        "SOLVER.LR_POLICY": "constant",
+        # "SOLVER.LR_POLICY": "constant",
         "CHECKPOINT_LOAD_MODEL_HEAD": True,  # From pretrain we also load model head
     }
 
@@ -353,7 +356,8 @@ def online_adaptation_single_user(
             'COMPUTED_USER_DS_ENTRIES'
         })  # Load full config to wandb setting
     )
-    wandb_logger.experiment.log_code(root="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting")
+    wandb_logger.experiment.log_code(
+        root="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting")
 
     trainer_loggers = [tb_logger, csv_logger, wandb_logger]
 
@@ -385,6 +389,13 @@ def online_adaptation_single_user(
     ckpt_task_types = [MultiTaskClassificationTask,
                        ContinualMultiTaskClassificationTask]
     load_pretrain_model(cfg, cfg.CHECKPOINT_FILE_PATH, task, ckpt_task_types)
+
+    # Freeze model if applicable
+    if cfg.MODEL.FREEZE_BACKBONE:
+        freeze_backbone_not_head(task.model)
+
+    # Print summary
+    model_trainable_summary(task.model)
 
     # There are no validation/testing phases!
     logger.info("Initializing Trainer")
