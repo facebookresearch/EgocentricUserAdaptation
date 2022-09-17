@@ -41,7 +41,7 @@ from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, 
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
 from continual_ego4d.utils.models import UnseenVerbNounMaskerHead
 from pytorch_lightning.loggers import TensorBoardLogger
-
+from continual_ego4d.utils.models import model_trainable_summary
 import matplotlib.pyplot as plt
 
 from pytorch_lightning.core import LightningModule
@@ -498,6 +498,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         )
         self._log_current_batch_states(batch_idx=batch_idx)
 
+        # add model trainable params
+        (train_p, total_p), (head_train_p, head_total_p) = model_trainable_summary(self.model)
+        self.add_to_dict_(self.batch_metric_results, {
+            get_metric_tag(TAG_BATCH, base_metric_name=f"model_trainable_params"): train_p,
+            get_metric_tag(TAG_BATCH, base_metric_name=f"model_all_params"): total_p,
+            get_metric_tag(TAG_BATCH, base_metric_name=f"head_trainable_params"): head_train_p,
+            get_metric_tag(TAG_BATCH, base_metric_name=f"head_all_params"): head_total_p,
+        })
+
         # Update batch
         altered_batch = self.method.train_before_update_batch_adapt(batch, batch_idx)
         return altered_batch
@@ -813,9 +822,10 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             preds = self.forward(inputs)
 
             for metric in metrics:
-                metric.update(preds, labels, stream_sample_idxs.tolist(),
-                              stream_state=self.stream_state
-                              )
+                metric.update(
+                    preds, labels, stream_sample_idxs.tolist(),
+                    stream_state=self.stream_state
+                )
 
         # Gather results
         avg_metric_result_dict = {}
