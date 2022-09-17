@@ -14,20 +14,22 @@ from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_
 from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
 from ego4d.utils import logging
 import pprint
+from continual_ego4d.utils.models import reset_optimizer_stats_
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
+    from pytorch_lightning import Trainer
 
 logger = logging.get_logger(__name__)
 
 
 class Method:
     def __init__(self, cfg, lightning_module: 'ContinualMultiTaskClassificationTask'):
+        """ At Task init, the lightning_module.trainer=None. """
         self.cfg = cfg  # For method-specific params
         self.lightning_module = lightning_module
-        self.trainer = self.lightning_module.trainer
 
         self.loss_fun_train = self.lightning_module.loss_fun_unred
         self.loss_fun_pred = self.lightning_module.loss_fun_unred
@@ -145,6 +147,20 @@ class Finetuning(Method):
         super().__init__(cfg, lightning_module)
 
     def training_step(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        return super().training_step(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
+
+
+@METHOD_REGISTRY.register()
+class FinetuningMomentumReset(Method):
+    def __init__(self, cfg, lightning_module):
+        super().__init__(cfg, lightning_module)
+
+    def training_step(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        if self.lightning_module.stream_state.is_clip_5min_transition:
+            assert len(self.lightning_module.trainer.optimizers) == 1
+            optimizer = self.lightning_module.trainer.optimizers[0]
+            reset_optimizer_stats_(optimizer)
+
         return super().training_step(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
 
 
