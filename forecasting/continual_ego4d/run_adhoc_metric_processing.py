@@ -7,6 +7,8 @@ user-results.
 You can pull results directly from wandb with their API: https://docs.wandb.ai/guides/track/public-api-guide
 
 1) Go to the table overview. Group runs based on 'Group'. Click download button and 'export as CSV'.
+Additional filters: finished_run=True (fully crashed groups excluded), TAG (specific experiment),
+<some_adhoc_metric>=null (Don't ad-hoc reprocess runs).
 2) This script will read the csv and extract the group names.
 3) It will receive for each group, all the user-runs.
 4) The run.history for AG is retrieved (the last measured one = full stream AG) and we calculate the avg over all users.
@@ -42,7 +44,7 @@ api = wandb.Api()
 train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
 
 # Adapt settings
-csv_filename = 'wandb_export_2022-09-15T09_58_01.353-07_00.csv'  # TODO copy file here and past name here
+csv_filename = 'wandb_export_2022-09-16T11_10_29.108-07_00.csv'  # TODO copy file here and past name here
 NB_EXPECTED_USERS = len(train_users)
 
 # Fixed Settings
@@ -65,7 +67,7 @@ def main(selected_group_names_csv_path):
     for group_name in selected_group_names:
 
         try:
-            user_ids, total_iters_per_user, final_stream_metrics_to_avg = collect_users(group_name)
+            user_ids, total_samples_per_user, final_stream_metrics_to_avg = collect_users(group_name)
         except Exception as e:
             print(e)
             print(f"SKIPPING: contains error: Group ={group_name}")
@@ -89,7 +91,7 @@ def main(selected_group_names_csv_path):
         print(f"Processing users: {len(user_ids)}/{NB_EXPECTED_USERS} -> {user_ids}: Group ={group_name}")
 
         # Change names for metrics
-        updated_metrics_dict = {'total_iters_per_user': total_iters_per_user, 'user_id': user_ids}
+        updated_metrics_dict = {'total_samples_per_user': total_samples_per_user, 'user_id': user_ids}
         new_metric_names = []
         for k, v in final_stream_metrics_to_avg.items():
             new_metric_name = f"{NEW_METRIC_PREFIX}/{k}"
@@ -97,10 +99,9 @@ def main(selected_group_names_csv_path):
             updated_metrics_dict[new_metric_name] = v
 
         # Make averages over users from their final result on the stream, and normalize by steps in user-stream
-
         updated_metrics_df = pd.DataFrame.from_dict(updated_metrics_dict)
         updated_metrics_df_norm = updated_metrics_df[new_metric_names].div(
-            updated_metrics_df.total_iters_per_user, axis=0)
+            updated_metrics_df.total_samples_per_user, axis=0)
 
         final_update_metrics_dict = {USER_AGGREGATE_COUNT: len(user_ids)}
         for col in updated_metrics_df_norm.columns.tolist():
@@ -134,19 +135,22 @@ def collect_users(group_name):
         'train_noun_batch/AG_cumul': [],
     }
     user_ids = []  # all processed users
-    total_iters_per_user = []  # nb of steps per user-stream
+    total_samples_per_user = []  # nb of steps per user-stream
 
     # summary = final value (excludes NaN rows)
     # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
     for user_run in get_group_run_iterator(group_name):  # ACTS LIKE ITERATOR, CAN ONLY CALL LIKE THIS!
         user_ids.append(user_run.config['DATA.COMPUTED_USER_ID'])
-        total_iters_per_user.append(user_run.summary['trainer/global_step'])
+        # total_iters_per_user.append(user_run.summary['trainer/global_step']) # TODO DIVIDE BY NB OF SAMPLES, NOT ITERS
+
+        nb_samples = user_run.history()['train_batch/future_sample_count'].dropna().reset_index(drop=True)[0]
+        total_samples_per_user.append(nb_samples)
 
         for metric_name, val_list in final_stream_metrics_to_avg.items():
             user_metric_val = user_run.summary[metric_name]
             val_list.append(user_metric_val)
 
-    return user_ids, total_iters_per_user, final_stream_metrics_to_avg
+    return user_ids, total_samples_per_user, final_stream_metrics_to_avg
 
 
 def get_selected_group_names(selected_group_names_csv_path):
