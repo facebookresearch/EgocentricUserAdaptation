@@ -163,7 +163,9 @@ class SchedulerConfig:
         All processing happens in master process. """
 
         for run_entry in self.runs_to_process:
-            interrupted, *_ = run_entry.run_in_main_process(prefix_args=(None, self.available_device_ids[0]))
+            interrupted, *_ = run_entry.run_in_main_process(
+                prefix_args=(None, self.available_device_ids[0], run_entry.run_id)
+            )
             if interrupted:
                 logger.exception(f"Shutting down on RUN {run_entry.run_id}, because of Trainer being Interrupted")
                 raise Exception()
