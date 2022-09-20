@@ -16,23 +16,39 @@ logger = logging.get_logger(__name__)
 
 class PathHandler:
 
-    def __init__(self, cfg):
+    def __init__(self, cfg=None,
+                 main_output_dir: str = None, run_group_id: str = None, run_uid: str = None,
+                 ):
         """
         We group runs based on the same parent OUTPUT_DIR.
         This grouping is also persisted to WandB logger.
         Runs can have different identifiers (with timestamp), but the group will remain the same when resuming in
         the same OUTPUT_DIR.
         """
-        self.main_output_dir, run_group_uid, self.is_resuming_run = self.setup_main_output_dir(cfg)
 
-        # Use same group_id as the one resuming from
-        self.run_group_uid = "{}_{}".format(
-            cfg.METHOD.METHOD_NAME,
-            run_group_uid,
-        )
+        # Init from config
+        if cfg is not None:
+            self.main_output_dir, run_group_uid, self.is_resuming_run = self.setup_main_output_dir(cfg)
 
-        # The single run_id can still be different from OUTPUT_DIR and run_group, e.g. for wandb
-        self.run_uid = cfg.RUN_UID
+            # Use same group_id as the one resuming from
+            self.run_group_uid = "{}_{}".format(
+                cfg.METHOD.METHOD_NAME,
+                run_group_uid,
+            )
+
+            # The single run_id can still be different from OUTPUT_DIR and run_group, e.g. for wandb
+            self.run_uid = cfg.RUN_UID
+
+        # Init from args (e.g. for adhoc eval)
+        else:
+            self.main_output_dir = main_output_dir
+            self.run_group_uid = run_group_id
+            self.run_uid = run_uid
+            assert self.main_output_dir is not None
+            assert self.run_group_uid is not None
+            assert self.run_uid is not None
+
+            self.is_resuming_run = False
 
         # Full paths (user agnostic)
         self.meta_checkpoint_path = osp.join(self.main_output_dir, 'meta_checkpoint.pt')
@@ -119,10 +135,12 @@ class PathHandler:
     def get_experiment_version(self, user_id):
         return self.userid_to_userdir(user_id)
 
-    def get_user_checkpoints_dir(self, user_id=None):
+    def get_user_checkpoints_dir(self, user_id=None, include_ckpt_file=None):
         p = osp.join(self.main_output_dir, self.checkpoint_dirname)
         if user_id is not None:
             p = osp.join(p, self.get_experiment_version(user_id))
+        if include_ckpt_file is not None:
+            p = osp.join(p, include_ckpt_file)
         return p
 
     def get_user_results_dir(self, user_id=None):
@@ -192,7 +210,7 @@ def save_meta_state(meta_checkpoint_path, user_id):
     # sys.stdout.flush()
     # logger.flush()
 
-    # torch.save({'processed_user_ids': processed_user_ids}, meta_checkpoint_path, pickle_protocol=0)
+    # torch.save({'processed_run_ids': processed_run_ids}, meta_checkpoint_path, pickle_protocol=0)
 
 
 def load_meta_state(meta_checkpoint_path):
@@ -204,7 +222,7 @@ def load_meta_state(meta_checkpoint_path):
                 user_ids.append(line_s)
 
     # torch.load(meta_checkpoint_path)
-    return {'processed_user_ids': user_ids}
+    return {'processed_run_ids': user_ids}
 
 
 def load_caffe_checkpoint(cfg, ckp_path, task):
@@ -315,7 +333,7 @@ def load_slowfast_backbone(ckpt_path, task):
         logger.info(f"Could not load {key} weights")
 
 
-def load_lightning_model(cfg, ckp_path, task, ckpt_task_types):
+def load_lightning_model(ckp_path, task, ckpt_task_types, load_head):
     """
     Fully load pretrained model, then iterate current model and load_state_dict for all params.
     This allows to keep the hyperparams of our current model, and only adapting the weights.
@@ -336,7 +354,7 @@ def load_lightning_model(cfg, ckp_path, task, ckpt_task_types):
 
     # Iterate current task model and load pretrained
     for child_name, child_module in task.model.named_children():
-        if not cfg.CHECKPOINT_LOAD_MODEL_HEAD and "head" in child_name:
+        if not load_head and "head" in child_name:
             logger.info(f"Skipping head: {child_name}")
             continue
 
@@ -346,26 +364,26 @@ def load_lightning_model(cfg, ckp_path, task, ckpt_task_types):
         assert len(missing_keys) + len(unexpected_keys) == 0
 
 
-def load_pretrain_model(cfg, ckp_path, task, ckpt_task_types):
+def load_pretrain_model(ckp_path, task, ckpt_task_types, load_head):
     logger.info(f"LOADING PRETRAINED MODEL")
 
-    # For CAFFE backbone
-    if cfg.CHECKPOINT_VERSION == "caffe2":
-        load_caffe_checkpoint(cfg, ckp_path, task)
-        logger.info(f"LOADED CAFFE PRETRAIN MODEL")
-
-    # Pytorch pretrained model state-dict for backbone (Not Lightning), never loads head (Mainly used for LTA backbone)
-    elif cfg.DATA.CHECKPOINT_MODULE_FILE_PATH != "":
-        if cfg.MODEL.ARCH == "mvit":
-            load_mvit_backbone(cfg.DATA.CHECKPOINT_MODULE_FILE_PATH, task)
-            logger.info(f"LOADED MVIT PRETRAIN MODEL")
-        elif cfg.MODEL.ARCH == "slow":
-            load_slowfast_backbone(cfg.DATA.CHECKPOINT_MODULE_FILE_PATH, task)
-            logger.info(f"LOADED SLOWFAST PRETRAIN MODEL")
-        else:
-            raise NotImplementedError(f"Unkown ARCH in config: {cfg.MODEL.ARCH}")
-
-    # For Lightning Checkpoint
-    else:
-        load_lightning_model(cfg, ckp_path, task, ckpt_task_types)
-        logger.info(f"LOADED LIGHTNING PRETRAIN MODEL")
+    # # For CAFFE backbone
+    # if cfg.CHECKPOINT_VERSION == "caffe2":
+    #     load_caffe_checkpoint(cfg, ckp_path, task)
+    #     logger.info(f"LOADED CAFFE PRETRAIN MODEL")
+    #
+    # # Pytorch pretrained model state-dict for backbone (Not Lightning), never loads head (Mainly used for LTA backbone)
+    # elif cfg.DATA.CHECKPOINT_MODULE_FILE_PATH != "":
+    #     if cfg.MODEL.ARCH == "mvit":
+    #         load_mvit_backbone(cfg.DATA.CHECKPOINT_MODULE_FILE_PATH, task)
+    #         logger.info(f"LOADED MVIT PRETRAIN MODEL")
+    #     elif cfg.MODEL.ARCH == "slow":
+    #         load_slowfast_backbone(cfg.DATA.CHECKPOINT_MODULE_FILE_PATH, task)
+    #         logger.info(f"LOADED SLOWFAST PRETRAIN MODEL")
+    #     else:
+    #         raise NotImplementedError(f"Unkown ARCH in config: {cfg.MODEL.ARCH}")
+    #
+    # # For Lightning Checkpoint
+    # else:
+    load_lightning_model(ckp_path, task, ckpt_task_types, load_head)
+    logger.info(f"LOADED LIGHTNING PRETRAIN MODEL")

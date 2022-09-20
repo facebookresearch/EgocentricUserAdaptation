@@ -1007,6 +1007,28 @@ def convert_cfg_to_flat_dict(cfg: CfgNode, key_exclude_set: set = None):
     return res
 
 
+def convert_flat_dict_to_cfg(flat_dict: dict):
+    """ Dict hierarchy is transformed to '.'-separated string keys, to values."""
+
+    init_dict = {}
+    for flat_key, val in flat_dict.items():
+        keylist = flat_key.split('.')
+        leaf_key = keylist[-1]
+        parent_keys = keylist[:-1]
+
+        final_dict_ref = init_dict
+        if parent_keys is not None:
+            for parent_key in parent_keys:
+                if parent_key not in final_dict_ref:
+                    final_dict_ref[parent_key] = {}
+                final_dict_ref = final_dict_ref[parent_key]
+
+        final_dict_ref[leaf_key] = val
+
+    cfg = CfgNode(init_dict)
+    return cfg
+
+
 def get_cfg():
     """
     Get a copy of the default config.

@@ -20,7 +20,8 @@ from continual_ego4d.datasets.continual_dataloader import construct_trainstream_
 import os.path as osp
 import random
 from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
-import wandb
+# import wandb
+from pytorch_lightning.loggers import WandbLogger
 
 from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
@@ -45,7 +46,7 @@ from continual_ego4d.utils.models import model_trainable_summary
 import matplotlib.pyplot as plt
 
 from pytorch_lightning.core import LightningModule
-from typing import List, Tuple, Union, Any, Optional, Dict
+from typing import List, Tuple, Union, Any, Optional, Dict, Type
 from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)
@@ -590,7 +591,10 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         logger.debug(f"Logged stream info to dumpfile {self.dumpfile}")
 
         # Let WandB logger know that run is fully executed
-        wandb.log({"finished_run": True})
+        wandb_logger: WandbLogger = self.get_logger_instance(WandbLogger)
+        assert wandb_logger is not None, "Must have wandb logger to finish run!"
+        wandb_logger.experiment.log({"finished_run": True})
+        # wandb_logger.experiment.finish()
 
     # ---------------------
     # PER-STEP EVALUATION
@@ -743,13 +747,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         """ Iterate over metrics to get Image plots. """
 
         # Collect loggers
-        tb_loggers = [result_logger for result_logger in self.logger if isinstance(result_logger, TensorBoardLogger)]
-        if len(tb_loggers) == 0:
-            logger.info(f"No tensorboard logger found, skipping image plotting.")
-            return
-        elif len(tb_loggers) > 1:
-            raise Exception(f"Multiple tensorboard loggers found, should only define one: {tb_loggers}")
-        tb_logger = tb_loggers[0]
+        tb_logger = self.get_logger_instance(TensorBoardLogger)
 
         logger.info("Collecting figures for metric plots")
         plot_dict = {}
@@ -769,6 +767,20 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # ---------------------
     # HELPER METHODS
     # ---------------------
+    def get_logger_instance(
+            self,
+            logger_type: Union[Type[WandbLogger], Type[TensorBoardLogger]]) -> \
+            Union[TensorBoardLogger, WandbLogger, None]:
+        """ Get specific result logger from trainer. """
+        result_loggers = [result_logger for result_logger in self.logger if isinstance(result_logger, logger_type)]
+        if len(result_loggers) == 0:
+            logger.info(f"No {logger_type.__class__.__name__} logger found, skipping image plotting.")
+            return None
+        elif len(result_loggers) > 1:
+            raise Exception(
+                f"Multiple {logger_type.__class__.__name__} loggers found, should only define one: {result_loggers}")
+        return result_loggers[0]
+
     @staticmethod
     def add_to_dict_(source_dict: dict, dict_to_add: dict, key_exist_ok=False):
         """In-place add to dict"""
@@ -838,14 +850,19 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # PREDICTION FLOW CALLBACKS
     # ---------------------
     @torch.no_grad()
-    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: Optional[int] = None):
-        """ Collect per-sample stats such as the loss. """
+    def predict_step(self, batch: Any, batch_idx: int, dataloader_idx: Optional[int] = None) -> dict:
+        """ Collect per-sample stats such as the loss.
+        The returned values allow acces to the values through
+        list_of_predictions = trainer.predict()
+        """
         inputs, labels, video_names, stream_sample_idxs = batch
 
         # Loss per sample
         _, _, sample_to_results = self.method.prediction_step(inputs, labels, stream_sample_idxs.tolist())
         for k, v in sample_to_results.items():
             self.pretrain_state.sample_idx_to_pretrain_loss[k] = v
+
+        return sample_to_results
 
     @torch.no_grad()
     def on_predict_end(self) -> None:

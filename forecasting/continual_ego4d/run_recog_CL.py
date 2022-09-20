@@ -266,7 +266,7 @@ def online_adaptation_single_user(
     # LOAD PRETRAINED
     ckpt_task_types = [MultiTaskClassificationTask,
                        ContinualMultiTaskClassificationTask]
-    load_pretrain_model(cfg, cfg.CHECKPOINT_FILE_PATH, task, ckpt_task_types)
+    load_pretrain_model(cfg.CHECKPOINT_FILE_PATH, task, ckpt_task_types, cfg.CHECKPOINT_LOAD_MODEL_HEAD)
 
     # Freeze model if applicable
     if cfg.MODEL.FREEZE_BACKBONE:

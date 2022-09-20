@@ -19,6 +19,12 @@ def reset_optimizer_stats_(optimizer):
     logger.info("Optimizer state is reset.")
 
 
+def freeze_full_model(model):
+    """ Freeze all parameters in model. """
+    for param in model.parameters():
+        param.requires_grad = False
+
+
 def freeze_backbone_not_head(model):
     """ Freeze all params except the head. """
     for param in model.parameters():
