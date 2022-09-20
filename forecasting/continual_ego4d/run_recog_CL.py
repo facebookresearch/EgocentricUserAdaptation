@@ -15,6 +15,8 @@ from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 from continual_ego4d.utils.custom_logger_connector import CustomLoggerConnector
 from pytorch_lightning.loggers import WandbLogger
 import traceback
+import wandb
+from continual_ego4d.utils.scheduler import SchedulerConfig, RunConfig
 
 from ego4d.config.defaults import set_cfg_by_name, convert_cfg_to_flat_dict
 from ego4d.utils import logging
@@ -54,24 +56,33 @@ def main(cfg: CfgNode):
     available_device_ids = get_device_ids(cfg)
     assert len(available_device_ids) >= 1
 
+    # Get run entries
+    run_entries = []
+    for user_id in all_user_ids:
+        run_entries.append(
+            RunConfig(
+                run_id=user_id,
+                target_fn=online_adaptation_single_user,
+                fn_args=(copy.deepcopy(cfg), user_id, user_datasets[user_id], path_handler,)
+            )
+        )
+
     scheduler_cfg = SchedulerConfig(
+        run_entries=run_entries,
+        processed_run_ids=processed_user_ids,
         available_device_ids=available_device_ids,
-        all_user_ids=all_user_ids,
-        processed_user_ids=processed_user_ids,
-        userprocesses_per_device=cfg.NUM_USERS_PER_DEVICE,
+        max_runs_per_device=cfg.NUM_USERS_PER_DEVICE,
     )
 
-    if scheduler_cfg.is_all_users_processed():
+    if scheduler_cfg.is_all_runs_processed():
         logger.info("All users already processed, skipping execution. "
-                    f"All users={scheduler_cfg.all_user_ids}, "
-                    f"processed={scheduler_cfg.processed_user_ids}")
+                    f"All users={scheduler_cfg.all_run_ids}, "
+                    f"processed={scheduler_cfg.processed_run_ids}")
         return
 
     assert cfg.TRAIN.ENABLE, "Enable training mode for this script in cfg.TRAIN.ENABLE"
-    if len(scheduler_cfg.available_device_ids) == 1:
-        process_users_sequentially(cfg, scheduler_cfg, user_datasets, path_handler)
-    else:
-        process_users_parallel(cfg, scheduler_cfg, user_datasets, path_handler)
+    scheduler_cfg.schedule()
+
     logger.info("Finished processing all users")
     logger.info(f"All results over users can be found in OUTPUT-DIR={path_handler.main_output_dir}")
 
@@ -138,142 +149,6 @@ def get_user_ids(cfg, user_datasets, path_handler):
     return processed_user_ids, all_user_ids
 
 
-class SchedulerConfig:
-    """ Config attributes used for scheduling the job either sequentially or parallel."""
-
-    def __init__(self, all_user_ids, processed_user_ids, available_device_ids, userprocesses_per_device):
-        self.all_user_ids: list[str] = all_user_ids
-        self.processed_user_ids: list[str] = processed_user_ids
-
-        self.userprocesses_per_device = userprocesses_per_device
-        assert self.userprocesses_per_device >= 1
-        self.available_device_ids: list[int] = available_device_ids * self.userprocesses_per_device
-
-    def is_all_users_processed(self):
-        return len(self.processed_user_ids) >= len(self.all_user_ids)
-
-
-def process_users_parallel(
-        cfg: CfgNode,
-        scheduler_cfg: SchedulerConfig,
-        user_datasets: dict[str, list[tuple]],
-        path_handler: PathHandler,
-):
-    """ This process is master process that spawn user-specific processes on free GPU devices once they are free.
-    There is a known bug in Pytorch: https://github.com/pytorch/pytorch/issues/44156
-    GPU memory is not freed after job completion. BUT if using the same process on the same device, it will reuse this
-    memory. (e.g. for finished jobs about 2G memory remains, but if a next user-job is launched it will reuse this memory).
-
-    Solution:
-    Python API multiprocessing: https://docs.python.org/3/library/multiprocessing.html
-    Create new Process manually and listen for output in shared queue.
-    - Non-daemon(ic) process: Can create child-processes. Is required for our num_workers in dataloaders.
-    - 2 reasons not to use join explicitly:
-        - 'non-daemonic processes will be joined automatically'
-        - Using join before queue.get() can result in deadlock:
-        https://docs.python.org/3/library/multiprocessing.html#all-start-methods
-        - If want to join explicitly: do so for processes that returned a value in the queue
-
-    """
-    process_timeout_s = 60 * 60 * 10  # 10-hours timeout for single run
-    user_queue = deque([u for u in scheduler_cfg.all_user_ids if u not in scheduler_cfg.processed_user_ids])
-    submitted_users = []
-    finished_users = []
-    nb_total_users = len(user_queue)
-
-    if len(user_queue) == 0:
-        return
-
-    if len(user_queue) < len(scheduler_cfg.available_device_ids):
-        scheduler_cfg.available_device_ids = scheduler_cfg.available_device_ids[:len(user_queue)]
-        logger.info(f"Defined more devices than users, only using devices: {scheduler_cfg.available_device_ids}")
-
-    # Shared queue
-    queue = mp.Queue()
-
-    user_to_process = {}
-    for device_id in scheduler_cfg.available_device_ids:
-        user_id = user_queue.popleft()
-        submitted_users.append(user_id)
-        user_to_process[user_id] = mp.Process(
-            target=online_adaptation_single_user,
-            args=(cfg, user_id, user_datasets[user_id], device_id, path_handler, queue),
-            daemon=False  # Needs to have children for num_workers
-        )
-
-    # Start processes
-    for p in user_to_process.values():
-        p.start()
-    # for p in initial_processes: # Don't use Queue and join with non-daemon
-    #     p.join()  # Blocks main process until processes finished
-    logger.info(f"Started and joined processes for users: {submitted_users}")
-
-    # Receive results for ALL user-processes, also the last ones
-    while len(finished_users) < nb_total_users:
-        # Get first next ready result
-        interrupted, device_id, finished_user_id = queue.get(block=True, timeout=process_timeout_s)
-        finished_users.append(finished_user_id)
-
-        logger.info(f"Finished processing user {finished_user_id}"
-                    f" -> users_to_process= {user_queue}, "
-                    f"available_devices={device_id}, "
-                    f"finished users={finished_users} out of #{nb_total_users}")
-
-        if interrupted:
-            logger.exception(f"Process for USER {finished_user_id} failed because of Trainer being Interrupted."
-                             f"Not releasing GPU as might give Out-of-Memory exception.")
-            continue
-
-        # Zombie is finished process never joined, join to avoid
-        # user_to_process[finished_user_id].join()
-
-        # Launch new user with new process
-        if len(user_queue) > 0:
-            new_user_id = user_queue.popleft()
-            submitted_users.append(new_user_id)
-            logger.info(f"{'*' * 20} LAUNCHING USER {new_user_id} (device_id={device_id}) {'*' * 20}")
-            user_process = mp.Process(
-                target=online_adaptation_single_user,
-                args=(cfg, new_user_id, user_datasets[new_user_id], device_id, path_handler, queue),
-                daemon=False  # Needs to have children for num_workers
-            )
-            user_to_process[new_user_id] = user_process
-            user_process.start()
-            # user_process.join()
-        else:
-            logger.info(f"Not scheduling new user-process as all are finished or running.")
-
-    logger.info(f"Processed all users")
-
-
-def process_users_sequentially(
-        cfg: CfgNode,
-        scheduler_cfg: SchedulerConfig,
-        user_datasets: dict[str, list[tuple]],
-        path_handler: PathHandler,
-):
-    """ Sequentially iterate over users and process on single device.
-    All processing happens in master process. """
-
-    # Iterate user datasets
-    for user_id in scheduler_cfg.all_user_ids:
-        if user_id in scheduler_cfg.processed_user_ids:  # SKIP PROCESSED USER
-            logger.info(f"Skipping USER {user_id} as already processed, result_path={path_handler.main_output_dir}")
-            continue
-
-        interrupted, *_ = online_adaptation_single_user(
-            copy.deepcopy(cfg),  # Cfg doesn't allow resetting COMPUTED_ attributes
-            user_id,
-            user_datasets[user_id],
-            scheduler_cfg.available_device_ids[0],
-            path_handler,
-            mp_queue=None
-        )
-        if interrupted:
-            logger.exception(f"Shutting down on USER {user_id}, because of Trainer being Interrupted")
-            raise Exception()
-
-
 def overwrite_config_continual_learning(cfg):
     overwrite_dict = {
         "SOLVER.ACCELERATOR": "gpu",
@@ -308,12 +183,15 @@ def get_device_ids(cfg) -> list[int]:
 
 
 def online_adaptation_single_user(
+        # Scheduling args
+        mp_queue: mp.Queue,
+        device_id: int,
+
+        # additional args
         cfg: CfgNode,
         user_id: str,
         user_dataset: list[tuple],
-        device_id: int,
         path_handler: PathHandler,
-        mp_queue: mp.Queue = None,
 ) -> (bool, str, str):
     """ Run single user sequentially. Returns path to user results and interruption status."""
     seed_everything(cfg.RNG_SEED)
