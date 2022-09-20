@@ -87,7 +87,7 @@ def main(cfg: CfgNode):
     logger.info(f"All results over users can be found in OUTPUT-DIR={path_handler.main_output_dir}")
 
 
-def load_datasets_from_jsons(cfg):
+def load_datasets_from_jsons(cfg, return_pretrain=False):
     """
     Load the train OR test json.
     The Pretrain action sets are always loaded.
@@ -110,9 +110,12 @@ def load_datasets_from_jsons(cfg):
     # Pretraining stats (e.g. action sets), cfg requires COMPUTED_ for dynamically added nodes
     pretrain_dataset_holder = extract_json(data_paths['pretrain'])
     cfg.COMPUTED_PRETRAIN_ACTION_SETS = copy.deepcopy(pretrain_dataset_holder['user_action_sets']['user_agnostic'])
-    del pretrain_dataset_holder
 
-    return user_datasets
+    if return_pretrain:
+        return user_datasets, pretrain_dataset_holder
+    else:
+        del pretrain_dataset_holder
+        return user_datasets
 
 
 def get_user_ids(cfg, user_datasets, path_handler):

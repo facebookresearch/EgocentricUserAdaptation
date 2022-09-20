@@ -237,9 +237,7 @@ def load_slowfast_model_weights(ckp_path: str, task: LightningModule, load_head:
     missing_keys, unexpected_keys = lightning_model_to_load.load_state_dict(
         ckp_state_dict, strict=False
     )
-
-    logger.info('PRETRAIN LOADING: missing', missing_keys)
-    logger.info('PRETRAIN LOADING: unexpected', unexpected_keys)
+    logger.info(f'PRETRAIN LOADING: \nmissing {missing_keys}\nunexpected {unexpected_keys}')
 
     # Ensure only head key is missing.w
     assert len(unexpected_keys) == 0, f"Unexpected keys: {unexpected_keys}"

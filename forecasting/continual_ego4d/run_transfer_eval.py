@@ -28,8 +28,11 @@ TODO: Can we make U Trainers for the U models, and use only 1 trainer to iterate
 trainers to get results for all models?
 """
 
+from continual_ego4d.utils.misc import makedirs
 import copy
 import sys
+from itertools import product
+import pandas as pd
 
 from continual_ego4d.utils.checkpoint_loading import load_slowfast_model_weights, PathHandler
 import multiprocessing as mp
@@ -106,16 +109,16 @@ def main():
     assert len(set(outputdirs)) == 1, f"Users not same group dir: {set(outputdirs)}"
 
     train_group_outputdir = outputdirs[0]
-    user_to_runid = {user: config['RUN_UID'] for user, config in user_to_flat_cfg.items()}
+    user_to_train_runuid = {user: config['RUN_UID'] for user, config in user_to_flat_cfg.items()}
 
     # Get checkpoint paths
     user_to_checkpoint_path = {}
     train_path_handler = None
-    for user in user_to_runid.keys():
+    for user in user_to_train_runuid.keys():
         train_path_handler = PathHandler(
             main_output_dir=train_group_outputdir,
             run_group_id=group_name,
-            run_uid=user_to_runid[user],
+            run_uid=user_to_train_runuid[user],
             is_resuming_run=True,
         )
         user_to_checkpoint_path[user] = train_path_handler.get_user_checkpoints_dir(
@@ -129,18 +132,26 @@ def main():
                          'DATA.COMPUTED_USER_DS_ENTRIES',
                          'COMPUTED_USER_DUMP_FILE'}
     )
-    pretrain_modelpath = train_cfg['CHECKPOINT_FILE_PATH']
+    user_to_checkpoint_path['pretrain'] = train_cfg['CHECKPOINT_FILE_PATH']  # Add pretrain as user
 
     # SET EVAL OUTPUT_DIR
-    eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_OUTPUTDIR = os.path.join(train_group_outputdir, 'transfer_eval')
-    logging.setup_logging(eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_OUTPUTDIR, host_name='MASTER', overwrite_logfile=False)
-    logger.info(f"Starting main script with OUTPUT_DIR={eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_OUTPUTDIR}")
+    main_parent_dir = os.path.join(train_group_outputdir, 'transfer_eval')
+    eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR = os.path.join(main_parent_dir, 'results')
+    eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_LOGDIR = os.path.join(main_parent_dir, 'logs')
+
+    makedirs(eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR)
+    makedirs(eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_LOGDIR)
+
+    # Main process logging
+    logging.setup_logging(main_parent_dir, host_name='MASTER', overwrite_logfile=False)
+    logger.info(f"Starting main script with OUTPUT_DIR={main_parent_dir}")
 
     # Dataset lists from json / users to process
-    user_datasets = load_datasets_from_jsons(train_cfg)
-    processed_user_ids, all_user_ids = get_user_ids(train_cfg, user_datasets, train_path_handler)
-    assert len(processed_user_ids) == len(all_user_ids), \
-        f"Not all users were processed in training: {set(all_user_ids) - set(processed_user_ids)}"
+    user_datasets, pretrain_dataset = load_datasets_from_jsons(train_cfg, return_pretrain=True)
+    processed_trained_user_ids, all_trained_user_ids = get_user_ids(train_cfg, user_datasets, train_path_handler)
+    assert len(processed_trained_user_ids) == len(all_trained_user_ids), \
+        f"Not all users were processed in training: {set(all_trained_user_ids) - set(processed_trained_user_ids)}"
+    user_datasets['pretrain'] = pretrain_dataset  # Add (AFTER CHECKING USER IDS)
 
     # CFG overwrites and setup
     overwrite_config_transfer_eval(eval_cfg)
@@ -153,28 +164,42 @@ def main():
 
     # Get run entries
     run_entries = []
-    for user_id in all_user_ids:
-        user_train_cfg = copy.deepcopy(train_cfg)
-        user_train_cfg.DATA.COMPUTED_USER_ID = user_id
-        user_train_cfg.DATA.COMPUTED_USER_DS_ENTRIES = user_datasets[user_id]
-        user_train_cfg.COMPUTED_USER_DUMP_FILE = train_path_handler.get_user_streamdump_file(user_id)
+    all_entry_pairs = get_user_model_stream_pairs(eval_cfg, all_trained_user_ids)
+    for (model_userid, stream_userid) in all_entry_pairs:
+        run_id = get_pair_id(model_userid, stream_userid)
+
+        # STREAM config
+        user_train_stream_cfg = copy.deepcopy(train_cfg)
+        user_train_stream_cfg.DATA.COMPUTED_USER_ID = stream_userid
+        user_train_stream_cfg.DATA.COMPUTED_USER_DS_ENTRIES = user_datasets[stream_userid]
+        user_train_stream_cfg.COMPUTED_USER_DUMP_FILE = train_path_handler.get_user_streamdump_file(stream_userid)
+
+        # Debug mode
+        user_train_stream_cfg.FAST_DEV_RUN = eval_cfg.FAST_DEV_RUN
+        user_train_stream_cfg.FAST_DEV_DATA_CUTOFF = eval_cfg.FAST_DEV_DATA_CUTOFF
+
+        # Prediction batch size
+        user_train_stream_cfg.PREDICT_PHASE.NUM_WORKERS = eval_cfg.PREDICT_PHASE.NUM_WORKERS
+        user_train_stream_cfg.PREDICT_PHASE.BATCH_SIZE = eval_cfg.PREDICT_PHASE.BATCH_SIZE
 
         run_entries.append(
             RunConfig(
-                run_id=user_id,
+                run_id=run_id,
                 target_fn=eval_single_model_single_stream,
                 fn_args=(
-                    user_train_cfg,  # To recreate data stream
+                    user_train_stream_cfg,  # To recreate data stream
                     eval_cfg,  # For
-                    user_to_checkpoint_path[user_id],
-                    user_id,
+                    user_to_checkpoint_path[model_userid],
                 )
             )
         )
 
+    processed_run_ids = get_processed_run_ids(eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR)
+    logger.info(f"Processed run_ids = {processed_run_ids}")
+
     scheduler_cfg = SchedulerConfig(
         run_entries=run_entries,
-        processed_run_ids=[],
+        processed_run_ids=processed_run_ids,
         available_device_ids=available_device_ids,
         max_runs_per_device=eval_cfg.NUM_USERS_PER_DEVICE,
     )
@@ -188,7 +213,39 @@ def main():
     scheduler_cfg.schedule()
 
     logger.info("Finished processing all users")
-    logger.info(f"All results over users can be found in OUTPUT-DIR={eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_OUTPUTDIR}")
+    logger.info(f"All results over users can be found in OUTPUT-DIR={main_parent_dir}")
+
+
+def get_pair_id(modeluser, streamuser):
+    return f"M={modeluser}_S={streamuser}"
+
+
+def get_processed_run_ids(result_dir):
+    result_file_ids = sorted([pair_id_resultfile.name.split('.')[0]
+                              for pair_id_resultfile in os.scandir(result_dir) if pair_id_resultfile.is_file()])
+    return result_file_ids
+
+
+def get_user_model_stream_pairs(eval_cfg, all_user_ids) -> list[tuple]:
+    # ONLY USER-STREAM WITH SAME MODEL
+    if eval_cfg.TRANSFER_EVAL.DIAGONAL_ONLY:
+        modeluser_streamuser_pairs = list(product(all_user_ids, all_user_ids))
+
+    # CARTESIAN
+    else:
+        modeluser_streamuser_pairs = [(user_id, user_id) for user_id in all_user_ids]
+
+    # PRETRAIN
+    if eval_cfg.TRANSFER_EVAL.INCLUDE_PRETRAIN_STREAM:
+        modeluser_streamuser_pairs.extend(
+            [(user_id, 'pretrain') for user_id in all_user_ids]
+        )
+    if eval_cfg.TRANSFER_EVAL.INCLUDE_PRETRAIN_MODEL:
+        modeluser_streamuser_pairs.extend(
+            [('pretrain', user_id) for user_id in all_user_ids]
+        )
+
+    return modeluser_streamuser_pairs
 
 
 def overwrite_config_transfer_eval(eval_cfg):
@@ -214,16 +271,12 @@ def eval_single_model_single_stream(
         user_train_cfg: CfgNode,  # To recreate data stream
         eval_cfg: CfgNode,  # For
         load_model_path: str,
-
-        user_id: str,
 ) -> (bool, str, str):
     """ Run single user sequentially. Returns path to user results and interruption status."""
     seed_everything(eval_cfg.RNG_SEED)
 
-    # TODO make compat for pretrain stream
-
-    run_outputdir = os.path.join(eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_OUTPUTDIR, 'results', user_id)
-    run_logdir = os.path.join(eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_OUTPUTDIR, 'logs', user_id)
+    run_logdir = os.path.join(eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_LOGDIR, run_id)  # Dir per run
+    run_result_dir = eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR  # Shared
 
     # Loggers
     logging.setup_logging(  # Stdout logging
@@ -267,28 +320,32 @@ def eval_single_model_single_stream(
         gpus=None,  # Determined by devices
         num_nodes=1,  # DDP specific
 
-        callbacks=[GPUStatsMonitor()],
+        callbacks=None,
         logger=False,
     )
 
     logger.info("PREDICTING (INFERENCE)")
     sample_idx_to_loss_dict_list: list[dict] = trainer.predict(task)
 
-    # TODO FLATTEN
-
+    # Flatten
     sample_idx_to_losses_dict = {k: v for iter_dict in sample_idx_to_loss_dict_list for k, v in iter_dict.items()}
 
-    # Get array based on sample_idx
-    # sample_idx_to_loss = [None] * len(sample_idx_to_losses_dict)
-    # for sample_idx,
-    import pandas as pd
-    df = pd.DataFrame(sample_idx_to_losses_dict)
+    # Dataframe for csv
+    df = pd.DataFrame(sample_idx_to_losses_dict).transpose()
+    """
+        e.g.
+           pred_action_batch/loss  pred_verb_batch/loss  pred_noun_batch/loss
+    0               63.166710         -0.000000e+00             63.166710
+    1               94.299492         -0.000000e+00             94.299492
+    2               56.985905          4.014163e-04             56.985504
+    3               56.100876          2.384186e-07             56.100876
+    4               59.698318          1.567108e-02             59.682648
+    ...
 
-    import pdb;
-    pdb.set_trace()
+    """
 
-    # TODO SAVE
-    torch.save({}, os.path.join(run_outputdir, 'results.pth'))
+    # Save
+    df.to_csv(os.path.join(run_result_dir, f"{run_id}.csv"))
 
     # Cleanup process GPU-MEM allocation (Only process context will remain allocated)
     torch.cuda.empty_cache()

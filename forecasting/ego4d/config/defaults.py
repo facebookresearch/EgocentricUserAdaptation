@@ -20,6 +20,9 @@ _C.RUN_UID = ""
 _C.TRANSFER_EVAL = CfgNode()
 _C.TRANSFER_EVAL.WANDB_PROJECT_NAME = ""
 _C.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL = ""
+_C.TRANSFER_EVAL.DIAGONAL_ONLY = True
+_C.TRANSFER_EVAL.INCLUDE_PRETRAIN_STREAM = False
+_C.TRANSFER_EVAL.INCLUDE_PRETRAIN_MODEL = True
 
 # ---------------------------------------------------------------------------- #
 # DEBUG options

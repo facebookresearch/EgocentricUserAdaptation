@@ -920,6 +920,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Setup is called immediately after the distributed processes have been
         # registered. We can now setup the distributed process groups for each machine
         # and create the distributed data loaders.
+        self.configure_head()
+
+    def configure_head(self):
         """ Load output masker at training start, to make checkpoint loading independent of the module. """
         if not self.head_masking_head_is_configured():
             self.model.head = torch.nn.Sequential(
