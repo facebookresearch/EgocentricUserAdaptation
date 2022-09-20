@@ -57,6 +57,11 @@ class SchedulerConfig:
         assert self.max_runs_per_device >= 1
         self.available_device_ids: list[int] = available_device_ids * self.max_runs_per_device
 
+        if len(self.runs_to_process) < len(self.available_device_ids):
+            self.available_device_ids = self.available_device_ids[:len(self.runs_to_process)]
+            logger.info(f"Defined more devices than runs, only using devices: {self.available_device_ids}")
+
+        # State
         self.is_multiprocessing = len(self.available_device_ids) > 1 and len(self.runs_to_process) > 1
 
     def is_all_runs_processed(self):
@@ -87,16 +92,12 @@ class SchedulerConfig:
 
         """
         process_timeout_s = 60 * 60 * 10  # 10-hours timeout for single run
-        user_queue = deque(copy.deepcopy(self.run_ids_to_process))
+        run_id_queue = deque(copy.deepcopy(self.run_ids_to_process))
         submitted_run_ids = []
         finished_run_ids = []
 
-        if len(user_queue) == 0:
+        if len(run_id_queue) == 0:
             return
-
-        if len(user_queue) < len(self.available_device_ids):
-            self.available_device_ids = self.available_device_ids[:len(user_queue)]
-            logger.info(f"Defined more devices than users, only using devices: {self.available_device_ids}")
 
         # Init setup
         wandb.setup()  # See: https://docs.wandb.ai/guides/track/advanced/distributed-training#wandb-service
@@ -104,14 +105,15 @@ class SchedulerConfig:
         # Shared queue
         queue = mp.Queue()
 
-        user_to_process = {}
+        runid_to_process = {}
         for device_id in self.available_device_ids:
-            user_id = user_queue.popleft()
-            submitted_run_ids.append(user_id)
-            user_to_process[user_id] = self.run_id_to_cfg[user_id].get_process_instance(prefix_args=(queue, device_id))
+            run_id = run_id_queue.popleft()
+            submitted_run_ids.append(run_id)
+            runid_to_process[run_id] = self.run_id_to_cfg[run_id].get_process_instance(
+                prefix_args=(queue, device_id, run_id))
 
         # Start processes
-        for p in user_to_process.values():
+        for p in runid_to_process.values():
             p.start()
         logger.info(f"Started and joined processes for run ids: {submitted_run_ids}")
 
@@ -119,20 +121,20 @@ class SchedulerConfig:
         while len(finished_run_ids) < len(self.runs_to_process):
             # Get first next ready result
             try:
-                interrupted, device_id, finished_user_id = queue.get(block=True, timeout=process_timeout_s)
+                interrupted, device_id, finished_run_id = queue.get(block=True, timeout=process_timeout_s)
             except:
                 logger.exception(traceback.format_exc())
                 logger.info(f"Executing on Queue time-out (deadlock?)")
                 exit(1)
-            finished_run_ids.append(finished_user_id)
+            finished_run_ids.append(finished_run_id)
 
-            logger.info(f"Finished processing user {finished_user_id}"
-                        f" -> users_to_process= {user_queue}, "
+            logger.info(f"Finished processing run {finished_run_id}"
+                        f" -> run_id_queue= {run_id_queue}, "
                         f"available_devices={device_id}, "
-                        f"finished users={finished_run_ids} out of {self.run_ids_to_process}")
+                        f"finished runs={finished_run_ids} out of {self.run_ids_to_process}")
 
             if interrupted:
-                logger.exception(f"Process for USER {finished_user_id} failed because of Trainer being Interrupted."
+                logger.exception(f"Process for RUN {finished_run_id} failed because of Trainer being Interrupted."
                                  f"Not releasing GPU as might give Out-of-Memory exception.")
                 continue
 
@@ -140,25 +142,26 @@ class SchedulerConfig:
             # user_to_process[finished_user_id].join()
 
             # Launch new user with new process
-            if len(user_queue) > 0:
-                new_user_id = user_queue.popleft()
-                submitted_run_ids.append(new_user_id)
-                logger.info(f"{'*' * 20} LAUNCHING RUN {new_user_id} (device_id={device_id}) {'*' * 20}")
+            if len(run_id_queue) > 0:
+                new_run_id = run_id_queue.popleft()
+                submitted_run_ids.append(new_run_id)
+                logger.info(f"{'*' * 20} LAUNCHING RUN {new_run_id} (device_id={device_id}) {'*' * 20}")
 
-                user_process = self.run_id_to_cfg[new_user_id].get_process_instance(prefix_args=(queue, device_id))
+                process_instance = self.run_id_to_cfg[new_run_id].get_process_instance(
+                    prefix_args=(queue, device_id, new_run_id)
+                )
 
-                user_to_process[new_user_id] = user_process
-                user_process.start()
+                runid_to_process[new_run_id] = process_instance
+                process_instance.start()
             else:
                 logger.info(f"Not scheduling new user-process as all are finished or running.")
 
-        logger.info(f"Processed all users")
+        logger.info(f"Processed all runs")
 
     def process_runs_sequentially(self):
         """ Sequentially iterate over users and process on single device.
         All processing happens in master process. """
 
-        # Iterate user datasets
         for run_entry in self.runs_to_process:
             interrupted, *_ = run_entry.run_in_main_process(prefix_args=(None, self.available_device_ids[0]))
             if interrupted:

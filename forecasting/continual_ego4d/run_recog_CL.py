@@ -186,6 +186,7 @@ def online_adaptation_single_user(
         # Scheduling args
         mp_queue: mp.Queue,
         device_id: int,
+        run_id: str,
 
         # additional args
         cfg: CfgNode,
@@ -307,7 +308,7 @@ def online_adaptation_single_user(
     torch.cuda.empty_cache()
     wandb_logger.experiment.finish()
 
-    ret = (interrupted, device_id, user_id)
+    ret = (interrupted, device_id, run_id)
     if mp_queue is not None:
         mp_queue.put(ret)
 
