@@ -1,23 +1,28 @@
 import os
-import pickle
-import numpy as np
 import torch
 
 from ego4d.utils import logging
-from ego4d.utils.c2_model_loading import get_name_convert_func
 import os.path as osp
 import shutil
 from pathlib import Path
 from ego4d.config.defaults import get_cfg_by_name
 from continual_ego4d.utils.misc import makedirs
+from pytorch_lightning.core import LightningModule
 
 logger = logging.get_logger(__name__)
 
 
 class PathHandler:
 
-    def __init__(self, cfg=None,
-                 main_output_dir: str = None, run_group_id: str = None, run_uid: str = None,
+    def __init__(self,
+                 # Define by config
+                 cfg=None,
+
+                 # Manually define
+                 main_output_dir: str = None,
+                 run_group_id: str = None,
+                 run_uid: str = None,
+                 is_resuming_run: bool = None
                  ):
         """
         We group runs based on the same parent OUTPUT_DIR.
@@ -44,11 +49,12 @@ class PathHandler:
             self.main_output_dir = main_output_dir
             self.run_group_uid = run_group_id
             self.run_uid = run_uid
+            self.is_resuming_run = is_resuming_run
+
             assert self.main_output_dir is not None
             assert self.run_group_uid is not None
             assert self.run_uid is not None
-
-            self.is_resuming_run = False
+            assert self.is_resuming_run is not None
 
         # Full paths (user agnostic)
         self.meta_checkpoint_path = osp.join(self.main_output_dir, 'meta_checkpoint.pt')
@@ -124,10 +130,6 @@ class PathHandler:
             except PermissionError as e:
                 logger.exception(f"File may already exist, skipping copy to: {e}")
 
-        # TODO TMP FIX PERMISSION ERRORS
-        # import subprocess
-        # subprocess.run(rf"find '{cfg.OUTPUT_DIR}' -type d -exec chmod 777 {{}} \;", shell=True)
-
         run_id = os.path.basename(os.path.normpath(cfg.OUTPUT_DIR))
 
         return cfg.OUTPUT_DIR, run_id, is_resuming_run
@@ -200,190 +202,58 @@ class PathHandler:
         return processed_user_ids
 
 
-def save_meta_state(meta_checkpoint_path, user_id):
-    # For easy debug
-    meta_exists = osp.isfile(meta_checkpoint_path)
-    with open(meta_checkpoint_path, 'a+') as meta_file:
-        pretext = "\n" if meta_exists else ""
-        meta_file.write(f"{pretext}{user_id}")
-    logger.info(f"Saved meta state checkpoint to {meta_checkpoint_path}")
-    # sys.stdout.flush()
-    # logger.flush()
+def load_slowfast_model_weights(ckp_path: str, task: LightningModule, load_head: bool):
+    """
+    Load checkpoint weights into the current lightning module's model.
+    We don't change/load other params into the LightningModule (even if checkpoint contains this info).
 
-    # torch.save({'processed_run_ids': processed_run_ids}, meta_checkpoint_path, pickle_protocol=0)
+    :param ckp_path: Path to saved PL or Pytorch dict. Contains 'state_dict' key with model params.
+    :param task: LightningModule to load checkpoint weights in.
+    :param load_head: Also include the head, or exclude for weight loading.
+    """
+    logger.info(f"LOADING PRETRAINED MODEL: {ckp_path}")
+    assert osp.isfile(ckp_path), f"Ckpt path not existing: {ckp_path}"
 
-
-def load_meta_state(meta_checkpoint_path):
-    user_ids = []
-    with open(meta_checkpoint_path, 'r') as meta_file:
-        for line in meta_file.readlines():
-            line_s = line.strip()
-            if len(line_s) > 0:
-                user_ids.append(line_s)
-
-    # torch.load(meta_checkpoint_path)
-    return {'processed_run_ids': user_ids}
-
-
-def load_caffe_checkpoint(cfg, ckp_path, task):
-    with open(ckp_path, "rb") as f:
-        data = pickle.load(f, encoding="latin1")
-    state_dict = data["blobs"]
-    fun = get_name_convert_func()
-    state_dict = {
-        fun(k): torch.from_numpy(np.array(v))
-        for k, v in state_dict.items()
-        if "momentum" not in k and "lr" not in k and "model_iter" not in k
-    }
-
-    if not cfg.CHECKPOINT_LOAD_MODEL_HEAD:
-        state_dict = {k: v for k, v in state_dict.items() if "head" not in k}
-    print(task.model.load_state_dict(state_dict, strict=False))
-    print(f"Checkpoint {ckp_path} loaded")
-
-
-def load_mvit_backbone(ckp_path, task):
-    """ Never loads head, only backbone."""
-    data_parallel = False  # cfg.NUM_GPUS > 1 # Check this
-
-    ms = task.model.module if data_parallel else task.model
-    checkpoint = torch.load(
-        ckp_path,
-        map_location=lambda storage, loc: storage,
-    )
-    remove_model = lambda x: x[6:]
-    if "model_state" in checkpoint.keys():
-        pre_train_dict = checkpoint["model_state"]
-    else:
-        pre_train_dict = checkpoint["state_dict"]
-        pre_train_dict = {remove_model(k): v for (k, v) in pre_train_dict.items()}
-
-    model_dict = ms.state_dict()
-
-    remove_prefix = lambda x: x[9:] if "backbone." in x else x
-    model_dict = {remove_prefix(key): value for (key, value) in model_dict.items()}
-
-    # Match pre-trained weights that have same shape as current model.
-    pre_train_dict_match = {
-        k: v
-        for k, v in pre_train_dict.items()
-        if k in model_dict and v.size() == model_dict[k].size()
-    }
-    # Weights that do not have match from the pre-trained model.
-    not_load_layers = [
-        k
-        for k in model_dict.keys()
-        if k not in pre_train_dict_match.keys()
-    ]
-    not_used_weights = [
-        k
-        for k in pre_train_dict.keys()
-        if k not in pre_train_dict_match.keys()
-    ]
-    # Log weights that are not loaded with the pre-trained weights.
-    if not_load_layers:
-        for k in not_load_layers:
-            logger.info("Network weights {} not loaded.".format(k))
-
-    if not_used_weights:
-        for k in not_used_weights:
-            logger.info("Pretrained weights {} not being used.".format(k))
-
-    if len(not_load_layers) == 0:
-        print("Loaded all layer weights! Every. Single. One.")
-    # Load pre-trained weights.
-    ms.load_state_dict(pre_train_dict_match, strict=False)
-
-
-def load_slowfast_backbone(ckpt_path, task):
-    """ Load slowfast weights into backbone submodule. Never loads head. """
     ckpt = torch.load(
-        ckpt_path,
+        ckp_path,
         map_location=(lambda storage, loc: storage),
     )
 
-    def remove_first_module(key):
-        return ".".join(key.split(".")[1:])
-
     key = "state_dict" if "state_dict" in ckpt.keys() else "model_state"
 
-    state_dict = {
-        remove_first_module(k): v
+    ckp_state_dict = {
+        remove_first_module_name(k): v
         for k, v in ckpt[key].items()
-        if "head" not in k
     }
 
-    if hasattr(task.model, 'backbone'):
-        backbone = task.model.backbone
-    else:
-        backbone = task.model
+    if not load_head:  # Filter
+        ckp_state_dict = {k: v for k, v in ckp_state_dict.items() if "head" not in k}
 
-    missing_keys, unexpected_keys = backbone.load_state_dict(
-        state_dict, strict=False
+    if hasattr(task.model, 'backbone'):
+        lightning_model_to_load = task.model.backbone
+    else:
+        lightning_model_to_load = task.model
+
+    missing_keys, unexpected_keys = lightning_model_to_load.load_state_dict(
+        ckp_state_dict, strict=False
     )
 
-    print('missing', missing_keys)
-    print('unexpected', unexpected_keys)
+    logger.info('PRETRAIN LOADING: missing', missing_keys)
+    logger.info('PRETRAIN LOADING: unexpected', unexpected_keys)
 
     # Ensure only head key is missing.w
-    assert len(unexpected_keys) == 0
-    assert all(["head" in x for x in missing_keys])
+    assert len(unexpected_keys) == 0, f"Unexpected keys: {unexpected_keys}"
+
+    if not load_head:
+        assert all(["head" in x for x in missing_keys]), f"Missing keys: {missing_keys}"
+    else:
+        assert len(missing_keys) == 0, f"Missing keys: {missing_keys}"
 
     for key in missing_keys:
         logger.info(f"Could not load {key} weights")
 
-
-def load_lightning_model(ckp_path, task, ckpt_task_types, load_head):
-    """
-    Fully load pretrained model, then iterate current model and load_state_dict for all params.
-    This allows to keep the hyperparams of our current model, and only adapting the weights.
-    The head is loaded based on config.
-    """
-    # Get pretrained model (try valid types)
-    for CheckpointTaskType in ckpt_task_types:
-        try:
-            pretrained = CheckpointTaskType.load_from_checkpoint(ckp_path)
-        except:  # Try the different valid checkpointing types
-            continue
-        logger.info(f"Loading checkpoint type {CheckpointTaskType}")
-
-    state_dict_for_child_module = {
-        child_name: child_state_dict.state_dict()
-        for child_name, child_state_dict in pretrained.model.named_children()
-    }
-
-    # Iterate current task model and load pretrained
-    for child_name, child_module in task.model.named_children():
-        if not load_head and "head" in child_name:
-            logger.info(f"Skipping head: {child_name}")
-            continue
-
-        logger.info(f"Loading in {child_name}")
-        state_dict = state_dict_for_child_module[child_name]
-        missing_keys, unexpected_keys = child_module.load_state_dict(state_dict)
-        assert len(missing_keys) + len(unexpected_keys) == 0
+    logger.info(f"LOADED LIGHTNING PRETRAIN MODEL: {ckp_path}")
 
 
-def load_pretrain_model(ckp_path, task, ckpt_task_types, load_head):
-    logger.info(f"LOADING PRETRAINED MODEL")
-
-    # # For CAFFE backbone
-    # if cfg.CHECKPOINT_VERSION == "caffe2":
-    #     load_caffe_checkpoint(cfg, ckp_path, task)
-    #     logger.info(f"LOADED CAFFE PRETRAIN MODEL")
-    #
-    # # Pytorch pretrained model state-dict for backbone (Not Lightning), never loads head (Mainly used for LTA backbone)
-    # elif cfg.DATA.CHECKPOINT_MODULE_FILE_PATH != "":
-    #     if cfg.MODEL.ARCH == "mvit":
-    #         load_mvit_backbone(cfg.DATA.CHECKPOINT_MODULE_FILE_PATH, task)
-    #         logger.info(f"LOADED MVIT PRETRAIN MODEL")
-    #     elif cfg.MODEL.ARCH == "slow":
-    #         load_slowfast_backbone(cfg.DATA.CHECKPOINT_MODULE_FILE_PATH, task)
-    #         logger.info(f"LOADED SLOWFAST PRETRAIN MODEL")
-    #     else:
-    #         raise NotImplementedError(f"Unkown ARCH in config: {cfg.MODEL.ARCH}")
-    #
-    # # For Lightning Checkpoint
-    # else:
-    load_lightning_model(ckp_path, task, ckpt_task_types, load_head)
-    logger.info(f"LOADED LIGHTNING PRETRAIN MODEL")
+def remove_first_module_name(key):
+    return ".".join(key.split(".")[1:])

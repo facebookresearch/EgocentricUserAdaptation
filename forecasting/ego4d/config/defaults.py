@@ -2,7 +2,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 """Configs."""
-from fvcore.common.config import CfgNode
+from continual_ego4d.utils.misc import SoftCfgNode as CfgNode # Wrapper
 
 # -----------------------------------------------------------------------------
 # Config definition
@@ -13,6 +13,13 @@ _C = CfgNode()
 _C.CONFIG_FILE_PATH = ""
 _C.PARENT_SCRIPT_FILE_PATH = ""
 _C.RUN_UID = ""
+
+# ---------------------------------------------------------------------------- #
+# TRANSFER EVAL options
+# ---------------------------------------------------------------------------- #
+_C.TRANSFER_EVAL = CfgNode()
+_C.TRANSFER_EVAL.WANDB_PROJECT_NAME = ""
+_C.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL = ""
 
 # ---------------------------------------------------------------------------- #
 # DEBUG options
@@ -1007,11 +1014,13 @@ def convert_cfg_to_flat_dict(cfg: CfgNode, key_exclude_set: set = None):
     return res
 
 
-def convert_flat_dict_to_cfg(flat_dict: dict):
+def convert_flat_dict_to_cfg(flat_dict: dict, key_exclude_set: set = None):
     """ Dict hierarchy is transformed to '.'-separated string keys, to values."""
 
     init_dict = {}
     for flat_key, val in flat_dict.items():
+        if flat_key in key_exclude_set:
+            continue
         keylist = flat_key.split('.')
         leaf_key = keylist[-1]
         parent_keys = keylist[:-1]

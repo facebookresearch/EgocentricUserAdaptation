@@ -1,7 +1,7 @@
 import copy
 import sys
 
-from continual_ego4d.utils.checkpoint_loading import load_pretrain_model, load_meta_state, save_meta_state, PathHandler
+from continual_ego4d.utils.checkpoint_loading import load_slowfast_model_weights, PathHandler
 import multiprocessing as mp
 
 import pprint
@@ -264,9 +264,9 @@ def online_adaptation_single_user(
     logger.info(f"Initialized task as {task}")
 
     # LOAD PRETRAINED
-    ckpt_task_types = [MultiTaskClassificationTask,
-                       ContinualMultiTaskClassificationTask]
-    load_pretrain_model(cfg.CHECKPOINT_FILE_PATH, task, ckpt_task_types, cfg.CHECKPOINT_LOAD_MODEL_HEAD)
+    # ckpt_task_types = [MultiTaskClassificationTask,
+    #                    ContinualMultiTaskClassificationTask]
+    load_slowfast_model_weights(cfg.CHECKPOINT_FILE_PATH, task, cfg.CHECKPOINT_LOAD_MODEL_HEAD)
 
     # Freeze model if applicable
     if cfg.MODEL.FREEZE_BACKBONE:

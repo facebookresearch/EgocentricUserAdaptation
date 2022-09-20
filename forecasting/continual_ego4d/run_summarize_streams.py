@@ -5,7 +5,7 @@ in the notebooks.
 import copy
 import sys
 
-from continual_ego4d.utils.checkpoint_loading import load_pretrain_model, load_meta_state, save_meta_state, PathHandler
+from continual_ego4d.utils.checkpoint_loading import PathHandler
 import pickle
 from collections import defaultdict
 
