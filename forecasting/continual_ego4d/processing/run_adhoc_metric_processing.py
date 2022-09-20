@@ -38,13 +38,14 @@ import pandas as pd
 import wandb
 import pprint
 import os
+from continual_ego4d.processing.utils import get_selected_group_names, get_group_run_iterator
 
 api = wandb.Api()
 
 train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
 
 # Adapt settings
-csv_filename = 'wandb_export_2022-09-16T11_10_29.108-07_00.csv'  # TODO copy file here and past name here
+csv_filename = 'wandb_export_2022-09-19T14_30_21.278-07_00.csv'  # TODO copy file here and past name here
 NB_EXPECTED_USERS = len(train_users)
 
 # Fixed Settings
@@ -109,22 +110,11 @@ def main(selected_group_names_csv_path):
             final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_SE}"] = updated_metrics_df_norm[col].sem()
 
         # Update all group entries:
-        for user_run in get_group_run_iterator(group_name):
+        for user_run in get_group_run_iterator(PROJECT_NAME, group_name):
             for name, new_val in final_update_metrics_dict.items():
                 user_run.summary[name] = new_val
 
             user_run.summary.update()  # UPLOAD
-
-
-def get_group_run_iterator(group_name):
-    """ Only get user-runs that finished processing stream (finished_run=True)."""
-    group_runs = api.runs(PROJECT_NAME, {
-        "$and": [
-            {"group": group_name},
-            {"summary_metrics.finished_run": True}
-        ]
-    })
-    return group_runs
 
 
 def collect_users(group_name):
@@ -139,7 +129,7 @@ def collect_users(group_name):
 
     # summary = final value (excludes NaN rows)
     # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
-    for user_run in get_group_run_iterator(group_name):  # ACTS LIKE ITERATOR, CAN ONLY CALL LIKE THIS!
+    for user_run in get_group_run_iterator(PROJECT_NAME, group_name):  # ACTS LIKE ITERATOR, CAN ONLY CALL LIKE THIS!
         user_ids.append(user_run.config['DATA.COMPUTED_USER_ID'])
         # total_iters_per_user.append(user_run.summary['trainer/global_step']) # TODO DIVIDE BY NB OF SAMPLES, NOT ITERS
 
@@ -151,12 +141,6 @@ def collect_users(group_name):
             val_list.append(user_metric_val)
 
     return user_ids, total_samples_per_user, final_stream_metrics_to_avg
-
-
-def get_selected_group_names(selected_group_names_csv_path):
-    selected_group_names_df = pd.read_csv(selected_group_names_csv_path)
-    group_names = selected_group_names_df['Name'].to_list()
-    return group_names
 
 
 if __name__ == "__main__":

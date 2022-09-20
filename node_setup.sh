@@ -65,3 +65,5 @@ ln -s /home/matthiasdelange/data/ego4d/lta_video_clips clips_root_local
 # Make all dirs writable for other users (different nodes) if needed:
 # In current dir:
 find . -type d -exec chmod 777 {} \;
+sudo find /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/* -type d -exec chmod 777 {} \;
+sudo find /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/* -exec chmod 777 {} \;
