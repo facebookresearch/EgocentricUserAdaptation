@@ -63,7 +63,7 @@ class SchedulerConfig:
         return len(self.processed_run_ids) >= len(self.all_run_ids)
 
     def schedule(self):
-        if self.is_multiprocessing:
+        if not self.is_multiprocessing:
             self.process_runs_sequentially()
 
         else:
