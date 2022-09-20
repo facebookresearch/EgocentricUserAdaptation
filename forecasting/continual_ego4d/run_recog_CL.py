@@ -234,8 +234,7 @@ def online_adaptation_single_user(
             'COMPUTED_USER_DS_ENTRIES'
         })  # Load full config to wandb setting
     )
-    wandb_logger.experiment.log_code(
-        root="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting")
+    wandb_logger.experiment.config.update({"run_started": True}, allow_val_change=False)  # Triggers sync
 
     trainer_loggers = [tb_logger, csv_logger, wandb_logger]
 
