@@ -2,7 +2,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 """Configs."""
-from continual_ego4d.utils.misc import SoftCfgNode as CfgNode # Wrapper
+from continual_ego4d.utils.misc import SoftCfgNode as CfgNode  # Wrapper
 
 # -----------------------------------------------------------------------------
 # Config definition
@@ -25,6 +25,7 @@ _C.TRANSFER_EVAL.INCLUDE_PRETRAIN_STREAM = False
 _C.TRANSFER_EVAL.INCLUDE_PRETRAIN_MODEL = True
 _C.TRANSFER_EVAL.NUM_EXPECTED_USERS = 10
 _C.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH = None
+_C.TRANSFER_EVAL.CSV_RANGE = (0, None)  # all
 
 # ---------------------------------------------------------------------------- #
 # DEBUG options
