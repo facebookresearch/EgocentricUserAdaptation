@@ -6,7 +6,7 @@ import os
 api = wandb.Api()
 
 
-def get_selected_group_names(selected_group_names_csv_path):
+def get_group_names_from_csv(selected_group_names_csv_path):
     """ Read from WandB downloaded CSV """
     selected_group_names_df = pd.read_csv(selected_group_names_csv_path)
     group_names = selected_group_names_df['Name'].to_list()

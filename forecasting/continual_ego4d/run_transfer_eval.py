@@ -18,12 +18,14 @@ After training user-streams, evaluate on the final models with the full user-str
 4) POSTPROCESSING: When all csv's are collected: Aggregate results into the 2d-Matrix and upload as heatmap to WandB runs in group.
 
 """
+import traceback
 
 from continual_ego4d.utils.misc import makedirs
 import copy
 from itertools import product
 import pandas as pd
-
+import numpy as np
+from collections import defaultdict
 from continual_ego4d.utils.checkpoint_loading import load_slowfast_model_weights, PathHandler
 import multiprocessing as mp
 from continual_ego4d.run_recog_CL import load_datasets_from_jsons, get_user_ids, get_device_ids
@@ -41,7 +43,7 @@ from continual_ego4d.utils.scheduler import SchedulerConfig, RunConfig
 import os
 
 from continual_ego4d.utils.models import freeze_full_model, model_trainable_summary
-from continual_ego4d.processing.utils import get_group_run_iterator
+from continual_ego4d.processing.utils import get_group_run_iterator, get_group_names_from_csv
 
 from fvcore.common.config import CfgNode
 
@@ -68,9 +70,27 @@ def main():
     args = parse_args()
     eval_cfg = load_config(args)
 
-    # GIVE AS INPUT THE GROUP-ID WANDB
+    if eval_cfg.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH is not None:
+        assert os.path.isfile(eval_cfg.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH), \
+            f"Non-existing csv: {eval_cfg.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH}"
+        group_names = get_group_names_from_csv(eval_cfg.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH)
+    else:
+        group_names = [eval_cfg.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL]
+
+    logger.info(f"Group names to process = {group_names}")
     project_name = eval_cfg.TRANSFER_EVAL.WANDB_PROJECT_NAME.strip()
-    group_name = eval_cfg.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL.strip()
+    for group_name in group_names:
+
+        try:
+            process_group(copy.deepcopy(eval_cfg), group_name.strip(), project_name)
+        except Exception as e:
+            traceback.print_exc()
+            logger.info(f"GROUP FAILED: {group_name}")
+
+
+def process_group(eval_cfg, group_name, project_name):
+    """ Process single group. """
+    logger.info(f"{'*' * 40} Starting processing of group {group_name} {'*' * 40}")
 
     # Retrieve all USERS and OUTPUT_DIRS
     user_to_flat_cfg = parse_wandb_runs(project_name, group_name)
@@ -125,8 +145,9 @@ def main():
     # Dataset lists from json / users to process
     user_datasets, pretrain_dataset = load_datasets_from_jsons(train_cfg, return_pretrain=True)
     processed_trained_user_ids, all_trained_user_ids = get_user_ids(train_cfg, user_datasets, train_path_handler)
-    assert len(processed_trained_user_ids) == len(all_trained_user_ids), \
-        f"Not all users were processed in training: {set(all_trained_user_ids) - set(processed_trained_user_ids)}"
+    assert len(processed_trained_user_ids) == len(all_trained_user_ids) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS, \
+        f"Not all users were processed in training: {set(all_trained_user_ids) - set(processed_trained_user_ids)}\n" \
+        f"Expected {eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS} users."
     user_datasets['pretrain'] = pretrain_dataset  # Add (AFTER CHECKING USER IDS)
 
     # CFG overwrites and setup
@@ -214,8 +235,6 @@ def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, gr
     - rows (y-axis): model users
     - cols (x-axis): stream users
     """
-    import numpy as np
-    from collections import defaultdict
 
     def init_matrix():
         return [[init_val for _ in range(len(streamusers))] for _ in range(len(modelusers))]
@@ -256,20 +275,18 @@ def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, gr
                 matrices['avg_AG'][loss_version] = init_matrix()
 
             # Process values
-            avg_loss = df[loss_version].mean()  # Avg over nb samples to normalize stream length
-            avg_AG = (pretrain_df[loss_version] - df[loss_version]).mean()
+            avg_stream_loss = df[loss_version].mean()  # Avg over nb samples to normalize stream length
+            avg_stream_AG = (pretrain_df[loss_version] - df[loss_version]).mean()
 
             # Fill in value
             row = modeluser_to_row[model_userid]
             col = streamuser_to_col[stream_userid]
-            matrices['avg_loss'][loss_version][row][col] = avg_loss
-            matrices['avg_AG'][loss_version][row][col] = avg_AG
+            matrices['avg_loss'][loss_version][row][col] = avg_stream_loss
+            matrices['avg_AG'][loss_version][row][col] = avg_stream_AG
 
             if model_userid == stream_userid and model_userid != 'pretrain':
-                diagonal_AGs[loss_version].append((model_userid, avg_AG))
+                diagonal_AGs[loss_version].append((model_userid, avg_stream_AG))
 
-    import pdb;
-    pdb.set_trace()
     logger.info(f"Aggregated all results in matrices: \n{pprint.pformat(matrices, depth=4)}")
 
     # Iterate runs over group and upload heatmaps
@@ -278,12 +295,12 @@ def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, gr
 
         # Log avg history
         for loss_version, diagonal_avgAGs in diagonal_AGs.items():
-            assert len(diagonal_avgAGs) == len(modelusers) == len(streamusers)
-            # import pdb;
-            # pdb.set_trace()
-            avg_AGs_df = pd.DataFrame(diagonal_avgAGs)[1]
-            user_avg_AG_history = avg_AGs_df.mean()
-            user_SE_AG_history = avg_AGs_df.sem()  # Get exact same result as current batch AG
+            assert len(diagonal_avgAGs) == len(modelusers) == len(streamusers) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS
+            avg_stream_AGs_df = pd.DataFrame(diagonal_avgAGs)[1]  # Only the values, not the user-ids
+
+            # Avg over all user-streams (avg of stream avgs)
+            user_avg_AG_history = avg_stream_AGs_df.mean()
+            user_SE_AG_history = avg_stream_AGs_df.sem()  # Get exact same result as current batch AG
 
             new_name_prefix = f"adhoc_users_aggregate_history/{loss_version}/avg_history_AG"
             user_run.summary[f"{new_name_prefix}/mean"] = user_avg_AG_history

@@ -38,7 +38,7 @@ import pandas as pd
 import wandb
 import pprint
 import os
-from continual_ego4d.processing.utils import get_selected_group_names, get_group_run_iterator
+from continual_ego4d.processing.utils import get_group_names_from_csv, get_group_run_iterator
 
 api = wandb.Api()
 
@@ -61,7 +61,7 @@ USER_AGGREGATE_COUNT = f"{NEW_METRIC_PREFIX}/user_aggregate_count"  # Over how m
 
 def main(selected_group_names_csv_path):
     # From WandB csv from overview, grouped by Group. Get all the names in the csv (these are the run group names).
-    selected_group_names: list[str] = get_selected_group_names(selected_group_names_csv_path)
+    selected_group_names: list[str] = get_group_names_from_csv(selected_group_names_csv_path)
     print(f"Group names={pprint.pformat(selected_group_names)}")
 
     # Iterate groups (a collective of independent user-runs)
