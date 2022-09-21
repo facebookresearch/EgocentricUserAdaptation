@@ -184,10 +184,9 @@ def main():
         logger.info("All users already processed, skipping execution. "
                     f"All users={scheduler_cfg.all_run_ids}, "
                     f"processed={scheduler_cfg.processed_run_ids}")
-        return
-
-    # LAUNCH SCHEDULING
-    scheduler_cfg.schedule()
+    else:
+        # LAUNCH SCHEDULING
+        scheduler_cfg.schedule()
 
     logger.info("Finished processing all users")
     logger.info(f"All results over users can be found in OUTPUT-DIR={main_parent_dir}")
@@ -215,6 +214,13 @@ def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, gr
     - rows (y-axis): model users
     - cols (x-axis): stream users
     """
+    import numpy as np
+    from collections import defaultdict
+
+    def init_matrix():
+        return [[init_val for _ in range(len(streamusers))] for _ in range(len(modelusers))]
+
+    init_val = np.inf
 
     modelusers = sorted(list(
         set([entry_pair[0] for entry_pair in modeluser_streamuser_pairs]) - {'pretrain'}
@@ -224,62 +230,87 @@ def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, gr
     ))
 
     # Mapping of idx in matrix to
-    row_to_modeluser = {idx: user for idx, user in enumerate(modelusers)}
-    col_to_streamuser = {idx: user for idx, user in enumerate(streamusers)}
+    modeluser_to_row = {user: idx for idx, user in enumerate(modelusers)}
+    streamuser_to_col = {user: idx for idx, user in enumerate(streamusers)}
 
     matrices = {'avg_loss': {}, 'avg_AG': {}}
+    diagonal_AGs = defaultdict(list)
     for model_userid, stream_userid in modeluser_streamuser_pairs:
+        if 'pretrain' in [model_userid, stream_userid]:  # TODO skipping pretrain cols/rows for now
+            logger.info(f"SKIPPING: model_userid={model_userid}, stream_userid={stream_userid}")
+            continue
+        logger.info(f"Processing: model_userid={model_userid}, stream_userid={stream_userid}")
+
         df = get_df(eval_cfg, model_userid, stream_userid)
         pretrain_df = get_df(eval_cfg, 'pretrain', stream_userid)  # On pretrain model, but same stream
 
         # Action/verb/noun
+        assert len(df.columns) == 3
         for loss_version in df.columns:
 
             # Init matrix
-            if loss_version not in matrices:
-                matrices['avg_loss'][loss_version] = [[None] * len(streamusers)] * len(modelusers)
-                matrices['avg_AG'][loss_version] = [[None] * len(streamusers)] * len(modelusers)
+            if loss_version not in matrices['avg_loss']:
+                matrices['avg_loss'][loss_version] = init_matrix()
+
+            if loss_version not in matrices['avg_AG']:
+                matrices['avg_AG'][loss_version] = init_matrix()
 
             # Process values
             avg_loss = df[loss_version].mean()  # Avg over nb samples to normalize stream length
             avg_AG = (pretrain_df[loss_version] - df[loss_version]).mean()
 
             # Fill in value
-            row = row_to_modeluser[model_userid]
-            col = col_to_streamuser[stream_userid]
+            row = modeluser_to_row[model_userid]
+            col = streamuser_to_col[stream_userid]
             matrices['avg_loss'][loss_version][row][col] = avg_loss
             matrices['avg_AG'][loss_version][row][col] = avg_AG
 
-    logger.info(f"Aggregated all results in matrices: {pprint.pformat(matrices)}")
-    # # Plot single row heatmap
-    # if eval_cfg.TRANSFER_EVAL.DIAGONAL_ONLY:
-    #
-    #
-    # # Get full matrix heatmap
-    # else:
+            if model_userid == stream_userid and model_userid != 'pretrain':
+                diagonal_AGs[loss_version].append((model_userid, avg_AG))
+
+    import pdb;
+    pdb.set_trace()
+    logger.info(f"Aggregated all results in matrices: \n{pprint.pformat(matrices, depth=4)}")
 
     # Iterate runs over group and upload heatmaps
     logger.info(f"Uploading to WandB runs in group")
     for user_run in get_group_run_iterator(project_name, group_name, finished_runs=True):
+
+        # Log avg history
+        for loss_version, diagonal_avgAGs in diagonal_AGs.items():
+            assert len(diagonal_avgAGs) == len(modelusers) == len(streamusers)
+            # import pdb;
+            # pdb.set_trace()
+            avg_AGs_df = pd.DataFrame(diagonal_avgAGs)[1]
+            user_avg_AG_history = avg_AGs_df.mean()
+            user_SE_AG_history = avg_AGs_df.sem()  # Get exact same result as current batch AG
+
+            new_name_prefix = f"adhoc_users_aggregate_history/{loss_version}/avg_history_AG"
+            user_run.summary[f"{new_name_prefix}/mean"] = user_avg_AG_history
+            user_run.summary[f"{new_name_prefix}/SE"] = user_SE_AG_history
+
+        user_run.summary.update()
+
+        # Plot Matrices
         for heatmap_metric, subloss_dict in matrices.items():
             for loss_version, matrix in subloss_dict.items():
                 logger.info(f"Uploading for user_run={user_run.config['DATA.COMPUTED_USER_ID']}")
 
-                user_run.summary[f"TRANSFER_MATRIX/{heatmap_metric}/{loss_version}"] = wandb.plots.HeatMap(
-                    x_labels=streamusers, y_labels=modelusers, matrix_values=matrix, show_text=True,
-                )
-                user_run.update()
+                user_run.summary[f"TRANSFER_MATRIX/{heatmap_metric}/{loss_version}"] = matrix
+                user_run.summary[f"TRANSFER_MATRIX/x_labels/{heatmap_metric}/{loss_version}/stream_users"] = streamusers
+                user_run.summary[f"TRANSFER_MATRIX/y_labels/{heatmap_metric}/{loss_version}/model_users"] = modelusers
+                user_run.summary.update()
 
 
 def get_df(eval_cfg, model_userid, stream_userid):
     # Read csv
     csv_path = os.path.join(
         eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR,
-        get_pair_id(model_userid, stream_userid)
+        f"{get_pair_id(model_userid, stream_userid)}.csv"
     )
 
     # Parse table results
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path).drop(['Unnamed: 0'], axis=1, errors='ignore')
     return df
 
 
@@ -416,7 +447,7 @@ def eval_single_model_single_stream(
     """
 
     # Save
-    df.to_csv(os.path.join(run_result_dir, f"{run_id}.csv"))
+    df.to_csv(os.path.join(run_result_dir, f"{run_id}.csv"), index=False)
 
     # Cleanup process GPU-MEM allocation (Only process context will remain allocated)
     torch.cuda.empty_cache()
