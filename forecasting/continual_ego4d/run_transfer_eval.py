@@ -11,26 +11,16 @@ After training user-streams, evaluate on the final models with the full user-str
 
 3) Iterate one datastream, 1 model for simplicity. But we can run multiple of these processes concurrently.
 - Init a new ContinualMultiTaskClassificationTask for each new model-stream pair:
-- Run the ContinualMultiTaskClassificationTask in test-phase, which is similar to predict phase, only it will use the
-test_loader attr and test_step() methods.
-Start with pretrained model, collect in prediction phase: Loss action/noun/verb
--
+- Run predict-stream
+- Flatten results, make DataFrame and save as csv file
 
 
+4) POSTPROCESSING: When all csv's are collected: Aggregate results into the 2d-Matrix and upload as heatmap to WandB runs in group.
 
-
-We load the full Lightning checkpoint model, not just the weights.
-TODO: Check if this contains the pretrain_loss already
-
-Then, we iterate over the entire datastreams for the different user-models.
-TODO: Can we implement this in the test-phase of the PL model?
-TODO: Can we make U Trainers for the U models, and use only 1 trainer to iterate the data stream, and iterate over the other
-trainers to get results for all models?
 """
 
 from continual_ego4d.utils.misc import makedirs
 import copy
-import sys
 from itertools import product
 import pandas as pd
 
@@ -39,34 +29,21 @@ import multiprocessing as mp
 from continual_ego4d.run_recog_CL import load_datasets_from_jsons, get_user_ids, get_device_ids
 
 import pprint
-import concurrent.futures
-from collections import deque
 import torch
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, DeviceStatsMonitor, GPUStatsMonitor, Timer
-from pytorch_lightning.plugins import DDPPlugin
-from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
-from continual_ego4d.utils.custom_logger_connector import CustomLoggerConnector
-from pytorch_lightning.loggers import WandbLogger
-import traceback
 
 from ego4d.config.defaults import set_cfg_by_name, convert_cfg_to_flat_dict, convert_flat_dict_to_cfg
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
-from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
-
 from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
-from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 from continual_ego4d.utils.scheduler import SchedulerConfig, RunConfig
 
-from scripts.slurm import copy_and_run_with_config
 import os
 
 from continual_ego4d.utils.models import freeze_full_model, model_trainable_summary
 from continual_ego4d.processing.utils import get_group_run_iterator
 
 from fvcore.common.config import CfgNode
-import argparse
 
 import wandb
 
@@ -92,7 +69,6 @@ def main():
     eval_cfg = load_config(args)
 
     # GIVE AS INPUT THE GROUP-ID WANDB
-    wandb_api = wandb.Api()
     project_name = eval_cfg.TRANSFER_EVAL.WANDB_PROJECT_NAME.strip()
     group_name = eval_cfg.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL.strip()
 
@@ -163,9 +139,9 @@ def main():
     assert len(available_device_ids) >= 1
 
     # Get run entries
-    run_entries = []
-    all_entry_pairs = get_user_model_stream_pairs(eval_cfg, all_trained_user_ids)
-    for (model_userid, stream_userid) in all_entry_pairs:
+    all_run_entries = []
+    modeluser_streamuser_pairs = get_user_model_stream_pairs(eval_cfg, all_trained_user_ids)
+    for (model_userid, stream_userid) in modeluser_streamuser_pairs:
         run_id = get_pair_id(model_userid, stream_userid)
 
         # STREAM config
@@ -182,7 +158,7 @@ def main():
         user_train_stream_cfg.PREDICT_PHASE.NUM_WORKERS = eval_cfg.PREDICT_PHASE.NUM_WORKERS
         user_train_stream_cfg.PREDICT_PHASE.BATCH_SIZE = eval_cfg.PREDICT_PHASE.BATCH_SIZE
 
-        run_entries.append(
+        all_run_entries.append(
             RunConfig(
                 run_id=run_id,
                 target_fn=eval_single_model_single_stream,
@@ -194,12 +170,12 @@ def main():
             )
         )
 
-    processed_run_ids = get_processed_run_ids(eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR)
-    logger.info(f"Processed run_ids = {processed_run_ids}")
+    processed_eval_run_ids = get_processed_run_ids(eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR)
+    logger.info(f"Processed run_ids = {processed_eval_run_ids}")
 
     scheduler_cfg = SchedulerConfig(
-        run_entries=run_entries,
-        processed_run_ids=processed_run_ids,
+        run_entries=all_run_entries,
+        processed_run_ids=processed_eval_run_ids,
         available_device_ids=available_device_ids,
         max_runs_per_device=eval_cfg.NUM_USERS_PER_DEVICE,
     )
@@ -210,30 +186,122 @@ def main():
                     f"processed={scheduler_cfg.processed_run_ids}")
         return
 
+    # LAUNCH SCHEDULING
     scheduler_cfg.schedule()
 
     logger.info("Finished processing all users")
     logger.info(f"All results over users can be found in OUTPUT-DIR={main_parent_dir}")
+
+    # START POSTPROCESSING
+    # Get all csvs from dir and only post-process if all are present
+    completed_csv_filenames = get_processed_run_ids(eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR, keep_extention=True)
+
+    if len(completed_csv_filenames) != len(all_run_entries):
+        logger.info(f"Skipping postprocessing as not all runs were completed successfully")
+        return
+
+    logger.info(f"Starting postprocessing")
+    postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, group_name)
+
+
+def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, group_name):
+    """
+    Get Avg loss per csv entry for
+
+    - verb/noun/action.
+    - absolute loss + relative to pretrain (AG)
+
+    2d Matrix is dims:
+    - rows (y-axis): model users
+    - cols (x-axis): stream users
+    """
+
+    modelusers = sorted(list(
+        set([entry_pair[0] for entry_pair in modeluser_streamuser_pairs]) - {'pretrain'}
+    ))
+    streamusers = sorted(list(
+        set([entry_pair[1] for entry_pair in modeluser_streamuser_pairs]) - {'pretrain'}
+    ))
+
+    # Mapping of idx in matrix to
+    row_to_modeluser = {idx: user for idx, user in enumerate(modelusers)}
+    col_to_streamuser = {idx: user for idx, user in enumerate(streamusers)}
+
+    matrices = {'avg_loss': {}, 'avg_AG': {}}
+    for model_userid, stream_userid in modeluser_streamuser_pairs:
+        df = get_df(eval_cfg, model_userid, stream_userid)
+        pretrain_df = get_df(eval_cfg, 'pretrain', stream_userid)  # On pretrain model, but same stream
+
+        # Action/verb/noun
+        for loss_version in df.columns:
+
+            # Init matrix
+            if loss_version not in matrices:
+                matrices['avg_loss'][loss_version] = [[None] * len(streamusers)] * len(modelusers)
+                matrices['avg_AG'][loss_version] = [[None] * len(streamusers)] * len(modelusers)
+
+            # Process values
+            avg_loss = df[loss_version].mean()  # Avg over nb samples to normalize stream length
+            avg_AG = (pretrain_df[loss_version] - df[loss_version]).mean()
+
+            # Fill in value
+            row = row_to_modeluser[model_userid]
+            col = col_to_streamuser[stream_userid]
+            matrices['avg_loss'][loss_version][row][col] = avg_loss
+            matrices['avg_AG'][loss_version][row][col] = avg_AG
+
+    logger.info(f"Aggregated all results in matrices: {pprint.pformat(matrices)}")
+    # # Plot single row heatmap
+    # if eval_cfg.TRANSFER_EVAL.DIAGONAL_ONLY:
+    #
+    #
+    # # Get full matrix heatmap
+    # else:
+
+    # Iterate runs over group and upload heatmaps
+    logger.info(f"Uploading to WandB runs in group")
+    for user_run in get_group_run_iterator(project_name, group_name, finished_runs=True):
+        for heatmap_metric, subloss_dict in matrices.items():
+            for loss_version, matrix in subloss_dict.items():
+                logger.info(f"Uploading for user_run={user_run.config['DATA.COMPUTED_USER_ID']}")
+
+                user_run.summary[f"TRANSFER_MATRIX/{heatmap_metric}/{loss_version}"] = wandb.plots.HeatMap(
+                    x_labels=streamusers, y_labels=modelusers, matrix_values=matrix, show_text=True,
+                )
+                user_run.update()
+
+
+def get_df(eval_cfg, model_userid, stream_userid):
+    # Read csv
+    csv_path = os.path.join(
+        eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR,
+        get_pair_id(model_userid, stream_userid)
+    )
+
+    # Parse table results
+    df = pd.read_csv(csv_path)
+    return df
 
 
 def get_pair_id(modeluser, streamuser):
     return f"M={modeluser}_S={streamuser}"
 
 
-def get_processed_run_ids(result_dir):
-    result_file_ids = sorted([pair_id_resultfile.name.split('.')[0]
-                              for pair_id_resultfile in os.scandir(result_dir) if pair_id_resultfile.is_file()])
+def get_processed_run_ids(result_dir, keep_extention=False):
+    result_file_ids = sorted([
+        pair_id_resultfile.name if keep_extention else pair_id_resultfile.name.split('.')[0]
+        for pair_id_resultfile in os.scandir(result_dir) if pair_id_resultfile.is_file()])
     return result_file_ids
 
 
 def get_user_model_stream_pairs(eval_cfg, all_user_ids) -> list[tuple]:
     # ONLY USER-STREAM WITH SAME MODEL
     if eval_cfg.TRANSFER_EVAL.DIAGONAL_ONLY:
-        modeluser_streamuser_pairs = list(product(all_user_ids, all_user_ids))
+        modeluser_streamuser_pairs = [(user_id, user_id) for user_id in all_user_ids]
 
     # CARTESIAN
     else:
-        modeluser_streamuser_pairs = [(user_id, user_id) for user_id in all_user_ids]
+        modeluser_streamuser_pairs = list(product(all_user_ids, all_user_ids))
 
     # PRETRAIN
     if eval_cfg.TRANSFER_EVAL.INCLUDE_PRETRAIN_STREAM:
@@ -290,17 +358,20 @@ def eval_single_model_single_stream(
     if user_train_cfg.DATA.TASK == "continual_classification":
         task = ContinualMultiTaskClassificationTask(user_train_cfg)
 
-        # Add outputhead masker so checkpoint can load the params
-        task.configure_head()
-
     else:
         raise ValueError(f"cfg.DATA.TASK={user_train_cfg.DATA.TASK} not supported")
     logger.info(f"Initialized task as {task}")
 
     # LOAD PRETRAINED
-    load_slowfast_model_weights(
-        load_model_path, task, eval_cfg.CHECKPOINT_LOAD_MODEL_HEAD,
-    )
+    try:
+        load_slowfast_model_weights(
+            load_model_path, task, eval_cfg.CHECKPOINT_LOAD_MODEL_HEAD,
+        )
+    except:
+        task.configure_head()  # Add outputhead masker so checkpoint can load the params
+        load_slowfast_model_weights(
+            load_model_path, task, eval_cfg.CHECKPOINT_LOAD_MODEL_HEAD,
+        )
 
     # Freeze model fully
     freeze_full_model(task.model)
