@@ -74,6 +74,10 @@ def main():
         assert os.path.isfile(eval_cfg.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH), \
             f"Non-existing csv: {eval_cfg.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH}"
         group_names = get_group_names_from_csv(eval_cfg.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH)
+
+        if eval_cfg.TRANSFER_EVAL.CSV_RANGE is not None:
+            start_idx, end_idx = eval_cfg.TRANSFER_EVAL.CSV_RANGE
+            group_names = group_names[start_idx:end_idx]
     else:
         group_names = [eval_cfg.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL]
 
@@ -295,7 +299,8 @@ def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, gr
 
         # Log avg history
         for loss_version, diagonal_avgAGs in diagonal_AGs.items():
-            assert len(diagonal_avgAGs) == len(modelusers) == len(streamusers) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS
+            assert len(diagonal_avgAGs) == len(modelusers) == len(
+                streamusers) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS
             avg_stream_AGs_df = pd.DataFrame(diagonal_avgAGs)[1]  # Only the values, not the user-ids
 
             # Avg over all user-streams (avg of stream avgs)

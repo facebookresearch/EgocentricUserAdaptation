@@ -49,14 +49,15 @@ if [[ $# -gt 0 ]]; then
 
 fi
 #-----------------------------------------------------------------------------------------------#
-OVERWRITE_CFG_ARGS+=" GPU_IDS 1 NUM_USERS_PER_DEVICE 30" #1.4G per run
+OVERWRITE_CFG_ARGS+=" GPU_IDS 6" #5G per run with BS 10
+#OVERWRITE_CFG_ARGS+=" GPU_IDS wandb_export_2022-09-21T15_36_21.953-07_00.csv" #5G per run with BS 10
 
-OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 10 TRAIN.BATCH_SIZE 2" # DEBUG
+#OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 10 TRAIN.BATCH_SIZE 2" # DEBUG
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="${run_id}_MATT"
-#screen -dmS "${screenname}" \
-python -m pdb -c continue -m continual_ego4d.run_transfer_eval \
+screen -dmS "${screenname}" \
+python -m continual_ego4d.run_transfer_eval \
   --cfg "${CONFIG}" \
   ${OVERWRITE_CFG_ARGS}
 #  --job_name "$run_id" \

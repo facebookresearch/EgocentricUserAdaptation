@@ -1,20 +1,23 @@
 TRANSFER_EVAL:
   WANDB_PROJECT_NAME: "matthiasdelange/ContinualUserAdaptation"
-  WANDB_GROUP_TO_EVAL: "Finetuning_2022-09-19_12-16-57_UID11a32c82-471b-4921-a5c7-0ee393fdabf0"
-  # TODO CSV to eval: Run all groups
+  WANDB_GROUP_TO_EVAL: ""
+  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_36_21.953-07_00.csv"
+#  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_04_58.100-07_00.csv"
+#  CSV_RANGE: (4,8)
   #  OUTPUT_DIR: ""
-  DIAGONAL_ONLY: False # Cartesian product or only user-model with same user-stream.
+  DIAGONAL_ONLY: True # Cartesian product or only user-model with same user-stream.
   INCLUDE_PRETRAIN_STREAM: False
   INCLUDE_PRETRAIN_MODEL: True
+  NUM_EXPECTED_USERS: 10
 
 CHECKPOINT_LOAD_MODEL_HEAD: True
-NUM_USERS_PER_DEVICE: 10
+NUM_USERS_PER_DEVICE: 8 # Model-stream pairs in parallel on 1 device
 GPU_IDS: None
 NUM_GPUS: 1
 
 PREDICT_PHASE:
-  NUM_WORKERS: 10
-  BATCH_SIZE: 20
+  NUM_WORKERS: 8
+  BATCH_SIZE: 30
 
 FAST_DEV_RUN: False
 FAST_DEV_DATA_CUTOFF: None
