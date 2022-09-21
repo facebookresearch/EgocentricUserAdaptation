@@ -1,5 +1,6 @@
 """
 Given the metrics we stored per-user. Aggregate metrics over users into a single number.
+This script specifically aggregates the online-AG over users into a single metric.
 
 Because run-selection can be cumbersome. We enable downloading a csv from wandb, and extracting for all groups the
 user-results.
@@ -45,7 +46,7 @@ api = wandb.Api()
 train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
 
 # Adapt settings
-csv_filename = 'wandb_export_2022-09-19T14_30_21.278-07_00.csv'  # TODO copy file here and past name here
+csv_filename = 'wandb_export_2022-09-21T15_31_26.147-07_00.csv'  # TODO copy file here and past name here
 NB_EXPECTED_USERS = len(train_users)
 
 # Fixed Settings
