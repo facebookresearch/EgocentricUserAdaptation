@@ -67,6 +67,7 @@ def parse_wandb_runs(project_name, group_name):
 
 def main():
     """ Iterate users and aggregate. """
+    print("Starting eval")
     args = parse_args()
     eval_cfg = load_config(args)
 
@@ -81,7 +82,7 @@ def main():
     else:
         group_names = [eval_cfg.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL]
 
-    logger.info(f"Group names to process = {group_names}")
+    print(f"Group names to process = {group_names}")
     project_name = eval_cfg.TRANSFER_EVAL.WANDB_PROJECT_NAME.strip()
     for group_name in group_names:
 
@@ -89,7 +90,7 @@ def main():
             process_group(copy.deepcopy(eval_cfg), group_name.strip(), project_name)
         except Exception as e:
             traceback.print_exc()
-            logger.info(f"GROUP FAILED: {group_name}")
+            print(f"GROUP FAILED: {group_name}")
 
 
 def process_group(eval_cfg, group_name, project_name):

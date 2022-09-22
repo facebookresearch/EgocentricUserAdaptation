@@ -13,12 +13,14 @@ def get_group_names_from_csv(selected_group_names_csv_path):
     return group_names
 
 
-def get_group_run_iterator(project_name, group_name, finished_runs=True):
+def get_group_run_iterator(project_name, group_name, finished_runs=True, run_filter=None):
     """ Only get user-runs that finished processing stream (finished_run=True)."""
-    group_runs = api.runs(project_name, {
-        "$and": [
-            {"group": group_name},
-            {"summary_metrics.finished_run": finished_runs}
-        ]
-    })
+    if run_filter is None:
+        run_filter = {
+            "$and": [
+                {"group": group_name},
+                {"summary_metrics.finished_run": finished_runs}
+            ]
+        }
+    group_runs = api.runs(project_name, run_filter)
     return group_runs

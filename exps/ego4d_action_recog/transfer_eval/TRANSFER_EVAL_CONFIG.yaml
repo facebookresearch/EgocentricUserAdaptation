@@ -1,9 +1,15 @@
 TRANSFER_EVAL:
   WANDB_PROJECT_NAME: "matthiasdelange/ContinualUserAdaptation"
   WANDB_GROUP_TO_EVAL: ""
-  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_36_21.953-07_00.csv"
-#  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_04_58.100-07_00.csv"
-#  CSV_RANGE: (4,8)
+  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_36_21.953-07_00.csv"
+  #
+  # Final01_01
+  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_04_58.100-07_00.csv"
+  #
+  # Final02_01: Replay
+  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T17_44_32.708-07_00.csv"
+  #
+  #  CSV_RANGE: (0,4)
   #  OUTPUT_DIR: ""
   DIAGONAL_ONLY: True # Cartesian product or only user-model with same user-stream.
   INCLUDE_PRETRAIN_STREAM: False
@@ -16,8 +22,8 @@ GPU_IDS: None
 NUM_GPUS: 1
 
 PREDICT_PHASE:
-  NUM_WORKERS: 8
-  BATCH_SIZE: 30
+  NUM_WORKERS: 4
+  BATCH_SIZE: 10 # 10=5G/user
 
 FAST_DEV_RUN: False
 FAST_DEV_DATA_CUTOFF: None
