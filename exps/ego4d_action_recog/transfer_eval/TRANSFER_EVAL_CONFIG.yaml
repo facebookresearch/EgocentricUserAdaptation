@@ -8,8 +8,8 @@ TRANSFER_EVAL:
   #
   # Final02_01: Replay
   WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T17_44_32.708-07_00.csv"
-  #
-  #  CSV_RANGE: (0,4)
+  CSV_RANGE: (0,6)
+  #  CSV_RANGE: (6,None)
   #  OUTPUT_DIR: ""
   DIAGONAL_ONLY: True # Cartesian product or only user-model with same user-stream.
   INCLUDE_PRETRAIN_STREAM: False
@@ -22,7 +22,7 @@ GPU_IDS: None
 NUM_GPUS: 1
 
 PREDICT_PHASE:
-  NUM_WORKERS: 4
+  NUM_WORKERS: 8
   BATCH_SIZE: 10 # 10=5G/user
 
 FAST_DEV_RUN: False

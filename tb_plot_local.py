@@ -46,7 +46,16 @@ def run_tb(loglist, args):
         # tb_holder_path = osp.join(local_parent_out_path, entryname)
         # os.symlink(remote_entrypath, tb_holder_path, target_is_directory=True)
 
-    subprocess.run(f"tensorboard --logdir={local_parent_out_path} --port {args.port}", shell=True)
+    subprocess.run(f"tensorboard --port {args.port} --logdir={local_parent_out_path}", shell=True)
+
+    # WITH ORDERING, BUT IS BUGGY
+    # Check local dir and gather all subdirs, then we sort them on our own choice (TB sorts on start-time)
+    # logdirs_map = {f.name: f.path for f in os.scandir(local_parent_out_path) if f.is_dir()}
+    # logdirnames_sorted = sorted(logdirs_map.keys())
+    # logdirs = ','.join([f"{name}:'{logdirs_map[name]}'" for name in logdirnames_sorted])
+    # print(f"Sorted logdirs={logdirs}")
+    #
+    # subprocess.run(f"tensorboard --port {args.port} --logdir_spec {logdirs}", shell=True)
 
 
 ############## CONFIGS ########################
@@ -110,6 +119,33 @@ exp02_replay_fullmem = [
      ),
 ]
 
+# TODO still running
+exp02_replay_reservoiraction_100 = [
+    (None,
+     "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp02_01_replay_unlimited/logs/2022-08-22_16-57-27_UID2204ba7a-86b6-4221-b614-4e52fd3d3e1e_GRID_METHOD-REPLAY-MEMORY_SIZE_SAMPLES=100_METHOD-REPLAY-STORAGE_POLICY=reservoir_action/tb"
+     )
+]
+
+# TODO still running
+exp02_replay_window_100 = [
+    (None,
+     "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp02_01_replay_unlimited/logs/GRID_METHOD-REPLAY-MEMORY_SIZE_SAMPLES=100_METHOD-REPLAY-STORAGE_POLICY=window/2022-08-23_13-13-41_UIDadbb0283-2348-4a16-b495-69b6f372df59/tb"
+     )
+]
+
+
+exp02_replay_window_10  =[
+    (None,
+     "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp02_01_replay_unlimited/logs/GRID_METHOD-REPLAY-MEMORY_SIZE_SAMPLES=10_METHOD-REPLAY-STORAGE_POLICY=window/2022-08-27_20-42-24_UIDdb761907-0374-4390-b14c-c843a619c40c/tb")
+]
+
+# Testing
+testing = [
+    (None,
+
+"/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/test_exp_00/logs/2022-08-27_18-30-47_UIDb47186f7-4f6d-42c3-9a47-00de7edf4384/tb"
+     )
+]
 
 if __name__ == "__main__":
     """
@@ -123,4 +159,4 @@ if __name__ == "__main__":
                    default=6006)
     args = p.parse_args()
 
-    run_tb(exp02_replay_fullmem, args)
+    run_tb(exp01_01_finetuning, args)

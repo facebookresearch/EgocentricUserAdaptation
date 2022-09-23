@@ -153,6 +153,10 @@ class StreamStateTracker:
         self.batch_noun_freq_dict: dict = {}
         """ Variables set per iteration to share between methods. """
 
+        self.stream_next_batch_sample_idxs: list[int] = []
+        self.stream_next_batch_labelset: set = set()
+        """ Next batch variables for look-ahead in Forgetting exps. """
+
         # Store vars of observed part of stream (Don't reassign, use ref)
         self.seen_samples_idxs = []
         self.stream_seen_action_freq_dict: dict = {}
@@ -185,6 +189,18 @@ class StreamStateTracker:
         self.stream_batch_labels = labels
         self.stream_batch_sample_idxs = stream_sample_idxs.tolist()
         self.stream_batch_size = len(self.stream_batch_sample_idxs)
+
+        # Next batch idxs (for look-ahead)
+        next_batch_start_idx = max(self.stream_batch_sample_idxs) + 1
+        self.stream_next_batch_sample_idxs = [
+            idx for idx in range(
+                min(self.total_stream_sample_count - 1, next_batch_start_idx),
+                min(self.total_stream_sample_count, next_batch_start_idx + self.stream_batch_size)
+            )
+        ]
+        self.stream_next_batch_labelset = set({
+            self.sample_idx_to_action_list[idx] for idx in self.stream_next_batch_sample_idxs
+        })
 
         self.is_parent_video_transition = sum(
             entry_idx in self.parent_video_transition_idx_set
