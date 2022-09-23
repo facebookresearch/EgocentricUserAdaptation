@@ -34,7 +34,7 @@ import pprint
 import torch
 from pytorch_lightning import Trainer, seed_everything
 
-from ego4d.config.defaults import set_cfg_by_name, convert_cfg_to_flat_dict, convert_flat_dict_to_cfg
+from ego4d.config.defaults import set_cfg_by_name, cfg_add_non_existing_key_vals, convert_flat_dict_to_cfg, get_cfg
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
 from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
@@ -127,12 +127,14 @@ def process_group(eval_cfg, group_name, project_name):
         )
 
     # Set current config with this config: Used to make trainer with same hyperparams on stream
-    train_cfg: CfgNode = convert_flat_dict_to_cfg(
+    def_train_cfg: CfgNode = get_cfg()  # Defaults
+    wandb_train_cfg: CfgNode = convert_flat_dict_to_cfg(
         next(iter(user_to_flat_cfg.values())),
         key_exclude_set={'DATA.COMPUTED_USER_ID',
                          'DATA.COMPUTED_USER_DS_ENTRIES',
                          'COMPUTED_USER_DUMP_FILE'}
     )
+    train_cfg: CfgNode = cfg_add_non_existing_key_vals(wandb_train_cfg, def_train_cfg)  # For newly added ones
     user_to_checkpoint_path['pretrain'] = train_cfg['CHECKPOINT_FILE_PATH']  # Add pretrain as user
 
     # SET EVAL OUTPUT_DIR

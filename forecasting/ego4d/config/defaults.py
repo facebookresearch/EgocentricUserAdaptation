@@ -2,6 +2,8 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 """Configs."""
+import copy
+
 from continual_ego4d.utils.misc import SoftCfgNode as CfgNode  # Wrapper
 
 # -----------------------------------------------------------------------------
@@ -1043,6 +1045,17 @@ def convert_flat_dict_to_cfg(flat_dict: dict, key_exclude_set: set = None):
 
     cfg = CfgNode(init_dict)
     return cfg
+
+
+def cfg_add_non_existing_key_vals(src_cfg, merge_cfg):
+    """ Merge Keys in merge_cfg that are not in src_cfg, into src_cfg. """
+
+    for key, val in merge_cfg.items():
+        if key not in src_cfg:
+            src_cfg[key] = copy.deepcopy(val)
+        elif isinstance(val, CfgNode):
+            cfg_add_non_existing_key_vals(src_cfg[key], merge_cfg[key])
+    return src_cfg
 
 
 def get_cfg():
