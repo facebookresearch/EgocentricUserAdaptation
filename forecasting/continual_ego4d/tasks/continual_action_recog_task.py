@@ -2,6 +2,7 @@ import copy
 import pprint
 
 import torch
+import wandb
 from fvcore.nn.precise_bn import get_bn_modules
 from collections import Counter
 
@@ -48,6 +49,8 @@ from typing import List, Tuple, Union, Any, Optional, Dict, Type
 from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)
+logging.get_logger('matplotlib.font_manager').disabled = True
+logging.get_logger('PIL.PngImagePlugin').disabled = True
 
 
 class PretrainState:
@@ -468,13 +471,18 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 OnlineTopkAccMetric(TAG_PAST, k=1, mode=action_mode),
                 OnlineLossMetric(TAG_PAST, loss_fun=self.loss_fun_unred, mode=action_mode),
 
-                # TODO: Accuracy (unbalanced)
-                # TODO Track on re-exposure for scatterplot
-                ReexposureForgettingLossMetric(loss_fun_unred=self.loss_fun_unred, action_mode=action_mode),
-                # ReexposureForgettingAccMetric(k=1, action_mode=action_mode),
-                # ReexposureForgettingAccMetric(k=5, action_mode=action_mode),
-                # ReexposureForgettingAccMetric(k=20, action_mode=action_mode),
             ])
+            if self.continual_eval_freq == 1:
+                past_metrics.extend([
+                    ReexposureForgettingLossMetric(loss_fun_unred=self.loss_fun_unred, action_mode=action_mode),
+                    ReexposureForgettingAccMetric(k=1, action_mode=action_mode),
+                ])
+                if action_mode in ['verb', 'noun']:  # Only k=1 for action mode
+                    past_metrics.extend([
+                        ReexposureForgettingAccMetric(k=5, action_mode=action_mode),
+                        ReexposureForgettingAccMetric(k=20, action_mode=action_mode),
+                    ])
+
         return past_metrics
 
     # ---------------------
@@ -595,6 +603,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def on_train_end(self) -> None:
         """Dump any additional stats about the training."""
+        wandb_logger: WandbLogger = self.get_logger_instance(WandbLogger)
+        assert wandb_logger is not None, "Must have wandb logger to finish run!"
+
         dump_dict = self.stream_state.get_state_dump()
 
         # Gather states from metrics
@@ -604,13 +615,11 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 self.add_to_dict_(dump_dict, metric_dict)
 
         torch.save(dump_dict, self.dumpfile)
+        # wandb_logger.experiment.log({'dump': dump_dict}) # Error, keys must be str, int, float, bool or None, not tuple
         logger.debug(f"Logged stream info to dumpfile {self.dumpfile}")
 
         # Let WandB logger know that run is fully executed
-        wandb_logger: WandbLogger = self.get_logger_instance(WandbLogger)
-        assert wandb_logger is not None, "Must have wandb logger to finish run!"
         wandb_logger.experiment.log({"finished_run": True})
-        # wandb_logger.experiment.finish()
 
     # ---------------------
     # PER-STEP EVALUATION
@@ -779,7 +788,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             tb_logger.experiment.add_figure(
                 tag=name, figure=mpl_figure
             )
-            wandb_logger.experiment.log({name: mpl_figure})
+            wandb_logger.experiment.log({name: wandb.Image(mpl_figure)})
         plt.close('all')
 
     # ---------------------

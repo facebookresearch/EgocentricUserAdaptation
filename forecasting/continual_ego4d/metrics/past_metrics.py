@@ -122,8 +122,8 @@ class ConditionalOnlineForgettingMetric(Metric):
 
         # track results per action
         self.action_results_over_time = {
-            "prev_batch_idx_after_update": defaultdict(list),  # <action, list(<prev_iter,current_iter,delta_value>)
-            "current_batch_idx_before_update": defaultdict(list),
+            "prev_after_update_iter": defaultdict(list),  # <action, list(<prev_iter,current_iter,delta_value>)
+            "current_before_update_iter": defaultdict(list),
             "delta": defaultdict(list),
         }
 
@@ -137,16 +137,24 @@ class ConditionalOnlineForgettingMetric(Metric):
 
     @torch.no_grad()
     def update(self, past_preds_t, past_labels_t, past_sample_idxs, stream_state: 'StreamStateTracker' = None,
+               is_current_stream_batch=False,
                **kwargs):
         """
         ASSUMPTION: The preds,labels are all from the history stream only, forwarded on the CURRENT model.
         Update per-action accuracy metric from predictions and labels.
+
+        Current batch should ONLY be used for the AFTER-UPDATE, as the next BEFORE-UPDATE the current
+        action will also be in the batch (but was not included for the previous after-update).
+        Edge-case: when both are adjacent, then the current batch does concern both after/before update.
+        To fix this, we just skip the metric calculation and add a zero entries for the adjacent actions.
         """
         assert past_preds_t[0].shape[0] == past_labels_t.shape[0], f"Batch sizes not matching for past in stream!"
         assert stream_state is not None
 
-        # First process current batch as well!
+        # First process current batch as well (for after-update only)!
+
         if self.last_processed_batch_idx != stream_state.batch_idx:
+            assert not is_current_stream_batch
             self.last_processed_batch_idx = stream_state.batch_idx
 
             # Reconstruct from stream-tracker
@@ -161,7 +169,8 @@ class ConditionalOnlineForgettingMetric(Metric):
             self.update(past_preds_t=[verb_preds, noun_preds],
                         past_labels_t=stream_state.stream_batch_labels,
                         past_sample_idxs=stream_state.stream_batch_sample_idxs,
-                        stream_state=stream_state
+                        stream_state=stream_state,
+                        is_current_stream_batch=True
                         )
 
         # Action or verb/noun sets
@@ -176,25 +185,47 @@ class ConditionalOnlineForgettingMetric(Metric):
             current_batch_labelset = set({x[self.label_idx] for x in current_batch_labelset})
             next_batch_labelset = set({x[self.label_idx] for x in next_batch_labelset})
 
+        # For entries that are in both (comparing same data on same model): skip and add zero entry
+        labels_in_both = current_batch_labelset.intersection(next_batch_labelset)
+        if len(labels_in_both) > 0:
+            for label in labels_in_both:
+                assert self.action_after_update_meter[label].count == 0
+                assert self.action_next_before_update_meter[label].count == 0
+                self.action_after_update_iter[label] = stream_state.batch_idx
+
+            current_batch_labelset = current_batch_labelset - labels_in_both
+            next_batch_labelset = next_batch_labelset - labels_in_both
+
         # Update current batch:
-        updated_labels = self._update_current_batch_after_update(current_batch_labelset, past_preds_t, past_labels_t,
-                                                                 dict_to_update=self.action_after_update_meter)
+        updated_labels = self._update_dict_action_selection(current_batch_labelset, past_preds_t, past_labels_t,
+                                                            dict_to_update=self.action_after_update_meter)
+        logger.debug(f"AFTER-UPDATE: [PAST_IDXS={past_sample_idxs}] "
+                     f"current_batch_labelset={current_batch_labelset}\n"
+                     f"past_labels_t={past_labels_t}\n"
+                     f"UPDATED labels {updated_labels} in self.action_after_update_meter={self.action_after_update_meter}")
+
         # Update iteration references for later delta
         for updated_label in updated_labels:
             self.action_after_update_iter[updated_label] = stream_state.batch_idx
 
         # Next batch at t+1: Update
-        self._update_current_batch_after_update(next_batch_labelset, past_preds_t, past_labels_t,
-                                                dict_to_update=self.action_next_before_update_meter)
+        # Skip to avoid including next-exposure action (which isn't included for the previous after-update perf
+        if not is_current_stream_batch:
+            updated_labels = self._update_dict_action_selection(next_batch_labelset, past_preds_t, past_labels_t,
+                                                                dict_to_update=self.action_next_before_update_meter)
+            logger.debug(f"BEFORE-UPDATE: [PAST_IDXS={past_sample_idxs}] "
+                         f"next_batch_labelset={next_batch_labelset}\n"
+                         f"past_labels_t={past_labels_t}\n"
+                         f"UPDATED labels {updated_labels} in self.action_after_update_meter={self.action_next_before_update_meter}")
 
-    def _update_current_batch_after_update(self, current_batch_labelset: set[tuple],
-                                           past_preds, past_labels,
-                                           dict_to_update: dict,
-                                           ):
+    def _update_dict_action_selection(self, selected_labels: set[tuple],
+                                      past_preds, past_labels,
+                                      dict_to_update: dict,
+                                      ):
         """ Conditionally update dict_to_update based on past_labels being in current_batch_labelset."""
 
         updated_labels = []
-        for label in current_batch_labelset:
+        for label in selected_labels:
             # Get performance and add to after_update dict
             if self.action_mode in ['verb', 'noun']:
                 result, subset_size = self._get_verbnoun_metric_result(label, past_preds, past_labels)
@@ -223,7 +254,7 @@ class ConditionalOnlineForgettingMetric(Metric):
 
             # Mask
             label_mask = (verbnoun_labels == verbnoun).bool()
-            subset_batch_size = sum(label_mask)
+            subset_batch_size = sum(label_mask).item()
 
             subset_preds = verbnoun_preds[label_mask]
             subset_labels = verbnoun_labels[label_mask]
@@ -251,7 +282,7 @@ class ConditionalOnlineForgettingMetric(Metric):
             for verbnoun_t in torch.unbind(labels, dim=label_batch_axis)
         ], dim=label_batch_axis)
 
-        subset_batch_size = sum(label_mask)
+        subset_batch_size = sum(label_mask).item()
         if subset_batch_size == 0:
             return None, 0
 
@@ -292,11 +323,11 @@ class ConditionalOnlineForgettingMetric(Metric):
             # It will be ignored, and re-processed in the next after-update
             if action not in self.action_after_update_meter:
                 logger.debug(f"{self.action_mode} {action} perf measured for first time in history stream.")
+                del self.action_next_before_update_meter[action]
                 continue
 
             # Current before-update perf
             action_before_update_perf = action_before_update_perf_meter.avg
-            assert action_before_update_perf_meter.count > 0, f"Meter for action {action} has zero count."
 
             # Previous after-update perf and idx
             action_after_update_perf = self.action_after_update_meter[action].avg
@@ -305,9 +336,19 @@ class ConditionalOnlineForgettingMetric(Metric):
             # Delta
             forg = self.delta_fun(action_before_update_perf, action_after_update_perf)
 
+            if forg != 0:
+                assert self.action_after_update_meter[action].count == action_before_update_perf_meter.count, \
+                    f"Forgetting is {forg} for action {action}. " \
+                    f"Count after update={self.action_after_update_meter[action].count}, " \
+                    f"count before update={action_before_update_perf_meter.count}"
+
+                assert prev_batch_idx < current_batch_idx, \
+                    f"Forgetting should be zero but is {forg} for batch idxs " \
+                    f"(prev={prev_batch_idx},cur={current_batch_idx}) on action {action}"
+
             # Add to collector
-            self.action_results_over_time["prev_batch_idx_after_update"][action].append(prev_batch_idx)
-            self.action_results_over_time["current_batch_idx_before_update"][action].append(current_batch_idx)
+            self.action_results_over_time["prev_after_update_iter"][action].append(prev_batch_idx)
+            self.action_results_over_time["current_before_update_iter"][action].append(current_batch_idx)
             self.action_results_over_time["delta"][action].append(forg)
 
             # Delete both delta values
@@ -336,10 +377,10 @@ class ConditionalOnlineForgettingMetric(Metric):
 
         # Get deltas on x-axis
         deltas_x_per_action = defaultdict(list)
-        for action, prev_res_over_time in self.action_results_over_time["prev_batch_idx_after_update"].items():
-            cur_res_over_time = self.action_results_over_time["current_batch_idx_before_update"][action]
+        for action, prev_res_over_time in self.action_results_over_time["prev_after_update_iter"].items():
+            cur_res_over_time = self.action_results_over_time["current_before_update_iter"][action]
             for prev_t, new_t in zip(prev_res_over_time, cur_res_over_time):
-                assert new_t > prev_t, f"New iteration {new_t} <= prev iteration {prev_t}"
+                assert new_t >= prev_t, f"New iteration {new_t} <= prev iteration {prev_t}"
                 deltas_x_per_action[action].append(new_t - prev_t)
 
         # Get values on y-axis
