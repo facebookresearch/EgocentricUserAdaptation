@@ -128,9 +128,12 @@ class ConditionalOnlineForgettingMetric(Metric):
         }
 
         # Keep Forgetting states
-        self.action_after_update_perf = defaultdict(AverageMeter)  # First reference value
+        self.action_after_update_meter = defaultdict(AverageMeter)  # First reference value
         self.action_after_update_iter = {}  # Keep iteration number when last measured
         self.action_next_before_update_meter = defaultdict(AverageMeter)  # Next model to calc delta
+
+        # Keep so we know when new batch is processed, triggers processing current batch predictions
+        self.last_processed_batch_idx = -1
 
     @torch.no_grad()
     def update(self, past_preds_t, past_labels_t, past_sample_idxs, stream_state: 'StreamStateTracker' = None,
@@ -142,7 +145,24 @@ class ConditionalOnlineForgettingMetric(Metric):
         assert past_preds_t[0].shape[0] == past_labels_t.shape[0], f"Batch sizes not matching for past in stream!"
         assert stream_state is not None
 
-        # TODO include current batch in estimate!
+        # First process current batch as well!
+        if self.last_processed_batch_idx != stream_state.batch_idx:
+            self.last_processed_batch_idx = stream_state.batch_idx
+
+            # Reconstruct from stream-tracker
+            verb_preds = torch.stack([
+                stream_state.sample_idx_to_verb_pred[idx] for idx in stream_state.stream_batch_sample_idxs
+            ]).to(stream_state.stream_batch_labels.device)
+            noun_preds = torch.stack([
+                stream_state.sample_idx_to_noun_pred[idx] for idx in stream_state.stream_batch_sample_idxs
+            ]).to(stream_state.stream_batch_labels.device)
+
+            logger.info("Updating CURRENT BATCH in PAST STREAM for Re-exposure performance")
+            self.update(past_preds_t=[verb_preds, noun_preds],
+                        past_labels_t=stream_state.stream_batch_labels,
+                        past_sample_idxs=stream_state.stream_batch_sample_idxs,
+                        stream_state=stream_state
+                        )
 
         # Action or verb/noun sets
         current_batch_labelset = set({
@@ -158,7 +178,7 @@ class ConditionalOnlineForgettingMetric(Metric):
 
         # Update current batch:
         updated_labels = self._update_current_batch_after_update(current_batch_labelset, past_preds_t, past_labels_t,
-                                                                 dict_to_update=self.action_after_update_perf)
+                                                                 dict_to_update=self.action_after_update_meter)
         # Update iteration references for later delta
         for updated_label in updated_labels:
             self.action_after_update_iter[updated_label] = stream_state.batch_idx
@@ -253,7 +273,7 @@ class ConditionalOnlineForgettingMetric(Metric):
     @torch.no_grad()
     def reset(self):
         """Reset the metric."""
-        self.action_after_update_perf = defaultdict(AverageMeter)
+        self.action_after_update_meter = defaultdict(AverageMeter)
         self.action_after_update_iter = {}
         self.action_next_before_update_meter = defaultdict(AverageMeter)
 
@@ -270,7 +290,7 @@ class ConditionalOnlineForgettingMetric(Metric):
 
             # Check if first time the acc is measured on the model for this action
             # It will be ignored, and re-processed in the next after-update
-            if action not in self.action_after_update_perf:
+            if action not in self.action_after_update_meter:
                 logger.debug(f"{self.action_mode} {action} perf measured for first time in history stream.")
                 continue
 
@@ -279,19 +299,19 @@ class ConditionalOnlineForgettingMetric(Metric):
             assert action_before_update_perf_meter.count > 0, f"Meter for action {action} has zero count."
 
             # Previous after-update perf and idx
-            action_after_update_perf = self.action_after_update_perf[action]
+            action_after_update_perf = self.action_after_update_meter[action].avg
             prev_batch_idx = self.action_after_update_iter[action]
 
             # Delta
             forg = self.delta_fun(action_before_update_perf, action_after_update_perf)
 
             # Add to collector
-            self.action_results_over_time["prev_batch_idx"][action].append(prev_batch_idx)
-            self.action_results_over_time["current_batch_idx"][action].append(current_batch_idx)
+            self.action_results_over_time["prev_batch_idx_after_update"][action].append(prev_batch_idx)
+            self.action_results_over_time["current_batch_idx_before_update"][action].append(current_batch_idx)
             self.action_results_over_time["delta"][action].append(forg)
 
             # Delete both delta values
-            del self.action_after_update_perf[action]
+            del self.action_after_update_meter[action]
             del self.action_after_update_iter[action]
             del self.action_next_before_update_meter[action]
         return {}
@@ -316,8 +336,8 @@ class ConditionalOnlineForgettingMetric(Metric):
 
         # Get deltas on x-axis
         deltas_x_per_action = defaultdict(list)
-        for action, prev_res_over_time in self.action_results_over_time["prev_batch_idx"].items():
-            cur_res_over_time = self.action_results_over_time["current_batch_idx"][action]
+        for action, prev_res_over_time in self.action_results_over_time["prev_batch_idx_after_update"].items():
+            cur_res_over_time = self.action_results_over_time["current_batch_idx_before_update"][action]
             for prev_t, new_t in zip(prev_res_over_time, cur_res_over_time):
                 assert new_t > prev_t, f"New iteration {new_t} <= prev iteration {prev_t}"
                 deltas_x_per_action[action].append(new_t - prev_t)
@@ -350,7 +370,7 @@ class ConditionalOnlineForgettingMetric(Metric):
 class ReexposureForgettingAccMetric(ConditionalOnlineForgettingMetric):
     """ Measure on history data over actions that have already been observed AND are observed in current mini-batch."""
 
-    def __init__(self, k, action_mode, keep_action_results_over_time=False):
+    def __init__(self, k, action_mode):
         super().__init__(
             base_metric_mode='acc', k=k, loss_fun_unred=None,  # Acc
             action_mode=action_mode, main_metric_name="FORG_EXPOSE",
@@ -360,7 +380,7 @@ class ReexposureForgettingAccMetric(ConditionalOnlineForgettingMetric):
 class ReexposureForgettingLossMetric(ConditionalOnlineForgettingMetric):
     """ Measure on history data over actions that have already been observed AND are observed in current mini-batch."""
 
-    def __init__(self, loss_fun_unred, action_mode, keep_action_results_over_time=False):
+    def __init__(self, loss_fun_unred, action_mode):
         super().__init__(
             base_metric_mode='loss', k=None, loss_fun_unred=loss_fun_unred,  # Acc
             action_mode=action_mode, main_metric_name="FORG_EXPOSE",

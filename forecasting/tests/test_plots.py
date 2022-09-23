@@ -10,12 +10,10 @@ class PlotConditionalOnlineForgettingMetricCase(unittest.TestCase):
     def setUp(self) -> None:
         self.metric = ConditionalOnlineForgettingMetric(
             base_metric_mode='acc', action_mode="action",
-            keep_action_results_over_time=True, do_plot=True,
+            do_plot=True,
 
             # Optional
             main_metric_name="TESTCASE_METRIC",
-            is_current_batch_cond_set=False,
-            in_cond_set=False,
             k=1,
         )
 

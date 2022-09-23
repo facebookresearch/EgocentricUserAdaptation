@@ -36,9 +36,7 @@ from continual_ego4d.metrics.adapt_metrics import OnlineAdaptationGainMetric, Ru
     CumulativeOnlineAdaptationGainMetric
 from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric, \
     GeneralizationLossMetric, FWTLossMetric
-# from continual_ego4d.metrics.past_metrics import FullOnlineForgettingAccMetric, ReexposureForgettingAccMetric, \
-#     CollateralForgettingAccMetric, FullOnlineForgettingLossMetric, ReexposureForgettingLossMetric, \
-#     CollateralForgettingLossMetric
+from continual_ego4d.metrics.past_metrics import ReexposureForgettingLossMetric, ReexposureForgettingAccMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
 from continual_ego4d.utils.models import UnseenVerbNounMaskerHead
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -344,7 +342,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                                                    stream_idx_to_action_list=self.stream_state.sample_idx_to_action_list,
                                                    seen_action_set=self.stream_state.stream_seen_action_freq_dict,
                                                    total_capacity=self.cfg.CONTINUAL_EVAL.FUTURE_SAMPLE_CAPACITY)
-        self.past_stream_sampler = PastSampler(mode='windowed',
+        self.past_stream_sampler = PastSampler(mode=cfg.CONTINUAL_EVAL.PAST_SAMPLER_MODE,
                                                seen_action_to_stream_idxs=self.stream_state.seen_action_to_stream_idxs,
                                                total_capacity=self.cfg.CONTINUAL_EVAL.PAST_SAMPLE_CAPACITY)
         """ Samplers to process the future and past part of the stream. """
@@ -472,8 +470,10 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
                 # TODO: Accuracy (unbalanced)
                 # TODO Track on re-exposure for scatterplot
-                # ReexposureForgettingAccMetric(
-                #     k=1, action_mode=action_mode, keep_action_results_over_time=True),
+                ReexposureForgettingLossMetric(loss_fun_unred=self.loss_fun_unred, action_mode=action_mode),
+                # ReexposureForgettingAccMetric(k=1, action_mode=action_mode),
+                # ReexposureForgettingAccMetric(k=5, action_mode=action_mode),
+                # ReexposureForgettingAccMetric(k=20, action_mode=action_mode),
             ])
         return past_metrics
 
@@ -762,9 +762,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def _log_plotting_metrics(self):
         """ Iterate over metrics to get Image plots. """
 
-        # Collect loggers
-        tb_logger = self.get_logger_instance(TensorBoardLogger)
-
         logger.info("Collecting figures for metric plots")
         plot_dict = {}
         for metric in self.all_metrics:
@@ -772,12 +769,17 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             if metric_plot_dict is not None and len(metric_plot_dict) > 0:
                 self.add_to_dict_(plot_dict, metric_plot_dict)
 
+        # Collect loggers
+        tb_logger = self.get_logger_instance(TensorBoardLogger)
+        wandb_logger = self.get_logger_instance(WandbLogger)
+
         # Log them
         logger.info("Plotting tensorboard figures")
         for name, mpl_figure in plot_dict.items():
             tb_logger.experiment.add_figure(
                 tag=name, figure=mpl_figure
             )
+            wandb_logger.experiment.log({name: mpl_figure})
         plt.close('all')
 
     # ---------------------

@@ -115,6 +115,7 @@ _C.CONTINUAL_EVAL.NUM_WORKERS = 8
 # How much to sample from future/past stream
 _C.CONTINUAL_EVAL.FUTURE_SAMPLE_CAPACITY = 64
 _C.CONTINUAL_EVAL.PAST_SAMPLE_CAPACITY = 64
+_C.CONTINUAL_EVAL.PAST_SAMPLER_MODE = 'windowed'
 
 # Every how many update steps should evaluate
 _C.CONTINUAL_EVAL.FREQ = 10
