@@ -1,14 +1,17 @@
 TRANSFER_EVAL:
   WANDB_PROJECT_NAME: "matthiasdelange/ContinualUserAdaptation"
-  WANDB_GROUP_TO_EVAL: ""
+  # Finetune SGD 0.01 plain
+  WANDB_GROUP_TO_EVAL: "Finetuning_2022-09-14_19-06-02_UID2c4355e2-c42c-46d9-ba37-8cb8abe8d1d0_MATT"
   #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_36_21.953-07_00.csv"
   #
   # Final01_01
   #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_04_58.100-07_00.csv"
+  # Final01_01: All runs (not just best):
+  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-23T12_06_30.906-07_00.csv"
   #
   # Final02_01: Replay
-  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T17_44_32.708-07_00.csv"
-  CSV_RANGE: (0,6)
+  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T17_44_32.708-07_00.csv"
+  #  CSV_RANGE: (0,6)
   #  CSV_RANGE: (6,None)
   #  OUTPUT_DIR: ""
   DIAGONAL_ONLY: True # Cartesian product or only user-model with same user-stream.
@@ -22,7 +25,7 @@ GPU_IDS: None
 NUM_GPUS: 1
 
 PREDICT_PHASE:
-  NUM_WORKERS: 8
+  NUM_WORKERS: 10
   BATCH_SIZE: 10 # 10=5G/user
 
 FAST_DEV_RUN: False

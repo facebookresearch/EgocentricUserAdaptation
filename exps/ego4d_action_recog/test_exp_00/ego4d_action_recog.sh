@@ -57,7 +57,7 @@ OVERWRITE_CFG_ARGS+=" GPU_IDS 1 NUM_USERS_PER_DEVICE 1"
 #OVERWRITE_CFG_ARGS+=" GPU_IDS '0' FAST_DEV_RUN False FAST_DEV_DATA_CUTOFF 30" # DEBUG
 
 # TODO tmp
-OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 6 TRAIN.BATCH_SIZE 2 CONTINUAL_EVAL.BATCH_SIZE 10 CONTINUAL_EVAL.PLOTTING_FREQ 10" # DEBUG
+OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 10 TRAIN.BATCH_SIZE 2 CONTINUAL_EVAL.BATCH_SIZE 10 CONTINUAL_EVAL.PLOTTING_FREQ 1" # DEBUG
 
 
 # RESUME
@@ -81,14 +81,16 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="${run_id}_MATT"
-#screen -dmS "${screenname}" \
-python -m pdb -c continue \
+screen -dmS "${screenname}" \
+python \
 -m continual_ego4d.run_recog_CL \
   --job_name "$screenname" \
   --working_directory "${OUTPUT_DIR}" \
   --cfg "${CONFIG}" \
   --parent_script "${this_script_filepath}" \
   ${OVERWRITE_CFG_ARGS}
+
+#python -m pdb -c continue \
 
 #-----------------------------------------------------------------------------------------------#
 #                                    OTHER OPTIONS                                              #

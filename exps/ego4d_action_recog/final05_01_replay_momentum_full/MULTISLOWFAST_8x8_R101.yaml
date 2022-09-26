@@ -5,14 +5,18 @@ CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
 CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
 NUM_USERS_PER_DEVICE: 1
 METHOD:
-  METHOD_NAME: "FinetuningMomentumReset"
-TEST:
-  ENABLE: False
+  METHOD_NAME: "Replay"
+  REPLAY:
+    MEMORY_SIZE_SAMPLES: 64
+    STORAGE_POLICY: "reservoir_stream"
 CONTINUAL_EVAL:
-  FREQ: -1
+  FREQ: -1 # SKIP
   BATCH_SIZE: 8 # For speedup with parallel dataloading
-  NUM_WORKERS: 8
+  NUM_WORKERS: 8 # Half for not overloading server
   PAST_SAMPLE_CAPACITY: 64
+PREDICT_PHASE:
+  BATCH_SIZE: 10
+  NUM_WORKERS: 8
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition
@@ -54,7 +58,7 @@ SOLVER:
   LR_POLICY: constant
   MAX_EPOCH: 1
   MOMENTUM: 0.0
-  NESTEROV: True # If 0, should set to False
+  NESTEROV: True
   OPTIMIZING_METHOD: sgd
   WEIGHT_DECAY: 0.0
 MODEL:
@@ -64,7 +68,7 @@ MODEL:
   LOSS_FUNC: cross_entropy
   DROPOUT_RATE: 0.5
 DATA_LOADER:
-  NUM_WORKERS: 4 # Only current-training batch, and due to eval next one will have quite some time
+  NUM_WORKERS: 8
   PIN_MEMORY: True
 NUM_GPUS: 1
 NUM_SHARDS: 1
