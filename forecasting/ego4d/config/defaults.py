@@ -120,10 +120,10 @@ _C.CONTINUAL_EVAL.PAST_SAMPLE_CAPACITY = 64
 _C.CONTINUAL_EVAL.PAST_SAMPLER_MODE = 'windowed'
 
 # Every how many update steps should evaluate
-_C.CONTINUAL_EVAL.FREQ = 10
+_C.CONTINUAL_EVAL.FREQ = -1
 
 # When to plot figures for metrics
-_C.CONTINUAL_EVAL.PLOTTING_FREQ = 100
+_C.CONTINUAL_EVAL.PLOTTING_FREQ = -1
 
 # ---------------------------------------------------------------------------- #
 # Training options.

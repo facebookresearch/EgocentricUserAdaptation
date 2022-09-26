@@ -394,9 +394,6 @@ def get_pretrain_stream_instance_count_df(eval_cfg, modeluser_streamuser_pairs, 
                 action_pretrain_count = pretrain_freq_dict[unique_action] if unique_action in pretrain_freq_dict else 0
                 action_stream_count = stream_freq_dict[unique_action]  # Has to be present in current stream
 
-                # import pdb;
-                # pdb.set_trace()
-
                 # Select only selected action (Use stream df twice to be sure of idxs)
                 df_action_subset = stream_df.loc[stream_df[action_mode] == unique_action]
                 pretrain_df_action_subset = pretrain_df.loc[pretrain_df[action_mode] == unique_action]

@@ -180,10 +180,17 @@ class StreamStateTracker:
         self.batch_idx = batch_idx
 
         # Eval or plot at this iteration
-        self.plot_this_step = batch_idx != 0 and (
-                batch_idx % plotting_log_freq == 0 or batch_idx == self.total_stream_sample_count)
-        self.eval_this_step = batch_idx % continual_eval_freq == 0 or batch_idx == self.total_stream_sample_count
-        logger.debug(f"Continual eval on batch {batch_idx}/{self.total_stream_sample_count} = {self.eval_this_step}")
+        if plotting_log_freq <= 0:
+            self.plot_this_step = False
+        else:
+            self.plot_this_step = batch_idx != 0 and (
+                    batch_idx % plotting_log_freq == 0 or batch_idx == self.total_stream_sample_count)
+
+        if continual_eval_freq <= 0:
+            self.eval_this_step = False
+        else:
+            self.eval_this_step = batch_idx % continual_eval_freq == 0 or batch_idx == self.total_stream_sample_count
+            logger.debug(f"Continual eval on batch {batch_idx}/{self.total_stream_sample_count}={self.eval_this_step}")
 
         # Observed idxs update before batch is altered
         _, labels, _, stream_sample_idxs = batch
