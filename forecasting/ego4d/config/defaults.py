@@ -139,6 +139,8 @@ _C.TRAIN.DATASET = "Kinetics"
 # Total mini-batch size.
 _C.TRAIN.BATCH_SIZE = 1
 
+_C.TRAIN.INNER_LOOP_ITERS = 1
+
 # ---------------------------------------------------------------------------- #
 # Testing options
 # ---------------------------------------------------------------------------- #

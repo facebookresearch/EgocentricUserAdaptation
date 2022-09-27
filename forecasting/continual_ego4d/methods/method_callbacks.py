@@ -1,3 +1,4 @@
+import copy
 from abc import ABC, abstractmethod
 from continual_ego4d.methods.build import build_method, METHOD_REGISTRY
 from typing import Dict, Tuple, List, Any
@@ -87,13 +88,30 @@ class Method:
     def training_step(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs) -> \
             Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
-        Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
+        Return Loss,  prediction outputs,a nd dictionary of result metrics to log.
+        For multiple (N) training iterations,
+        - we do updates in this method on all N-1 iterations,
+        - For final iteration: we return the loss for normal flow in PL.
+        """
 
-        preds, feats = self.lightning_module.forward(inputs, return_feats=True)
-        loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
-            preds, labels, self.loss_fun_train, mean=False
-        )
+        opt = self.lightning_module.optimizers()
 
+        assert self.lightning_module.inner_loop_iters >= 1
+        for inner_iter in range(1, self.lightning_module.inner_loop_iters + 1):
+            fwd_inputs = copy.deepcopy(inputs)  # SlowFast in-place alters the inputs
+            preds, feats = self.lightning_module.forward(fwd_inputs, return_feats=True)
+            loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
+                preds, labels, self.loss_fun_train, mean=False
+            )
+
+            opt.zero_grad()  # Also clean grads for final
+            if inner_iter < self.lightning_module.inner_loop_iters:
+                self.lightning_module.manual_backward(loss_action)  # Calculate grad
+                opt.step()
+                logger.info(f"[INNER-LOOP UPDATE] iter {inner_iter}/{self.lightning_module.inner_loop_iters}: "
+                            f"fwd, bwd, step. Action_loss={loss_action}")
+
+        # Only return latest loss
         self.update_stream_tracking(
             stream_sample_idxs=current_batch_stream_idxs,
             new_batch_feats=feats,

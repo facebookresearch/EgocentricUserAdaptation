@@ -282,6 +282,11 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         logger.debug('Starting init ContinualVideoTask')
         super().__init__()
 
+        # Disable automatic updates after training_step(), instead do manually
+        # We need to do this for alternative update schedules (e.g. multiple iters per batch)
+        # See: https://pytorch-lightning.readthedocs.io/en/stable/common/optimization.html#automatic-optimization
+        self.automatic_optimization = False
+
         # Backwards compatibility.
         if isinstance(cfg.MODEL.NUM_CLASSES, int):
             cfg.MODEL.NUM_CLASSES = [cfg.MODEL.NUM_CLASSES]
@@ -308,6 +313,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         self.continual_eval_freq = cfg.CONTINUAL_EVAL.FREQ
         self.plotting_log_freq = cfg.CONTINUAL_EVAL.PLOTTING_FREQ
+        self.inner_loop_iters = cfg.TRAIN.INNER_LOOP_ITERS
+        assert isinstance(self.inner_loop_iters, int) and self.inner_loop_iters >= 1
 
         # Sanity modes/debugging
         self.enable_prepost_comparing = cfg.CHECK_POST_VS_PRE_LOSS_DELTA  # Compare loss before/after update
@@ -574,7 +581,18 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Only loss should be used and stored for entire epoch (stream)
         logger.debug(f"Finished training_step batch_idx={batch_idx}/{len(self.train_loader)}")
-        return loss
+
+        # On the end of the step, do update
+        self._manual_update(loss)
+        # return loss
+
+    def _manual_update(self, loss):
+        opt = self.optimizers()
+        opt.zero_grad()
+        self.manual_backward(loss)
+        opt.step()
+        logger.info(f"[INNER-LOOP UPDATE] FINAL iter {self.inner_loop_iters}/{self.inner_loop_iters}: "
+                    f"action_loss={loss.item()}")
 
     def on_train_batch_end(self, outputs, batch: Any, batch_idx: int, unused: Optional[int] = 0) -> None:
         """
