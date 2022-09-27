@@ -69,34 +69,41 @@ def parse_final01_01_momentum_table():
        'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/mean'],
     """
     # csv_filename = "wandb_export_2022-09-21T11_36_57.254-07_00.csv"
-    csv_filename = "wandb_export_2022-09-21T17_57_58.323-07_00.csv"  # Full results
+    # csv_filename = "wandb_export_2022-09-21T17_57_58.323-07_00.csv"  # Full results grid only
+    csv_filename = "wandb_export_2022-09-24T16_35_35.285-07_00.csv"  # Full results all
 
     csv_path = os.path.join(csv_dirname, csv_filename)
-    round_digits = 1
+    round_digits = 2
 
     orig_df = pd.read_csv(csv_path)
 
     # FILTER
-    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.01) & (orig_df['SOLVER.NESTEROV'] == False)]
-    orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == False)] # TODO: Set to False or True to get both parts
+    orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001) & (orig_df['SOLVER.NESTEROV'] == True)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
     orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.MOMENTUM', 'SOLVER.BASE_LR'])
 
     # Place here in order you want the latex columns to be
     ordered_cols = [
 
         # HPARAMS COL
+        # LatexColumn(
+        #     'SOLVER.MOMENTUM',
+        #     'SOLVER.BASE_LR',
+        #     latex_col_report_name=r"$\rho (\eta)$",
+        #     format_fn_overwrite=lambda x: f"{x[0]} ({x[1]})"
+        # ),
+
         LatexColumn(
             'SOLVER.MOMENTUM',
-            'SOLVER.BASE_LR',
-            latex_col_report_name=r"$\rho (\eta)$",
-            format_fn_overwrite=lambda x: f"{x[0]} ({x[1]})"
+            latex_col_report_name=r"$\rho$",
+            format_fn_overwrite=lambda x: x,
         ),
 
-        # LatexColumn(
-        #     'SOLVER.BASE_LR',
-        #     latex_col_report_name=r"$\eta",
-        #     format_fn_overwrite=lambda x: x
-        # ),
+        LatexColumn(
+            'SOLVER.BASE_LR',
+            latex_col_report_name=r"$\eta",
+            format_fn_overwrite=lambda x: "{:.1g}".format(x)
+        ),
 
         # ONLINE AG
         LatexColumn(
@@ -241,7 +248,8 @@ Index(['Name', 'METHOD.REPLAY.STORAGE_POLICY',
        'METHOD.METHOD_NAME',
     ...
     """
-    csv_filename = "wandb_export_2022-09-21T16_56_15.802-07_00.csv"
+    # csv_filename = "wandb_export_2022-09-21T16_56_15.802-07_00.csv" # Missing hindsight metrics
+    csv_filename = "wandb_export_2022-09-22T15_06_05.542-07_00.csv"
     csv_path = os.path.join(csv_dirname, csv_filename)
     round_digits = 2
     final_excluded_colnames = ['Replay']
@@ -249,7 +257,7 @@ Index(['Name', 'METHOD.REPLAY.STORAGE_POLICY',
     orig_df = pd.read_csv(csv_path)
 
     # FILTER
-    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.01) & (orig_df['SOLVER.NESTEROV'] == False)]
+    orig_df = orig_df.loc[(orig_df['METHOD.REPLAY.STORAGE_POLICY'] == 'reservoir_stream') & (orig_df['METHOD.REPLAY.MEMORY_SIZE_SAMPLES'] == 64)]
     # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)]
     orig_df.sort_values(inplace=True, axis=0, by=[
         'METHOD.REPLAY.STORAGE_POLICY', 'METHOD.REPLAY.MEMORY_SIZE_SAMPLES'])
@@ -276,18 +284,18 @@ Index(['Name', 'METHOD.REPLAY.STORAGE_POLICY',
             latex_col_report_name=r"$\overline{\text{OAG}}_{\text{action}}$",
             round_digits=round_digits,
         ),
-        # LatexColumn(
-        #     'adhoc_users_aggregate/train_verb_batch/AG_cumul/mean',
-        #     'adhoc_users_aggregate/train_verb_batch/AG_cumul/SE',
-        #     latex_col_report_name=r"$\overline{\text{OAG}}_{\text{verb}}$",
-        #     round_digits=round_digits,
-        # ),
-        # LatexColumn(
-        #     'adhoc_users_aggregate/train_noun_batch/AG_cumul/mean',
-        #     'adhoc_users_aggregate/train_noun_batch/AG_cumul/SE',
-        #     latex_col_report_name=r"$\overline{\text{OAG}}_{\text{noun}}$",
-        #     round_digits=round_digits,
-        # ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_verb_batch/AG_cumul/mean',
+            'adhoc_users_aggregate/train_verb_batch/AG_cumul/SE',
+            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_noun_batch/AG_cumul/mean',
+            'adhoc_users_aggregate/train_noun_batch/AG_cumul/SE',
+            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
 
         # HISTORY AG
         LatexColumn(
@@ -296,18 +304,18 @@ Index(['Name', 'METHOD.REPLAY.STORAGE_POLICY',
             latex_col_report_name=r"$\overline{\text{HAG}}_{\text{action}}$",
             round_digits=round_digits,
         ),
-        # LatexColumn(
-        #     'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/mean',
-        #     'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/SE',
-        #     latex_col_report_name=r"$\overline{\text{HAG}}_{\text{verb}}$",
-        #     round_digits=round_digits,
-        # ),
-        # LatexColumn(
-        #     'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/mean',
-        #     'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/SE',
-        #     latex_col_report_name=r"$\overline{\text{HAG}}_{\text{noun}}$",
-        #     round_digits=round_digits,
-        # ),
+        LatexColumn(
+            'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/mean',
+            'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/SE',
+            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/mean',
+            'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/SE',
+            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
     ]
 
     latex_df = pd.DataFrame()
@@ -331,10 +339,245 @@ Index(['Name', 'METHOD.REPLAY.STORAGE_POLICY',
     print_end_table()
 
 
-def print_begin_table():
+def parse_exp04_01_momentum_video_reset_table():
+    """
+    COLS:
+    ['Name', 'SOLVER.BASE_LR', 'SOLVER.NESTEROV', 'SOLVER.MOMENTUM',
+           'adhoc_users_aggregate/user_aggregate_count',
+
+       'adhoc_users_aggregate/train_noun_batch/AG_cumul/SE',
+       'adhoc_users_aggregate/train_noun_batch/AG_cumul/mean',
+
+       'adhoc_users_aggregate/train_verb_batch/AG_cumul/SE',
+       'adhoc_users_aggregate/train_verb_batch/AG_cumul/mean',
+
+       'adhoc_users_aggregate/train_action_batch/AG_cumul/mean',
+       'adhoc_users_aggregate/train_action_batch/AG_cumul/SE',
+
+       'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/SE',
+       'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/mean',
+
+       'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/SE',
+       'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/mean',
+
+       'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/SE',
+       'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/mean'],
+    """
+    # csv_filename = "wandb_export_2022-09-26T09_46_26.767-07_00.csv"  # Full results all
+    csv_filename = "wandb_export_2022-09-27T09_40_46.516-07_00.csv"  # Including lr 0.001
+
+    csv_path = os.path.join(csv_dirname, csv_filename)
+    orig_df = pd.read_csv(csv_path)
+    round_digits = 2
+
+    # FILTER
+    orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == False)] # TODO: Set to False or True to get both parts
+    orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.MOMENTUM', 'SOLVER.BASE_LR'])
+
+    # Place here in order you want the latex columns to be
+    ordered_cols = [
+
+        # HPARAMS COL
+        # LatexColumn(
+        #     'SOLVER.MOMENTUM',
+        #     'SOLVER.BASE_LR',
+        #     latex_col_report_name=r"$\rho (\eta)$",
+        #     format_fn_overwrite=lambda x: f"{x[0]} ({x[1]})"
+        # ),
+
+        LatexColumn(
+            'SOLVER.MOMENTUM',
+            latex_col_report_name=r"$\rho$",
+            format_fn_overwrite=lambda x: x,
+        ),
+
+        LatexColumn(
+            'SOLVER.BASE_LR',
+            latex_col_report_name=r"$\eta",
+            format_fn_overwrite=lambda x: "{:.1g}".format(x)
+        ),
+
+        # ONLINE AG
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/AG_cumul/mean',
+            'adhoc_users_aggregate/train_action_batch/AG_cumul/SE',
+            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_verb_batch/AG_cumul/mean',
+            'adhoc_users_aggregate/train_verb_batch/AG_cumul/SE',
+            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_noun_batch/AG_cumul/mean',
+            'adhoc_users_aggregate/train_noun_batch/AG_cumul/SE',
+            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
+
+        # HISTORY AG
+        LatexColumn(
+            'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/mean',
+            'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/SE',
+            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/mean',
+            'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/SE',
+            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/mean',
+            'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/SE',
+            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
+    ]
+
+    latex_df = pd.DataFrame()
+
+    for col in ordered_cols:
+
+        if col.pandas_col_std_name is not None:
+            latex_df[col.latex_col_report_name] = orig_df.loc[:,
+                                                  (col.pandas_col_mean_name, col.pandas_col_std_name)
+                                                  ].apply(col.format_fn, axis=1)
+        else:
+            latex_df[col.latex_col_report_name] = orig_df.loc[:, col.pandas_col_mean_name].apply(col.format_fn)
+
+    print_begin_table()
+    print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
+    print_end_table()
+
+
+def parse_final05_01_repaly_with_momentum_table():
+    """
+    COLS:
+    ['Name', 'SOLVER.BASE_LR', 'SOLVER.NESTEROV', 'SOLVER.MOMENTUM',
+           'adhoc_users_aggregate/user_aggregate_count',
+
+       'adhoc_users_aggregate/train_noun_batch/AG_cumul/SE',
+       'adhoc_users_aggregate/train_noun_batch/AG_cumul/mean',
+
+       'adhoc_users_aggregate/train_verb_batch/AG_cumul/SE',
+       'adhoc_users_aggregate/train_verb_batch/AG_cumul/mean',
+
+       'adhoc_users_aggregate/train_action_batch/AG_cumul/mean',
+       'adhoc_users_aggregate/train_action_batch/AG_cumul/SE',
+
+       'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/SE',
+       'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/mean',
+
+       'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/SE',
+       'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/mean',
+
+       'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/SE',
+       'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/mean'],
+    """
+    # csv_filename = "wandb_export_2022-09-21T11_36_57.254-07_00.csv"
+    # csv_filename = "wandb_export_2022-09-21T17_57_58.323-07_00.csv"  # Full results grid only
+    csv_filename = "wandb_export_2022-09-27T10_27_31.671-07_00.csv"  # Full results all
+    caption = "Replay for different Nesterov momentum strengths with Reservoir Stream storage strategy and memory size 64, lr 0.01."
+    csv_path = os.path.join(csv_dirname, csv_filename)
+    round_digits = 2
+
+    orig_df = pd.read_csv(csv_path)
+
+    # FILTER
+    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.01) & (orig_df['SOLVER.NESTEROV'] == True)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
+    orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.MOMENTUM', 'SOLVER.BASE_LR'])
+
+    # Place here in order you want the latex columns to be
+    ordered_cols = [
+
+        # HPARAMS COL
+        # LatexColumn(
+        #     'SOLVER.MOMENTUM',
+        #     'SOLVER.BASE_LR',
+        #     latex_col_report_name=r"$\rho (\eta)$",
+        #     format_fn_overwrite=lambda x: f"{x[0]} ({x[1]})"
+        # ),
+
+        LatexColumn(
+            'SOLVER.MOMENTUM',
+            latex_col_report_name=r"$\rho$",
+            format_fn_overwrite=lambda x: x,
+        ),
+
+        # LatexColumn(
+        #     'SOLVER.BASE_LR',
+        #     latex_col_report_name=r"$\eta",
+        #     format_fn_overwrite=lambda x: "{:.1g}".format(x)
+        # ),
+
+        # ONLINE AG
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/AG_cumul/mean',
+            'adhoc_users_aggregate/train_action_batch/AG_cumul/SE',
+            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_verb_batch/AG_cumul/mean',
+            'adhoc_users_aggregate/train_verb_batch/AG_cumul/SE',
+            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_noun_batch/AG_cumul/mean',
+            'adhoc_users_aggregate/train_noun_batch/AG_cumul/SE',
+            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
+
+        # HISTORY AG
+        LatexColumn(
+            'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/mean',
+            'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/SE',
+            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/mean',
+            'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/SE',
+            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/mean',
+            'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/SE',
+            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
+    ]
+
+    latex_df = pd.DataFrame()
+
+    for col in ordered_cols:
+
+        if col.pandas_col_std_name is not None:
+            latex_df[col.latex_col_report_name] = orig_df.loc[:,
+                                                  (col.pandas_col_mean_name, col.pandas_col_std_name)
+                                                  ].apply(col.format_fn, axis=1)
+        else:
+            latex_df[col.latex_col_report_name] = orig_df.loc[:, col.pandas_col_mean_name].apply(col.format_fn)
+
+    print_begin_table(caption)
+    print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
+    print_end_table()
+
+
+def print_begin_table(caption=""):
     print(r"\begin{table}[]")
-    print(r"\caption{}")
+    print(rf"\caption{{{caption}}}")
     print(r"\label{tab:HOLDER}")
+    print(r"\centering")
     print(r"\resizebox{\linewidth}{!}{%")
 
 
@@ -344,4 +587,4 @@ def print_end_table():
 
 
 if __name__ == "__main__":
-    parse_final01_01_momentum_table()
+    parse_final02_01_replay()
