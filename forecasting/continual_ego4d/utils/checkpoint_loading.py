@@ -104,7 +104,12 @@ class PathHandler:
         elif cfg.GRID_RESUME_LATEST:  # Resume grid run
             # Resume latest run that already exists in the grid parent dir
             grid_parent_path = str(orig_path.parent.absolute() / grid_parent_dir)
-            subdirs = sorted([user_subdir.name for user_subdir in os.scandir(grid_parent_path) if user_subdir.is_dir()])
+
+            subdirs = []
+            if os.path.exists(grid_parent_path):
+                subdirs = sorted(
+                    [user_subdir.name for user_subdir in os.scandir(grid_parent_path) if user_subdir.is_dir()]
+                )
 
             if len(subdirs) > 0:
                 latest_subdir = subdirs[-1]
