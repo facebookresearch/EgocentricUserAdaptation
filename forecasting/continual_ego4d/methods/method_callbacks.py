@@ -16,8 +16,10 @@ from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
 from ego4d.utils import logging
 import pprint
 from continual_ego4d.utils.models import reset_optimizer_stats_
+from collections import Counter
 
 from typing import TYPE_CHECKING
+from collections import deque
 
 if TYPE_CHECKING:
     from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
@@ -27,6 +29,8 @@ logger = logging.get_logger(__name__)
 
 
 class Method:
+    run_predict_before_train = True
+
     def __init__(self, cfg, lightning_module: 'ContinualMultiTaskClassificationTask'):
         """ At Task init, the lightning_module.trainer=None. """
         self.cfg = cfg  # For method-specific params
@@ -85,7 +89,7 @@ class Method:
                     pass
                 streamtrack_list[stream_sample_idx] = batch_val
 
-    def training_step(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs) -> \
+    def training_first_forward(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs) -> \
             Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log.
@@ -94,22 +98,11 @@ class Method:
         - For final iteration: we return the loss for normal flow in PL.
         """
 
-        opt = self.lightning_module.optimizers()
-
-        assert self.lightning_module.inner_loop_iters >= 1
-        for inner_iter in range(1, self.lightning_module.inner_loop_iters + 1):
-            fwd_inputs = copy.deepcopy(inputs)  # SlowFast in-place alters the inputs
-            preds, feats = self.lightning_module.forward(fwd_inputs, return_feats=True)
-            loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
-                preds, labels, self.loss_fun_train, mean=False
-            )
-
-            opt.zero_grad()  # Also clean grads for final
-            if inner_iter < self.lightning_module.inner_loop_iters:
-                self.lightning_module.manual_backward(loss_action)  # Calculate grad
-                opt.step()
-                logger.info(f"[INNER-LOOP UPDATE] iter {inner_iter}/{self.lightning_module.inner_loop_iters}: "
-                            f"fwd, bwd, step. Action_loss={loss_action}")
+        fwd_inputs = copy.deepcopy(inputs)  # SlowFast in-place alters the inputs
+        preds, feats = self.lightning_module.forward(fwd_inputs, return_feats=True)
+        loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
+            preds, labels, self.loss_fun_train, mean=False
+        )
 
         # Only return latest loss
         self.update_stream_tracking(
@@ -137,6 +130,33 @@ class Method:
         }
         return loss_action_m, preds, log_results
 
+    def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        """ Given the loss from the first forward, update for inner_loop_iters. """
+        opt = self.lightning_module.optimizers()
+
+        assert self.lightning_module.inner_loop_iters >= 1
+        for inner_iter in range(1, self.lightning_module.inner_loop_iters + 1):
+
+            if inner_iter == 1:
+                loss_action = loss_first_fwd
+
+            else:
+                fwd_inputs = copy.deepcopy(inputs)  # SlowFast in-place alters the inputs
+                preds = self.lightning_module.forward(fwd_inputs, return_feats=False)
+                loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
+                    preds, labels, self.loss_fun_train, mean=False
+                )
+
+            # Reduce
+            loss_action_m = loss_action.mean()
+
+            opt.zero_grad()  # Also clean grads for final
+            self.lightning_module.manual_backward(loss_action_m)  # Calculate grad
+            opt.step()
+
+            logger.info(f"[INNER-LOOP UPDATE] iter {inner_iter}/{self.lightning_module.inner_loop_iters}: "
+                        f"fwd, bwd, step. Action_loss={loss_action_m.item()}")
+
     def prediction_step(self, inputs, labels, stream_sample_idxs: list, *args, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Default: Get all info we also get during training."""
@@ -161,25 +181,257 @@ class Method:
 
 @METHOD_REGISTRY.register()
 class Finetuning(Method):
+    run_predict_before_train = True
+
     def __init__(self, cfg, lightning_module):
         super().__init__(cfg, lightning_module)
 
-    def training_step(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
-        return super().training_step(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
+    def training_first_forward(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        return super().training_first_forward(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
 
 
 @METHOD_REGISTRY.register()
 class FinetuningMomentumReset(Method):
+    run_predict_before_train = True
+
     def __init__(self, cfg, lightning_module):
         super().__init__(cfg, lightning_module)
 
-    def training_step(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+    def training_first_forward(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
         if self.lightning_module.stream_state.is_clip_5min_transition:
             assert len(self.lightning_module.trainer.optimizers) == 1
             optimizer = self.lightning_module.trainer.optimizers[0]
             reset_optimizer_stats_(optimizer)
 
-        return super().training_step(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
+        return super().training_first_forward(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
+
+
+@METHOD_REGISTRY.register()
+class LabelShiftMeasure(Method):
+    run_predict_before_train = False
+
+    distance_modes = ['KL_cur_first', 'KL_cur_last', 'JS', 'IOU', 'IOU_inverse']
+    """
+    All distance modes give a measure of distance, higher values indicate higher distance,
+    indicating higher non-stationarity. IOU is a similarity metric, therefore consider inverse as well.
+    """
+
+    def __init__(self, cfg, lightning_module):
+        super().__init__(cfg, lightning_module)
+
+        # Empty task metrics
+        lightning_module.past_metrics = []
+        lightning_module.future_metrics = []
+        lightning_module.current_batch_metrics = []
+        lightning_module.continual_eval_freq = -1
+        lightning_module.plotting_log_freq = -1
+        logger.debug(f"Reset all metrics to empty.")
+
+        # Overwrite dataloaders
+        assert cfg.DATA.RETURN_VIDEO is False, \
+            f"Must set cfg.DATA.RETURN_VIDEO=False for efficient loading of stream labels only"
+        assert lightning_module.train_loader.dataset.return_video is False  # Only return labels
+        # lightning_module.train_loader.batch_size = 1 # Observe sample at a time -> But per-batch allows comparing with our AG runs of users
+        lightning_module.predict_loader = None
+
+        # States
+        self.lookback_stride = cfg.ANALYZE_STREAM.LOOKBACK_STRIDE_ITER  # How many iters to look back, take into account batch-size! (Because we have 1 window per iter)
+        self.window_size = cfg.ANALYZE_STREAM.WINDOW_SIZE_SAMPLES  # Determines length of window in samples
+        assert self.window_size <= self.lookback_stride * lightning_module.train_loader.batch_size, \
+            f"Window of size {self.window_size} should not overlap with previous window at" \
+            f"{self.lookback_stride * lightning_module.train_loader.batch_size} samples back"
+
+        # Memory history
+        self.window_history: deque[list[tuple]] = deque()  # Each window is a list of action-tuples
+
+        self.smoothing_distr = "uniform"
+        self.smoothing_strength = 0.01  # Convex smooth: strength * smoothing_strength + (1-strength) * smoothing_distr
+        assert self.smoothing_strength < 1
+
+    def training_first_forward(self, inputs_t, labels_t, current_batch_stream_idxs: list, *args, **kwargs):
+        """
+        TODO Return the metric measures we want to make here
+        :param inputs:
+        :param labels:
+        :param current_batch_stream_idxs:
+        :param args:
+        :param kwargs:
+        :return:
+        """
+        assert len(self.window_history) <= self.lookback_stride
+        loss = None
+        preds = None
+
+        # Current history window + current
+        window_t = set(current_batch_stream_idxs)
+        # assert len(window_t) == 1, "Should have batch size 1"
+
+        capacity_left = self.window_size - len(window_t)
+        assert capacity_left >= 0, "Batch size is larger than window!"
+
+        first_batch_idx = min(current_batch_stream_idxs)
+        first_past_idx = first_batch_idx - capacity_left
+
+        if first_past_idx < 0:
+            logger.debug(f"Window of size {self.window_size} not yet filled at "
+                         f"batch {self.lightning_module.stream_state.batch_idx} with "
+                         f"first sample idx {first_batch_idx}, last {max(current_batch_stream_idxs)}")
+            return loss, preds, {}
+        window_past_idxs = list(range(first_past_idx, first_batch_idx))
+
+        # Collect all labels
+        window_labels = [self.lightning_module.stream_state.sample_idx_to_action_list[label_idx]
+                         for label_idx in window_past_idxs + current_batch_stream_idxs]
+
+        self.window_history.append(window_labels)
+
+        if len(self.window_history) < self.lookback_stride + 1:  # Include current batch
+            logger.debug(f"batch {self.lightning_module.stream_state.batch_idx}:"
+                         f"Stride not yet met in history window len(Q)={len(self.window_history)}. "
+                         f"Lookback stride is {self.lookback_stride}.")
+            return loss, preds, {}
+
+        # If enough windows so we can compare newest with latest:
+        ref_window = self.window_history.popleft()
+        cur_window = window_labels
+
+        # Log all our proposed metrics
+        log_results = {}
+        for distance_mode in self.distance_modes:
+            action_dist, verb_dist, noun_dist = self._get_distances_action_verb_noun(
+                distance_mode, cur_window, ref_window)
+
+            log_results[
+                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='action', base_metric_name=distance_mode)
+            ] = action_dist
+
+            log_results[
+                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='verb', base_metric_name=distance_mode)
+            ] = verb_dist
+
+            log_results[
+                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='noun', base_metric_name=distance_mode)
+            ] = noun_dist
+
+        return loss, preds, log_results
+
+    def _get_distances_action_verb_noun(self, distance_mode: str, cur_action_window: list[tuple],
+                                        ref_action_window: list[tuple]):
+        """ Get the window distances for action/verb/noun. """
+        action_dist = self._get_distance(distance_mode, cur_action_window, ref_action_window)
+
+        cur_verb_window = [a[0] for a in cur_action_window]
+        ref_verb_window = [a[0] for a in ref_action_window]
+        verb_dist = self._get_distance(distance_mode, cur_verb_window, ref_verb_window)
+
+        cur_noun_window = [a[1] for a in cur_action_window]
+        ref_noun_window = [a[1] for a in ref_action_window]
+        noun_dist = self._get_distance(distance_mode, cur_noun_window, ref_noun_window)
+
+        return action_dist, verb_dist, noun_dist
+
+    def _get_distance(self, distance_mode: str, cur_window: list, ref_window: list):
+        """
+        :param cur_window: List of instances in the window, could be verbs,nouns (ints) or actions (tuples).
+        :param ref_window: Same.
+        :return: Distance metric between two count-based windows.
+        """
+
+        # TODO: Window to distr over action/verb/noun. Take fixed output-space distr -> But action space so large that depending on window-size distr will always be very similar.
+
+        # First count recurrences, then normalize over window to get distr
+        def occurrence_list_to_distr(occ_list):
+            """
+            :param occ_list: List of actions/verbs/nouns in the window. May contain duplicates.
+            """
+            action_to_cnt = Counter(occ_list)
+            total_occurrences = len(occ_list)
+
+            action_to_prob = {a: float(cnt / total_occurrences) for a, cnt in action_to_cnt.items()}
+
+            return action_to_prob
+
+        cur_action_to_prob = occurrence_list_to_distr(cur_window)
+        ref_action_to_prob = occurrence_list_to_distr(ref_window)
+
+        # Make probability tensors, use first one as ref
+        # Second adds its probavility for the action in order of ref
+        # For any actions not in ref, add to tail, and add zero to ref
+
+        # Create two tensors with len based on union of the actions
+        all_actions = set(cur_action_to_prob.keys()).union(set(ref_action_to_prob.keys()))
+
+        # Tensors
+        cur_distr_t = torch.zeros(len(all_actions))
+        ref_distr_t = torch.zeros(len(all_actions))
+
+        # Fill in same spot for same action
+        for idx, action in enumerate(all_actions):
+            if action in cur_action_to_prob:
+                cur_distr_t[idx] = cur_action_to_prob[action]
+            if action in ref_action_to_prob:
+                ref_distr_t[idx] = ref_action_to_prob[action]
+
+        # Calc distance
+        if 'IOU' in distance_mode:
+            intersect = set(cur_action_to_prob.keys()).intersection(set(ref_action_to_prob.keys()))
+            IOU = float(len(intersect) / len(all_actions))
+
+            if distance_mode == 'IOU':
+                dist = IOU
+
+            elif distance_mode == 'IOU_inverse':
+                dist = float(1 - IOU)
+
+            else:
+                raise ValueError()
+
+        else:
+            # Smooth distributions
+            cur_distr_ts = self.smooth_distr(cur_distr_t)
+            ref_distr_ts = self.smooth_distr(ref_distr_t)
+
+            if distance_mode == 'KL_cur_first':
+                # import pdb;pdb.set_trace()
+                dist = self.kl_div(p=cur_distr_ts, q=ref_distr_ts)
+
+            elif distance_mode == 'KL_cur_last':
+                dist = self.kl_div(p=ref_distr_ts, q=cur_distr_ts)
+
+            elif distance_mode == 'JS':
+                dist = self.js_div(p=ref_distr_ts, q=cur_distr_ts)
+            else:
+                return NotImplementedError()
+
+        return dist
+
+    def smooth_distr(self, distr_t: torch.Tensor):
+        if self.smoothing_distr == "uniform":
+            assert len(distr_t.shape) == 1
+            uniform = torch.ones_like(distr_t).div(distr_t.shape[0])
+
+            return (1 - self.smoothing_strength) * distr_t + self.smoothing_strength * uniform
+        else:
+            return ValueError()
+
+    @staticmethod
+    def kl_div(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
+        """ Uses natural log. KL(P || Q)"""
+        return ((p / q).log() * p).sum()
+
+    @staticmethod
+    def js_div(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
+        """ Jensen–Shannon divergence: Symmetric KL-div. JSD(P || Q)"""
+        m = 0.5 * (p + q)
+        return 0.5 * LabelShiftMeasure.kl_div(p, m) + 0.5 * LabelShiftMeasure.kl_div(q, m)
+
+    def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        """ No updates made. """
+        pass
+
+    def prediction_step(self, inputs, labels, stream_sample_idxs: list, *args, **kwargs) \
+            -> Tuple[Tensor, List[Tensor], Dict]:
+        raise NotImplementedError("Should not call prediction for this method.")
 
 
 @METHOD_REGISTRY.register()
@@ -187,7 +439,7 @@ class Replay(Method):
     """
     Pytorch Subset of original stream, with expanding indices.
     """
-
+    run_predict_before_train = True
     storage_policies = ['window', 'reservoir_stream', 'reservoir_action', 'reservoir_verbnoun']
     """
     window: A moving window with the current bath iteration. e.g. for Mem-size M, [t-M,t] indices are considered.
@@ -227,6 +479,7 @@ class Replay(Method):
         self.num_samples_memory = 0
 
     def train_before_update_batch_adapt(self, new_batch: Any, batch_idx: int) -> Any:
+        """ Before update, alter the new batch in the stream by adding a batch from Replay buffer of same size. """
         _, new_batch_labels, *_ = new_batch
         self.new_batch_size = new_batch_labels.shape[0]
         device = new_batch_labels.device
@@ -288,7 +541,7 @@ class Replay(Method):
 
         return joined_batch
 
-    def training_step(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs) \
+    def training_first_forward(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Training step for the method when observing a new batch.
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
@@ -372,6 +625,33 @@ class Replay(Method):
                     f"mem_size_per_conditional={self.mem_size_per_conditional}")
 
         return loss_total_actions_m, preds, log_results
+
+    def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        """ Given the loss from the first forward, update for inner_loop_iters. """
+        opt = self.lightning_module.optimizers()
+
+        if self.lightning_module.inner_loop_iters > 1:
+            raise NotImplementedError("Replay is only implemented now for 1 update."
+                                      "WIP 2 modes: Resample in inner_loop vs keep original replay batch.")
+
+        assert self.lightning_module.inner_loop_iters >= 1
+        for inner_iter in range(1, self.lightning_module.inner_loop_iters + 1):
+
+            if inner_iter == 1:
+                loss_action = loss_first_fwd
+
+            else:
+                fwd_inputs = copy.deepcopy(inputs)  # SlowFast in-place alters the inputs
+                preds = self.lightning_module.forward(fwd_inputs, return_feats=False)
+                loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
+                    preds, labels, self.loss_fun_train, mean=False
+                )
+
+            opt.zero_grad()  # Also clean grads for final
+            self.lightning_module.manual_backward(loss_action)  # Calculate grad
+            opt.step()
+            logger.info(f"[INNER-LOOP UPDATE] iter {inner_iter}/{self.lightning_module.inner_loop_iters}: "
+                        f"fwd, bwd, step. Action_loss={loss_action.item()}")
 
     def _store_samples_in_replay_memory(self, labels: torch.LongTensor, current_batch_stream_idxs: list):
 

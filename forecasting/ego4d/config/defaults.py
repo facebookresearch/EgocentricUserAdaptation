@@ -30,6 +30,13 @@ _C.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH = None
 _C.TRANSFER_EVAL.CSV_RANGE = (0, None)  # all
 
 # ---------------------------------------------------------------------------- #
+# Analyze options.
+# ---------------------------------------------------------------------------- #
+_C.ANALYZE_STREAM = CfgNode()
+_C.ANALYZE_STREAM.LOOKBACK_STRIDE_ITER = 1  # How many iters back to compare window with
+_C.ANALYZE_STREAM.WINDOW_SIZE_SAMPLES = 10  # How many iters back to compare window with
+
+# ---------------------------------------------------------------------------- #
 # DEBUG options
 # ---------------------------------------------------------------------------- #
 _C.CHECK_POST_VS_PRE_LOSS_DELTA = False
@@ -443,6 +450,9 @@ _C.MVIT.POOL_FIRST = False
 # Data options
 # -----------------------------------------------------------------------------
 _C.DATA = CfgNode()
+
+# Disable to only load labels (e.g. for stream analysis)
+_C.DATA.RETURN_VIDEO = True
 
 # User data splits
 _C.DATA.USER_SUBSET = 'train'  # train or test split for users.

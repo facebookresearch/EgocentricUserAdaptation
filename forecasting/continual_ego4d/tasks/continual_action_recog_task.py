@@ -345,12 +345,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.predict_loader = construct_predictstream_loader(
             self.train_loader, self.cfg, subset_idxes=self.predict_phase_load_idxs)
 
-        # Predict phase:
-        # If we first run predict phase, we can fill this dict with the results, this can then be used in trainphase
-        self.run_predict_before_train = True
-        """ Triggers running prediction phase before starting training on the stream. 
-        This allows preprocessing on the entire stream (e.g. collect pretraining losses and stream stats)."""
-
         # For data stream info dump. Is used as token for finishing the job
         self.dumpfile = self.cfg.COMPUTED_USER_DUMP_FILE
 
@@ -364,9 +358,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                                                total_capacity=self.cfg.CONTINUAL_EVAL.PAST_SAMPLE_CAPACITY)
         """ Samplers to process the future and past part of the stream. """
 
-        # Method
-        self.method: Method = build_method(cfg, self)
-
         # Metrics
         self.batch_metric_results = {}  # Stateful share metrics between different phases so can be reused
 
@@ -374,6 +365,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.future_metrics = []  # Empty metric-list skips future eval
         self.past_metrics = self._get_past_metrics()
         self.all_metrics = [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]
+
+        # Method
+        self.method: Method = build_method(cfg, self)
+
+        # Predict phase:
+        # If we first run predict phase, we can fill this dict with the results, this can then be used in trainphase
+        self.run_predict_before_train: bool = self.method.run_predict_before_train
+        """ Triggers running prediction phase before starting training on the stream. 
+        This allows preprocessing on the entire stream (e.g. collect pretraining losses and stream stats)."""
 
         logger.debug(f'Initialized {self.__class__.__name__}')
 
@@ -557,24 +557,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # PREDICTIONS + LOSS
         inputs, labels, video_names, _ = batch
 
-        # Do method callback (Get losses etc)
-        # This is the loss used for updates and the outputs of the entire batch.
-        # Note that for metrics: e.g. replay we don't want to use all outputs, but only the new ones from the stream
-        fwd_inputs = inputs
-        if self.enable_prepost_comparing:  # Make copy as inputs are adapted in-place in SlowFast
-            fwd_inputs = [inputs[i].clone() for i in range(len(inputs))]
-
-        loss, verbnoun_outputs, step_results = self.method.training_step(
-            fwd_inputs, labels, self.stream_state.stream_batch_sample_idxs
+        # Method-specific pre-update logging
+        loss_first_fwd, verbnoun_outputs, step_results = self.method.training_first_forward(
+            inputs, labels, self.stream_state.stream_batch_sample_idxs
         )
         self.add_to_dict_(self.batch_metric_results, step_results)
 
         logger.debug(f"Starting PRE-UPDATE evaluation: batch_idx={batch_idx}/{len(self.train_loader)}")
-        self.eval_current_stream_batch_preupdate_(
-            self.batch_metric_results,
-            [verbnoun_outputs[i][:self.stream_state.stream_batch_size] for i in range(2)],
-            labels[:self.stream_state.stream_batch_size]
-        )
+        self.eval_current_stream_batch_preupdate_(self.batch_metric_results, verbnoun_outputs, labels)
+
         # Perform additional eval
         if self.stream_state.eval_this_step:
             self.eval_future_data_(self.batch_metric_results, batch_idx)
@@ -583,24 +574,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         logger.debug(f"Finished training_step batch_idx={batch_idx}/{len(self.train_loader)}")
 
         # On the end of the step, do update
-        self._manual_update(loss)
-        # return loss
-
-    def _manual_update(self, loss):
-        opt = self.optimizers()
-        opt.zero_grad()
-        self.manual_backward(loss)
-        opt.step()
-        logger.info(f"[INNER-LOOP UPDATE] FINAL iter {self.inner_loop_iters}/{self.inner_loop_iters}: "
-                    f"action_loss={loss.item()}")
+        self.method.training_update_loop(
+            loss_first_fwd, inputs, labels, self.stream_state.stream_batch_sample_idxs
+        )
 
     def on_train_batch_end(self, outputs, batch: Any, batch_idx: int, unused: Optional[int] = 0) -> None:
         """
         Past samples should always be evaluated AFTER update step. The model is otherwise just
         updated on the latest batch in history it was just updated on (=pre-update model of the current batch).
         """
-        inputs, labels, video_names, _ = batch
-
         # Measure difference of pre-update results of current batch (e.g. forward second time)
         if self.enable_prepost_comparing:
             self.eval_current_stream_batch_postupdate_(self.batch_metric_results, batch)
@@ -615,7 +597,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 metric.save_result_to_history(current_batch_idx=batch_idx)
 
         # Update counts etc
-        self.stream_state.update_stream_seen_state(labels, batch_idx)
+        self.stream_state.update_stream_seen_state(self.stream_state.stream_batch_labels, batch_idx)
 
         # Plot metrics if possible
         if self.stream_state.plot_this_step:
@@ -674,6 +656,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     @_eval_in_train_decorator
     def eval_current_stream_batch_preupdate_(self, step_result, verbnoun_outputs, labels):
         """Add additional metrics for current batch in-place to the step_result dict."""
+        if len(self.current_batch_metrics) == 0:
+            logger.debug(f"Skipping pre-update eval current batch.")
+            return
+
+        # Make sure only current samples are included
+        verbnoun_outputs = [verbnoun_outputs[i][:self.stream_state.stream_batch_size] for i in range(2)]
+        labels = labels[:self.stream_state.stream_batch_size]
+
         logger.debug(f"Gathering online results")
         assert verbnoun_outputs[0].shape[0] == verbnoun_outputs[1].shape[0], \
             "Verbs and nouns output dims should be equal"
@@ -701,6 +691,10 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         Measure difference of pre-update results of current batch (e.g. forward second time)
         Again we only measure on stream data, not potential replay data.
         """
+        if len(self.current_batch_metrics) == 0:
+            logger.debug(f"Skipping post-update eval current batch.")
+            return
+
         full_slowfast_inputs, full_labels, _, _ = current_batch
         assert isinstance(full_slowfast_inputs, list) and len(full_slowfast_inputs) == 2, \
             "Only implemented for slowfast model"
@@ -744,6 +738,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         """Add additional metrics for future data (including current pre-update batch)
         in-place to the step_result dict."""
         if len(self.future_metrics) == 0:
+            logger.debug(f"batch {batch_idx}: Skipping future data eval.")
             return
         if batch_idx == len(self.train_loader):  # last batch
             logger.debug(f"Skipping results on future data for last batch")
@@ -772,6 +767,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     @_eval_in_train_decorator
     def eval_past_data_(self, step_result, batch_idx):
         if len(self.past_metrics) == 0:
+            logger.debug(f"batch {batch_idx}: Skipping past data eval.")
             return
         if batch_idx == 0:  # first batch
             logger.debug(f"Skipping first batch past data results (no observed data yet)")

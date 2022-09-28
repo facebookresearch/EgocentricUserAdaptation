@@ -71,6 +71,8 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
 
     def __init__(self, cfg, mode, debug=False):
         self.cfg = cfg
+        self.return_video = cfg.DATA.RETURN_VIDEO  # Can be toggled at run-time to avoid decoding videos and only returning labels
+
         assert mode in ["continual"], \
             "Split '{}' not supported for Continual Ego4d ".format(mode)
         self._debug = debug
@@ -184,57 +186,44 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                 }
         """
         for i_try in range(self._MAX_CONSECUTIVE_FAILURES):
-            try:
-                video_path, miniclip_info_dict = self.seq_input_list[index]
-                video = self.path_handler.video_from_path(
-                    video_path,
-                    decode_audio=self._decode_audio,
-                    decoder=self._decoder,
-                )
-            except Exception as e:
-                logger.debug(
-                    "Failed to load video with error: {}; trial {}".format(e, i_try)
-                )
-                continue
 
-            clip_start = miniclip_info_dict['clip_start_sec']
-            clip_end = miniclip_info_dict['clip_end_sec']
+            # Get next in list
+            video_path, miniclip_info_dict = self.seq_input_list[index]
+
             clip_index = miniclip_info_dict['clip_index']
             aug_index = miniclip_info_dict['aug_index']
 
-            # DECODE
-            decoded_clip = video.get_clip(clip_start, clip_end)
-            video_is_null = decoded_clip is None or decoded_clip["video"] is None
-
-            if video_is_null:
-                # Close the loaded encoded video and reset the last sampled clip time ready
-                # to sample a new video on the next iteration.
-                video.close()
-
-                # Force garbage collection to release video container immediately
-                # otherwise memory can spike.
-                gc.collect()
-
-                logger.debug("Failed to load clip {}; trial {}".format(video.name, i_try))
-                continue
-
-            frames = decoded_clip["video"]
-            audio_samples = decoded_clip["audio"]
+            # Set sequence id
             unique_sample_id = index.item() if isinstance(index, torch.Tensor) else index
 
             if self._debug:
                 logger.debug(f"decoded miniclip: {miniclip_info_dict}")
                 logger.debug(f"unique_sample_id={unique_sample_id}")
 
+            # Get input video
+            if self.return_video:
+                decoded_clip, video_name = self._get_decoded_clip(video_path, miniclip_info_dict, i_try)
+
+                if decoded_clip is None:  # If failed to decode, try again
+                    continue
+
+                frames = decoded_clip["video"]
+                audio_samples = decoded_clip["audio"]
+            else:
+                frames = []  # To enable default_collate_fn
+                audio_samples = []
+                video_name = "NO-VIDEO"
+
+            # Add to returned sample dict
             sample_dict = {
                 **miniclip_info_dict,
                 **({"audio": audio_samples} if audio_samples is not None else {}),
                 "video": frames,
-                "video_name": video.name,
+                "video_name": video_name,
                 "video_index": unique_sample_id,
                 "clip_index": clip_index,
                 "aug_index": aug_index,
-                "sample_index": unique_sample_id,  # Identifier for
+                "sample_index": unique_sample_id,  # Identifier in stream
             }
 
             if self._transform is not None:
@@ -246,34 +235,73 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
                 f"Failed to load video after {self._MAX_CONSECUTIVE_FAILURES} retries."
             )
 
+    def _get_decoded_clip(self, video_path, miniclip_info_dict, i_try):
+        """ Load video for given clip start and end and return decoded video. """
+        try:
+            video = self.path_handler.video_from_path(
+                video_path,
+                decode_audio=self._decode_audio,
+                decoder=self._decoder,
+            )
+        except Exception as e:
+            logger.debug(
+                "Failed to load video with error: {}; trial {}".format(e, i_try)
+            )
+            return None, None
+
+        clip_start = miniclip_info_dict['clip_start_sec']
+        clip_end = miniclip_info_dict['clip_end_sec']
+
+        # DECODE
+        decoded_clip = video.get_clip(clip_start, clip_end)
+        video_is_null = decoded_clip is None or decoded_clip["video"] is None
+
+        if video_is_null:
+            # Close the loaded encoded video and reset the last sampled clip time ready
+            # to sample a new video on the next iteration.
+            video.close()
+
+            # Force garbage collection to release video container immediately
+            # otherwise memory can spike.
+            gc.collect()
+
+            logger.debug("Failed to load clip {}; trial {}".format(video.name, i_try))
+            return None, None
+
+        return decoded_clip, video.name
+
     def __len__(self):
         return len(self.seq_input_list)
 
     def _make_transform(self, mode: str, cfg):
-        return Compose(
-            [
+        transf_list = []
+
+        if self.return_video:
+            transf_list.append(
                 ApplyTransformToKey(
                     key="video",
                     transform=Compose(
-                        [
-                            UniformTemporalSubsample(cfg.DATA.NUM_FRAMES),
-                            Lambda(lambda x: x / 255.0),
-                            Normalize(cfg.DATA.MEAN, cfg.DATA.STD),
-                        ]
+                        [UniformTemporalSubsample(cfg.DATA.NUM_FRAMES),
+                         Lambda(lambda x: x / 255.0),
+                         Normalize(cfg.DATA.MEAN, cfg.DATA.STD), ]
                         + video_transformer.random_scale_crop_flip(mode, cfg)
                         + [video_transformer.uniform_temporal_subsample_repeated(cfg)]  # Slow + fast sample for video
                     ),
                 ),
-                Lambda(
-                    lambda x: (
-                        x["video"],
-                        torch.tensor([x["verb_label"], x["noun_label"]]),
-                        str(x["video_name"]) + "_" + str(x["video_index"]),
-                        x['sample_index'],
-                    )
-                ),
-            ]
+            )
+
+        transf_list.append(
+            Lambda(
+                lambda x: (
+                    x["video"],
+                    torch.tensor([x["verb_label"], x["noun_label"]]),
+                    str(x["video_name"]) + "_" + str(x["video_index"]),
+                    x['sample_index'],
+                )
+            ),
         )
+
+        return Compose(transf_list)
 
 
 def extract_json(data_path):
