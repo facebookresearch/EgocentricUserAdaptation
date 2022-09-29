@@ -35,6 +35,7 @@ _C.TRANSFER_EVAL.CSV_RANGE = (0, None)  # all
 _C.ANALYZE_STREAM = CfgNode()
 _C.ANALYZE_STREAM.LOOKBACK_STRIDE_ITER = 1  # How many iters back to compare window with
 _C.ANALYZE_STREAM.WINDOW_SIZE_SAMPLES = 10  # How many iters back to compare window with
+_C.ANALYZE_STREAM.PARENT_DIR_FEAT_DUMP = ""  # Dir to take dumped feats from
 
 # ---------------------------------------------------------------------------- #
 # DEBUG options

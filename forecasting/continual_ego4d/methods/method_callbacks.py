@@ -17,6 +17,8 @@ from ego4d.utils import logging
 import pprint
 from continual_ego4d.utils.models import reset_optimizer_stats_
 from collections import Counter
+import torch.nn.functional as F
+import os
 
 from typing import TYPE_CHECKING
 from collections import deque
@@ -210,7 +212,8 @@ class FinetuningMomentumReset(Method):
 class LabelShiftMeasure(Method):
     run_predict_before_train = False
 
-    distance_modes = ['KL_cur_first', 'KL_cur_last', 'JS', 'IOU', 'IOU_inverse']
+    intra_distance_modes = ['entropy']
+    inter_distance_modes = ['KL_cur_first', 'KL_cur_last', 'JS', 'IOU', 'IOU_inverse']
     """
     All distance modes give a measure of distance, higher values indicate higher distance,
     indicating higher non-stationarity. IOU is a similarity metric, therefore consider inverse as well.
@@ -248,23 +251,9 @@ class LabelShiftMeasure(Method):
         self.smoothing_strength = 0.01  # Convex smooth: strength * smoothing_strength + (1-strength) * smoothing_distr
         assert self.smoothing_strength < 1
 
-    def training_first_forward(self, inputs_t, labels_t, current_batch_stream_idxs: list, *args, **kwargs):
-        """
-        TODO Return the metric measures we want to make here
-        :param inputs:
-        :param labels:
-        :param current_batch_stream_idxs:
-        :param args:
-        :param kwargs:
-        :return:
-        """
-        assert len(self.window_history) <= self.lookback_stride
-        loss = None
-        preds = None
-
+    def _get_window_idxs(self, current_batch_stream_idxs):
         # Current history window + current
         window_t = set(current_batch_stream_idxs)
-        # assert len(window_t) == 1, "Should have batch size 1"
 
         capacity_left = self.window_size - len(window_t)
         assert capacity_left >= 0, "Batch size is larger than window!"
@@ -276,29 +265,67 @@ class LabelShiftMeasure(Method):
             logger.debug(f"Window of size {self.window_size} not yet filled at "
                          f"batch {self.lightning_module.stream_state.batch_idx} with "
                          f"first sample idx {first_batch_idx}, last {max(current_batch_stream_idxs)}")
-            return loss, preds, {}
+            return None, False
         window_past_idxs = list(range(first_past_idx, first_batch_idx))
 
-        # Collect all labels
-        window_labels = [self.lightning_module.stream_state.sample_idx_to_action_list[label_idx]
-                         for label_idx in window_past_idxs + current_batch_stream_idxs]
+        return window_past_idxs + current_batch_stream_idxs, True
 
-        self.window_history.append(window_labels)
-
+    def _check_can_compare_windows(self):
+        """ Do we have enough windows in history to satisfy stride? """
         if len(self.window_history) < self.lookback_stride + 1:  # Include current batch
             logger.debug(f"batch {self.lightning_module.stream_state.batch_idx}:"
                          f"Stride not yet met in history window len(Q)={len(self.window_history)}. "
                          f"Lookback stride is {self.lookback_stride}.")
-            return loss, preds, {}
+            return False
+        return True
+
+    def training_first_forward(self, inputs_t, labels_t, current_batch_stream_idxs: list, *args, **kwargs):
+        assert len(self.window_history) <= self.lookback_stride
+        loss = None
+        preds = None
+        log_results = {}
+
+        all_idxs, valid_idxs = self._get_window_idxs(current_batch_stream_idxs)
+
+        if not valid_idxs:
+            return loss, preds, log_results
+
+        # Collect all labels
+        window_labels = [self.lightning_module.stream_state.sample_idx_to_action_list[label_idx]
+                         for label_idx in all_idxs]
+        self.window_history.append(window_labels)
+
+        # Single-window measures
+        for intra_distance_mode in self.intra_distance_modes:
+            action_dist, verb_dist, noun_dist = self._get_intra_window_distances_action_verb_noun(
+                intra_distance_mode, window_labels)
+
+            log_results[
+                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='action',
+                               base_metric_name=intra_distance_mode)
+            ] = action_dist
+
+            log_results[
+                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='verb',
+                               base_metric_name=intra_distance_mode)
+            ] = verb_dist
+
+            log_results[
+                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='noun',
+                               base_metric_name=intra_distance_mode)
+            ] = noun_dist
+
+        # Proceed to multi-window comparing
+        if not self._check_can_compare_windows():
+            return loss, preds, log_results
 
         # If enough windows so we can compare newest with latest:
         ref_window = self.window_history.popleft()
         cur_window = window_labels
 
         # Log all our proposed metrics
-        log_results = {}
-        for distance_mode in self.distance_modes:
-            action_dist, verb_dist, noun_dist = self._get_distances_action_verb_noun(
+        for distance_mode in self.inter_distance_modes:
+            action_dist, verb_dist, noun_dist = self._get_inter_window_distances_action_verb_noun(
                 distance_mode, cur_window, ref_window)
 
             log_results[
@@ -315,44 +342,58 @@ class LabelShiftMeasure(Method):
 
         return loss, preds, log_results
 
-    def _get_distances_action_verb_noun(self, distance_mode: str, cur_action_window: list[tuple],
-                                        ref_action_window: list[tuple]):
-        """ Get the window distances for action/verb/noun. """
-        action_dist = self._get_distance(distance_mode, cur_action_window, ref_action_window)
+    # INTRA: Within window
+    def _get_intra_window_distances_action_verb_noun(self, distance_mode: str, cur_action_window: list[tuple]):
+        """ Get the window distance metric within the window for action/verb/noun. """
+        action_dist = self._get_intra_window_distance(distance_mode, cur_action_window)
 
         cur_verb_window = [a[0] for a in cur_action_window]
-        ref_verb_window = [a[0] for a in ref_action_window]
-        verb_dist = self._get_distance(distance_mode, cur_verb_window, ref_verb_window)
+        verb_dist = self._get_intra_window_distance(distance_mode, cur_verb_window)
 
         cur_noun_window = [a[1] for a in cur_action_window]
-        ref_noun_window = [a[1] for a in ref_action_window]
-        noun_dist = self._get_distance(distance_mode, cur_noun_window, ref_noun_window)
+        noun_dist = self._get_intra_window_distance(distance_mode, cur_noun_window)
 
         return action_dist, verb_dist, noun_dist
 
-    def _get_distance(self, distance_mode: str, cur_window: list, ref_window: list):
+    def _get_intra_window_distance(self, distance_mode, cur_window):
+        cur_action_to_prob = self.occurrence_list_to_distr(cur_window)
+
+        p = torch.tensor(list(cur_action_to_prob.values()))  # Order doesn't matter
+        # No smoothing required, all probs are non-zero
+
+        if distance_mode == 'entropy':
+            dist = self.entropy(p)
+
+        else:
+            return NotImplementedError()
+
+        return dist
+
+    # INTER: Between 2 windows
+    def _get_inter_window_distances_action_verb_noun(self, distance_mode: str, cur_action_window: list[tuple],
+                                                     ref_action_window: list[tuple]):
+        """ Get the window distances between two windwos for action/verb/noun. """
+        action_dist = self._get_inter_window_distance(distance_mode, cur_action_window, ref_action_window)
+
+        cur_verb_window = [a[0] for a in cur_action_window]
+        ref_verb_window = [a[0] for a in ref_action_window]
+        verb_dist = self._get_inter_window_distance(distance_mode, cur_verb_window, ref_verb_window)
+
+        cur_noun_window = [a[1] for a in cur_action_window]
+        ref_noun_window = [a[1] for a in ref_action_window]
+        noun_dist = self._get_inter_window_distance(distance_mode, cur_noun_window, ref_noun_window)
+
+        return action_dist, verb_dist, noun_dist
+
+    def _get_inter_window_distance(self, distance_mode: str, cur_window: list, ref_window: list):
         """
         :param cur_window: List of instances in the window, could be verbs,nouns (ints) or actions (tuples).
         :param ref_window: Same.
         :return: Distance metric between two count-based windows.
         """
 
-        # TODO: Window to distr over action/verb/noun. Take fixed output-space distr -> But action space so large that depending on window-size distr will always be very similar.
-
-        # First count recurrences, then normalize over window to get distr
-        def occurrence_list_to_distr(occ_list):
-            """
-            :param occ_list: List of actions/verbs/nouns in the window. May contain duplicates.
-            """
-            action_to_cnt = Counter(occ_list)
-            total_occurrences = len(occ_list)
-
-            action_to_prob = {a: float(cnt / total_occurrences) for a, cnt in action_to_cnt.items()}
-
-            return action_to_prob
-
-        cur_action_to_prob = occurrence_list_to_distr(cur_window)
-        ref_action_to_prob = occurrence_list_to_distr(ref_window)
+        cur_action_to_prob = self.occurrence_list_to_distr(cur_window)
+        ref_action_to_prob = self.occurrence_list_to_distr(ref_window)
 
         # Make probability tensors, use first one as ref
         # Second adds its probavility for the action in order of ref
@@ -392,7 +433,6 @@ class LabelShiftMeasure(Method):
             ref_distr_ts = self.smooth_distr(ref_distr_t)
 
             if distance_mode == 'KL_cur_first':
-                # import pdb;pdb.set_trace()
                 dist = self.kl_div(p=cur_distr_ts, q=ref_distr_ts)
 
             elif distance_mode == 'KL_cur_last':
@@ -405,6 +445,19 @@ class LabelShiftMeasure(Method):
 
         return dist
 
+    # First count recurrences, then normalize over window to get distr
+    @staticmethod
+    def occurrence_list_to_distr(occ_list):
+        """
+        :param occ_list: List of actions/verbs/nouns in the window. May contain duplicates.
+        """
+        action_to_cnt = Counter(occ_list)
+        total_occurrences = len(occ_list)
+
+        action_to_prob = {a: float(cnt / total_occurrences) for a, cnt in action_to_cnt.items()}
+
+        return action_to_prob
+
     def smooth_distr(self, distr_t: torch.Tensor):
         if self.smoothing_distr == "uniform":
             assert len(distr_t.shape) == 1
@@ -413,6 +466,11 @@ class LabelShiftMeasure(Method):
             return (1 - self.smoothing_strength) * distr_t + self.smoothing_strength * uniform
         else:
             return ValueError()
+
+    @staticmethod
+    def entropy(p: torch.Tensor) -> torch.Tensor:
+        """ Uses natural log. KL(P || Q)"""
+        return (p.log() * p).sum()
 
     @staticmethod
     def kl_div(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
@@ -432,6 +490,112 @@ class LabelShiftMeasure(Method):
     def prediction_step(self, inputs, labels, stream_sample_idxs: list, *args, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         raise NotImplementedError("Should not call prediction for this method.")
+
+
+@METHOD_REGISTRY.register()
+class FeatShiftMeasure(LabelShiftMeasure):
+    run_predict_before_train = False
+
+    inter_distance_modes = [
+        'win_avg_cos',  # Avg feats per window, calc cos-distance between avgs.
+    ]
+
+    def __init__(self, cfg, lightning_module):
+        super().__init__(cfg, lightning_module)
+
+        path = os.path.join(cfg.ANALYZE_STREAM.PARENT_DIR_FEAT_DUMP,
+                            'user_logs', f'user_{cfg.DATA.COMPUTED_USER_ID}', 'stream_info_dump.pth')
+        dump = torch.load(path)
+        self.sample_idx_to_feat = dump['sample_idx_to_feat']
+
+        # Empty task metrics
+        self.window_history: deque[torch.Tensor] = deque()  # Each window is a list of action-tuples
+
+    def training_first_forward(self, inputs_t, labels_t, current_batch_stream_idxs: list, *args, **kwargs):
+        assert len(self.window_history) <= self.lookback_stride
+        loss = None
+        preds = None
+        log_results = {}
+
+        all_window_idxs, is_valid_idxs = self._get_window_idxs(current_batch_stream_idxs)
+
+        if not is_valid_idxs:
+            return loss, preds, {}
+
+        # Collect all feats
+        window_feats_t = torch.stack([self.sample_idx_to_feat[label_idx] for label_idx in all_window_idxs])
+        self.window_history.append(window_feats_t)
+
+        # Report current window metrics
+        # Log all our proposed metrics
+        _, cur_window_avg_var = self.get_window_feat_mean_and_var(window_feats_t)
+
+        log_results[
+            get_metric_tag(TAG_BATCH, train_mode='analyze', base_metric_name='cur_window_avg_var')
+        ] = cur_window_avg_var.item()
+
+        # Progress with comparing windows
+        if not self._check_can_compare_windows():
+            return loss, preds, {}
+
+        # If enough windows so we can compare newest with latest:
+        ref_window = self.window_history.popleft()
+        cur_window = window_feats_t
+
+        # Log all our proposed metrics
+        feat_distance, cur_window_avg_var, ref_window_avg_var = self.get_inter_batch_feat_distance(
+            cur_window, ref_window
+        )
+
+        log_results[
+            get_metric_tag(TAG_BATCH, train_mode='analyze', base_metric_name=self.inter_distance_modes[0])
+        ] = feat_distance.item()
+
+        log_results[
+            get_metric_tag(TAG_BATCH, train_mode='analyze', base_metric_name='ref_window_avg_var')
+        ] = ref_window_avg_var.item()
+
+        return loss, preds, log_results
+
+    def get_inter_batch_feat_distance(self, cur_window: torch.Tensor, ref_window: torch.Tensor) \
+            -> (torch.Tensor, torch.Tensor, torch.Tensor):
+        """
+        Per window: Normalize feats, avg, re-normalize. Get avg variance.
+
+        Two-windows: Get dot-product of batch avgs.
+
+        :param cur_window: torch.Size([20, 1, 1, 1, 2304]) from SlowFast
+        :param ref_window: torch.Size([20, 1, 1, 1, 2304]) from SlowFast
+        :return:
+        """
+        cur_window_nmn, cur_window_avg_var = self.get_window_feat_mean_and_var(cur_window)
+        ref_window_nmn, ref_window_avg_var = self.get_window_feat_mean_and_var(ref_window)
+
+        # Calc dot-product = cos-similarity with normalized feats
+        dp = (cur_window_nmn * ref_window_nmn).sum()
+
+        return dp, cur_window_avg_var, ref_window_avg_var
+
+    def get_window_feat_mean_and_var(self, window: torch.Tensor):
+        """Normalize feats, average, re-normalize.
+        Return normalized average and mean variance over normalized features. """
+        window = window.squeeze()  # torch.Size([20, 1, 1, 1, 2304]) -> torch.Size([20, 2304])
+
+        assert len(window.shape) == 2, f"Not flattened features, shape={window.shape}"
+
+        # Normalize, avg, renormalize feats
+        window_n = F.normalize(window, p=2, dim=1)  # Normalize non-batch dim
+
+        # Avg
+        window_nm = window_n.mean(dim=0)  # Avg batch dim: torch.Size([2304])
+
+        # Report in-batch avg of variance diagonal of feats
+        cur_window_avg_var = window_n.var(dim=0).mean()  # Avg batch dim: torch.Size([2304]) -> torch.Size([1])
+
+        # Re-normalize
+        cur_window_nmn = F.normalize(window_nm, p=2, dim=0)  # torch.Size([2304])
+
+        return cur_window_nmn, cur_window_avg_var
 
 
 @METHOD_REGISTRY.register()
