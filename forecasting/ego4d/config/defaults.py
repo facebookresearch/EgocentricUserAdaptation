@@ -544,6 +544,8 @@ _C.SOLVER = CfgNode()
 # Base learning rate.
 _C.SOLVER.BASE_LR = 0.1
 
+_C.SOLVER.CLASSIFIER_LR = None # Overwrite classifier LR
+
 # Learning rate policy (see utils/lr_policy.py for options and examples).
 _C.SOLVER.LR_POLICY = "cosine"
 

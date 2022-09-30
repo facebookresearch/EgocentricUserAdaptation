@@ -26,33 +26,39 @@ def construct_optimizer(model, cfg):
         cfg (config): configs of hyper-parameters of SGD or ADAM, includes base
         learning rate,  momentum, weight_decay, dampening, and etc.
     """
-    # Batchnorm parameters.
-    bn_params = []
-    # Non-batchnorm parameters.
-    non_bn_parameters = []
+
+    bn_params = []  # Batchnorm parameters.
+    feat_params_non_bn = []  # Non-batchnorm parameters.
+    classifier_params = []  # Separate classifier
     for name, p in model.named_parameters():
         if "bn" in name:
             bn_params.append(p)
+        elif "head" in name:
+            classifier_params.append(p)
         else:
-            non_bn_parameters.append(p)
+            feat_params_non_bn.append(p)
+
     # Apply different weight decay to Batchnorm and non-batchnorm parameters.
     # In Caffe2 classification codebase the weight decay for batchnorm is 0.0.
     # Having a different weight decay on batchnorm might cause a performance
     # drop.
+
+    classifier_lr = cfg.SOLVER.CLASSIFIER_LR if cfg.SOLVER.CLASSIFIER_LR is not None else cfg.SOLVER.BASE_LR
     optim_params = [
-        {"params": bn_params, "weight_decay": cfg.BN.WEIGHT_DECAY},
-        {"params": non_bn_parameters, "weight_decay": cfg.SOLVER.WEIGHT_DECAY},
+        {"params": bn_params, "weight_decay": cfg.BN.WEIGHT_DECAY, "lr": cfg.SOLVER.BASE_LR, },
+        {"params": feat_params_non_bn, "weight_decay": cfg.SOLVER.WEIGHT_DECAY, "lr": cfg.SOLVER.BASE_LR, },
+        {"params": classifier_params, "weight_decay": cfg.SOLVER.WEIGHT_DECAY, "lr": classifier_lr, },
     ]
+    logger.info(f"Classifier LR={classifier_lr}, base LR={cfg.SOLVER.BASE_LR}")
+
     # Check all parameters will be passed into optimizer.
-    assert len(list(model.parameters())) == len(non_bn_parameters) + len(
-        bn_params
-    ), "parameter size does not match: {} + {} != {}".format(
-        len(non_bn_parameters), len(bn_params), len(list(model.parameters()))
-    )
+    assert len(list(model.parameters())) == len(feat_params_non_bn) + len(bn_params) + len(classifier_params), \
+        "parameter size does not match: {} + {} + {} != {}".format(
+            len(feat_params_non_bn), len(bn_params), len(classifier_params), len(list(model.parameters()))
+        )
 
     if cfg.SOLVER.OPTIMIZING_METHOD == "sgd":
         settings_dict = {
-            "lr": cfg.SOLVER.BASE_LR,
             "momentum": cfg.SOLVER.MOMENTUM,
             "weight_decay": cfg.SOLVER.WEIGHT_DECAY,
             "dampening": cfg.SOLVER.DAMPENING,
@@ -65,7 +71,7 @@ def construct_optimizer(model, cfg):
         )
     elif cfg.SOLVER.OPTIMIZING_METHOD == "adam":
         settings_dict = {
-            "lr": cfg.SOLVER.BASE_LR,
+            # "lr": cfg.SOLVER.BASE_LR,
             "betas": (0.9, 0.999),
             "weight_decay": cfg.SOLVER.WEIGHT_DECAY,
         }

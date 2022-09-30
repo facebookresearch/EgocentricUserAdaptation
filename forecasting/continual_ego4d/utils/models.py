@@ -61,7 +61,7 @@ def grad_dict_to_vector(grad_dict: dict[torch.Tensor], name_filters: list[str] =
 
     # Make deterministic order
     grad_names = sorted(grad_names)
-    grad_dims = [grad_dict[grad_name].numel() for grad_name in grad_names] # Make vector
+    grad_dims = [grad_dict[grad_name].numel() for grad_name in grad_names]  # Make vector
 
     flat_grad = None  # Init with model params device
     offset_idx = 0
@@ -122,8 +122,15 @@ def get_flat_gradient_vector(model: torch.nn.Module, name_filters: list[str] = N
     return flat_grad
 
 
-def reset_optimizer_stats_(optimizer):
-    """ Reset stats of optimizer, such as momentum. """
+def reset_optimizer_stats_(optimizer: torch.optim.Optimizer):
+    """ Reset stats of optimizer, such as momentum.
+
+    State keeps per parameter a dict of state-pairs, such as 'momentum_buffer' for SGD.
+    The state is independent of the number of parameter groups, hence resetting state resets for all groups.
+
+    e.g. for SGD: https://pytorch.org/docs/stable/_modules/torch/optim/sgd.html#SGD
+    State: dict(<param, {'momentum_buffer': <value> })>)
+    """
     optimizer.__setstate__({'state': defaultdict(dict)})
     logger.info("Optimizer state is reset.")
 
