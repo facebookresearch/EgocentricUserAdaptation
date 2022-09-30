@@ -1,7 +1,7 @@
 import copy
 from abc import ABC, abstractmethod
 from continual_ego4d.methods.build import build_method, METHOD_REGISTRY
-from typing import Dict, Tuple, List, Any
+from typing import Dict, Tuple, List, Any, Union
 from torch import Tensor
 from pytorch_lightning.core import LightningModule
 import torch
@@ -19,6 +19,7 @@ from continual_ego4d.utils.models import reset_optimizer_stats_
 from collections import Counter
 import torch.nn.functional as F
 import os
+from continual_ego4d.utils.models import get_flat_gradient_vector, get_name_to_grad_dict, grad_dict_to_vector
 
 from typing import TYPE_CHECKING
 from collections import deque
@@ -642,6 +643,9 @@ class Replay(Method):
         self.num_observed_samples = 0
         self.num_samples_memory = 0
 
+        # Compare gradient norms and dot-product
+        self.compare_gradients = cfg.METHOD.REPLAY.ANALYZE_GRADS
+
     def train_before_update_batch_adapt(self, new_batch: Any, batch_idx: int) -> Any:
         """ Before update, alter the new batch in the stream by adding a batch from Replay buffer of same size. """
         _, new_batch_labels, *_ = new_batch
@@ -711,9 +715,12 @@ class Replay(Method):
         Return Loss,  prediction outputs,a nd dictionary of result metrics to log."""
         assert len(current_batch_stream_idxs) == self.new_batch_size, \
             "current_batch_stream_idxs should only include new-batch idxs"
+
         total_batch_size = labels.shape[0]
         mem_batch_size = total_batch_size - self.new_batch_size
         self.num_observed_samples += self.new_batch_size
+
+        log_results = {}
 
         # Forward at once
         preds, feats = self.lightning_module.forward(inputs, return_feats=True)
@@ -736,13 +743,17 @@ class Replay(Method):
             loss_mem_verbs_m = torch.mean(loss_verbs[self.new_batch_size:])
             loss_mem_nouns_m = torch.mean(loss_nouns[self.new_batch_size:])
             loss_mem_actions_m = loss_mem_verbs_m + loss_mem_nouns_m
-
+            has_mem_batch = True
         else:
             loss_mem_verbs_m = loss_mem_nouns_m = loss_mem_actions_m = torch.FloatTensor([0]).to(loss_verbs.device)
+            has_mem_batch = False
 
         loss_total_verbs_m = (loss_new_verbs_m + loss_mem_verbs_m) / 2
         loss_total_nouns_m = (loss_new_nouns_m + loss_mem_nouns_m) / 2
         loss_total_actions_m = (loss_new_actions_m + loss_mem_actions_m) / 2
+
+        if self.compare_gradients:
+            self.log_gradient_analysis_(log_results, loss_new_actions_m, loss_mem_actions_m, new_only=not has_mem_batch)
 
         self.update_stream_tracking(
             stream_sample_idxs=current_batch_stream_idxs,
@@ -755,29 +766,31 @@ class Replay(Method):
         )
 
         log_results = {
-            # Total
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
-                           base_metric_name=f"loss_total"): loss_total_verbs_m.item(),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
-                           base_metric_name=f"loss_total"): loss_total_nouns_m.item(),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
-                           base_metric_name=f"loss_total"): loss_total_actions_m.item(),
+            **log_results, **{
+                # Total
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
+                               base_metric_name=f"loss_total"): loss_total_verbs_m.item(),
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
+                               base_metric_name=f"loss_total"): loss_total_nouns_m.item(),
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
+                               base_metric_name=f"loss_total"): loss_total_actions_m.item(),
 
-            # Mem
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
-                           base_metric_name=f"loss_mem"): loss_mem_verbs_m.item(),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
-                           base_metric_name=f"loss_mem"): loss_mem_nouns_m.item(),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
-                           base_metric_name=f"loss_mem"): loss_mem_actions_m.item(),
+                # Mem
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
+                               base_metric_name=f"loss_mem"): loss_mem_verbs_m.item(),
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
+                               base_metric_name=f"loss_mem"): loss_mem_nouns_m.item(),
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
+                               base_metric_name=f"loss_mem"): loss_mem_actions_m.item(),
 
-            # New
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
-                           base_metric_name=f"loss_new"): loss_new_verbs_m.item(),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
-                           base_metric_name=f"loss_new"): loss_new_nouns_m.item(),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
-                           base_metric_name=f"loss_new"): loss_new_actions_m.item(),
+                # New
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb',
+                               base_metric_name=f"loss_new"): loss_new_verbs_m.item(),
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun',
+                               base_metric_name=f"loss_new"): loss_new_nouns_m.item(),
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action',
+                               base_metric_name=f"loss_new"): loss_new_actions_m.item(),
+            }
         }
 
         # Store samples
@@ -789,6 +802,59 @@ class Replay(Method):
                     f"mem_size_per_conditional={self.mem_size_per_conditional}")
 
         return loss_total_actions_m, preds, log_results
+
+    def log_gradient_analysis_(self, log_results, loss_new_actions_m, loss_mem_actions_m, new_only=False):
+        logger.debug(f"Comparing gradients new vs memory")
+        opt = self.lightning_module.optimizers()
+
+        # NEW batch
+        opt.zero_grad()  # Make sure no grads
+        self.lightning_module.manual_backward(loss_new_actions_m, retain_graph=True)  # Calculate grad
+        new_grad_dict = get_name_to_grad_dict(self.lightning_module.model)
+
+        # MEM batch
+        if not new_only:
+            opt.zero_grad()  # Make sure no grads
+            self.lightning_module.manual_backward(loss_mem_actions_m, retain_graph=True)  # Calculate grad
+            mem_grad_dict = get_name_to_grad_dict(self.lightning_module.model)
+
+        # Clear gradients again for later full backprop
+        opt.zero_grad()
+
+        # Now get for all subsets of grads the norm and cos-sim
+        for log_name, grad_name_filters, filter_incl in [
+            ("full", None, True),
+            ("slow", ['pathway0'], True),
+            ("fast", ['pathway1'], True),
+            ("head", ['head'], True),
+            ("feat", ['head'], False),  # all but head
+        ]:
+            # NEW results
+            new_grad = grad_dict_to_vector(new_grad_dict, grad_name_filters, include_filter=filter_incl)
+            new_grad_norm = new_grad.pow(2).sum().sqrt().item()  # Get L2 norm
+
+            # Add results
+            log_results[
+                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='action',
+                               base_metric_name=f"{log_name}_new_grad_norm")
+            ] = new_grad_norm
+
+            # MEM results
+            if not new_only:
+                mem_grad = grad_dict_to_vector(mem_grad_dict, grad_name_filters, include_filter=filter_incl)
+                mem_grad_norm = new_grad.pow(2).sum().sqrt().item()  # Get L2 norm
+
+                grad_cos_sim = (F.normalize(new_grad, p=2, dim=0) * F.normalize(mem_grad, p=2, dim=0)).sum().item()
+
+                log_results[
+                    get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='action',
+                                   base_metric_name=f"{log_name}_grad_cos_sim")
+                ] = grad_cos_sim
+
+                log_results[
+                    get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='action',
+                                   base_metric_name=f"{log_name}_mem_grad_norm")
+                ] = mem_grad_norm
 
     def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
         """ Given the loss from the first forward, update for inner_loop_iters. """
