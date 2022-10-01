@@ -291,7 +291,7 @@ class MultiTaskHead(nn.Module):
 
     def forward(self, inputs):
         feat = self.merge_slowfast_feats(inputs)
-        return self.forward_merged_feats(feat)
+        return self.forward_merged_feat(feat)
 
 
 class MultiTaskMViTHead(nn.Module):

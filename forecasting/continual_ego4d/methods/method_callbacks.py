@@ -972,11 +972,12 @@ class ContextAwareAdaptation(object):
     """ Make sure not inherits from Method, as wrapper should call error if method/property not properly wrapped. """
 
     def __init__(self, cfg, lightning_module):
-        super().__init__(cfg, lightning_module)
-
         # ORIGINAL METHOD TO WRAP
         self.method_to_wrap: Method = build_method(cfg, lightning_module, name=cfg.CONTEXT_ADAPT.WRAPS_METHOD)
         self.method_to_wrap.__init__(cfg, lightning_module)
+
+        self.lightning_module = self.method_to_wrap.lightning_module
+        self.cfg = cfg
 
         # Assert wrapped_method names (not starting with _) are wrapped here
         for attr_name in dir(Method):
@@ -994,6 +995,10 @@ class ContextAwareAdaptation(object):
         self.max_mem_size = cfg.CONTEXT_ADAPT.MEM_SIZE
         self.first_idx_to_fill = 0  # Circular buffer
 
+        # Disabel in init prediction
+        self.disable_in_prediction = True
+        self.is_disabled = False  # State param
+
         # Head
         """
         See: https://pytorch.org/docs/1.9.1/generated/torch.nn.MultiheadAttention.html?highlight=attention#torch.nn.MultiheadAttention
@@ -1006,27 +1011,38 @@ class ContextAwareAdaptation(object):
             vdim=None,  # Keep same output dim
         )
 
+        # Overwrite fwd fn
+        self.lightning_module.forward = self.forward_overwrite  # Both during training/prediction
+
+        self.added_att_params = False
+
+    def _update_optimizer(self):
         # Add head to optimizer
         opt: torch.optim.Optimizer = self.lightning_module.optimizers()  # Assume single
         opt.add_param_group({
             "params": list(self.att_head.parameters()),
-            "lr": cfg.SOLVER.BASE_LR,
+            "lr": self.cfg.SOLVER.BASE_LR,
         })
-
-        # Overwrite fwd fn
-        self.lightning_module.forward = self.forward_overwrite  # Both during training/prediction
 
     def forward_overwrite(self, x, return_feats=False):
 
+        if self.is_disabled:
+            return self.lightning_module.model.forward(x, return_feats=return_feats)
+
+        if not self.added_att_params:
+            self.added_att_params = True
+            self.att_head.to(next(iter(self.lightning_module.model.parameters())).device)
+            self._update_optimizer()
+
         # Q: Use feats as Queries
-        direct_preds, in_feats = self.lightning_module.forward(x, return_feats=True)  # Always return feats
+        direct_preds, in_feats = self.lightning_module.model.forward(x, return_feats=True)  # Always return feats
         squeeze_dims = [idx for idx, shape_dim in enumerate(in_feats.shape) if shape_dim == 1]
         f_in = in_feats.squeeze()  # Get rid of 1 dims
 
         # K,V: Get feats from memory and add self-feats
         f_kv_mem = self._get_feats_from_mem()
 
-        f_kv = torch.stack((f_kv_mem, f_in)) if f_kv_mem is not None else f_in
+        f_kv = torch.cat((f_kv_mem, f_in)) if f_kv_mem is not None else f_in
 
         # Store feats
         self._store_feats_in_mem(f_in)
@@ -1037,10 +1053,11 @@ class ContextAwareAdaptation(object):
         # Q,K,V: Forward through head
         q = f_in.unsqueeze(0)  # With batch_first dim, add batch-dim=1 (process all feats in batch as tokens)
         k = v = f_kv.unsqueeze(0)
-        att_feats = self.att_head(q, k, v).squeeze()  # Get rid of batch dim
+        att_feats, _ = self.att_head(q, k, v)  # torch.Size([1, 4, 2304])
+        att_feats.squeeze_()  # Get rid of batch dim
 
         # Forward new feats through classifier head
-        head_wrap = getattr(self.lightning_module.model, self.head_name)
+        head_wrap = getattr(self.lightning_module.model, self.lightning_module.model.head_name)
         multitask_head = None
         for module in head_wrap.children():  # If Sequential wrapper around head
             if isinstance(module, MultiTaskHead):
@@ -1049,26 +1066,27 @@ class ContextAwareAdaptation(object):
         assert multitask_head is not None, "Not found MultiTask head"
 
         # Return preds (and new feats if return_feats=True)
-        ret_feats = f_kv
         for squeeze_dim in squeeze_dims:
-            ret_feats = ret_feats.unsqueeze(squeeze_dim)  # Add dims again for SlowFast head
+            att_feats = att_feats.unsqueeze(squeeze_dim)  # Add dims again for SlowFast head
 
-        att_preds = multitask_head(att_feats)
+        att_preds = multitask_head.forward_merged_feat(att_feats)
 
         if return_feats:
-            return att_preds, ret_feats
+            return att_preds, att_feats
         else:
             return att_preds
 
     def _get_feats_from_mem(self):
         """ Return entire buffer. """
+        if self.feat_mem is None:
+            return None
         return self.feat_mem[:self.n_samples_in_mem]  # Just return all
 
     def _store_feats_in_mem(self, feats):
         """ Store current feats in the memory. """
 
         if self.feat_mem is None:
-            self.feat_mem = torch.tensor((self.max_mem_size, feats.shape[-1]), device=feats.device)
+            self.feat_mem = torch.Tensor(self.max_mem_size, feats.shape[-1]).to(feats.device)
 
         # FIFO
         bs = feats.shape[0]
@@ -1103,4 +1121,10 @@ class ContextAwareAdaptation(object):
         return self.method_to_wrap.training_update_loop(*args, **kwargs)
 
     def prediction_step(self, *args, **kwargs):
-        return self.method_to_wrap.prediction_step(*args, **kwargs)
+        if self.disable_in_prediction:
+            self.is_disabled = True
+
+        ret = self.method_to_wrap.prediction_step(*args, **kwargs)
+        self.is_disabled = False
+
+        return ret

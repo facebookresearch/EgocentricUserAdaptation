@@ -19,6 +19,13 @@ _C.RUN_UID = ""
 # ---------------------------------------------------------------------------- #
 # TRANSFER EVAL options
 # ---------------------------------------------------------------------------- #
+_C.CONTEXT_ADAPT = CfgNode()
+_C.CONTEXT_ADAPT.MEM_SIZE = 10
+_C.CONTEXT_ADAPT.WRAPS_METHOD = "Finetuning"
+
+# ---------------------------------------------------------------------------- #
+# TRANSFER EVAL options
+# ---------------------------------------------------------------------------- #
 _C.TRANSFER_EVAL = CfgNode()
 _C.TRANSFER_EVAL.WANDB_PROJECT_NAME = ""
 _C.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL = ""
@@ -544,7 +551,7 @@ _C.SOLVER = CfgNode()
 # Base learning rate.
 _C.SOLVER.BASE_LR = 0.1
 
-_C.SOLVER.CLASSIFIER_LR = None # Overwrite classifier LR
+_C.SOLVER.CLASSIFIER_LR = None  # Overwrite classifier LR
 
 # Learning rate policy (see utils/lr_policy.py for options and examples).
 _C.SOLVER.LR_POLICY = "cosine"
