@@ -257,6 +257,9 @@ class MultiTaskHead(nn.Module):
 
     def merge_slowfast_feats(self, inputs):
         """ Slow and fast pathway merge. """
+        assert len(inputs) == self.num_pathways, \
+            "Input tensor does not contain {} pathway".format(self.num_pathways)
+
         pool_out = []
         for pathway in range(self.num_pathways):
             m = getattr(self, "pathway{}_avgpool".format(pathway))
@@ -267,16 +270,10 @@ class MultiTaskHead(nn.Module):
         x = x.permute((0, 2, 3, 4, 1))
         return x
 
-    def forward(self, inputs):
-        assert (
-                len(inputs) == self.num_pathways
-        ), "Input tensor does not contain {} pathway".format(self.num_pathways)
-
-        feat = self.merge_slowfast_feats(inputs)
-
+    def forward_merged_feat(self, merged_feat):
         # Perform dropout.
         if hasattr(self, "dropout"):
-            feat = self.dropout(feat)
+            feat = self.dropout(merged_feat)
 
         x = []
         for projection in self.projections:
@@ -291,6 +288,10 @@ class MultiTaskHead(nn.Module):
 
         x = [x_i.view(x_i.shape[0], -1) for x_i in x]
         return x
+
+    def forward(self, inputs):
+        feat = self.merge_slowfast_feats(inputs)
+        return self.forward_merged_feats(feat)
 
 
 class MultiTaskMViTHead(nn.Module):

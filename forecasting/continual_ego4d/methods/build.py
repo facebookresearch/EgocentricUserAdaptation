@@ -12,7 +12,7 @@ The call should return a `torch.nn.Module` object.
 """
 
 
-def build_method(cfg, trainer):
+def build_method(cfg, trainer, name=None):
     """
     Builds the method callback.
     Args:
@@ -20,6 +20,6 @@ def build_method(cfg, trainer):
         method. Details can be seen in ego4d/config/defaults.py.
     """
     # Construct the method
-    name = cfg.METHOD.METHOD_NAME
+    name = cfg.METHOD.METHOD_NAME if name is None else name
     method = METHOD_REGISTRY.get(name)(cfg, trainer)
     return method

@@ -20,6 +20,7 @@ from collections import Counter
 import torch.nn.functional as F
 import os
 from continual_ego4d.utils.models import get_flat_gradient_vector, get_name_to_grad_dict, grad_dict_to_vector
+from ego4d.models.head_helper import MultiTaskHead
 
 from typing import TYPE_CHECKING
 from collections import deque
@@ -45,7 +46,7 @@ class Method:
     def train_before_update_batch_adapt(self, batch: Any, batch_idx: int) -> Any:
         return batch
 
-    def update_stream_tracking(
+    def _update_stream_tracking(
             self,
             stream_sample_idxs: list[int],
             new_batch_feats,
@@ -108,7 +109,7 @@ class Method:
         )
 
         # Only return latest loss
-        self.update_stream_tracking(
+        self._update_stream_tracking(
             stream_sample_idxs=current_batch_stream_idxs,
             new_batch_feats=feats,
             new_batch_verb_pred=preds[0],
@@ -755,7 +756,7 @@ class Replay(Method):
         if self.compare_gradients:
             self.log_gradient_analysis_(log_results, loss_new_actions_m, loss_mem_actions_m, new_only=not has_mem_batch)
 
-        self.update_stream_tracking(
+        self._update_stream_tracking(
             stream_sample_idxs=current_batch_stream_idxs,
             new_batch_feats=feats[:self.new_batch_size],
             new_batch_verb_pred=preds[0][:self.new_batch_size],
@@ -964,3 +965,142 @@ class Replay(Method):
                     memory[rnd_idx] = new_stream_idx
 
         return memory
+
+
+@METHOD_REGISTRY.register()
+class ContextAwareAdaptation(object):
+    """ Make sure not inherits from Method, as wrapper should call error if method/property not properly wrapped. """
+
+    def __init__(self, cfg, lightning_module):
+        super().__init__(cfg, lightning_module)
+
+        # ORIGINAL METHOD TO WRAP
+        self.method_to_wrap: Method = build_method(cfg, lightning_module, name=cfg.CONTEXT_ADAPT.WRAPS_METHOD)
+        self.method_to_wrap.__init__(cfg, lightning_module)
+
+        # Assert wrapped_method names (not starting with _) are wrapped here
+        for attr_name in dir(Method):
+            if not callable(getattr(Method, attr_name)):
+                continue
+
+            if attr_name.startswith("__") or attr_name.startswith("_"):
+                logger.debug(f"Skipping wrapping method {attr_name}")
+            else:
+                assert callable(getattr(self, attr_name)), f"Wrapper has not implemented method: {attr_name}"
+
+        # Memory
+        self.feat_mem = None
+        self.n_samples_in_mem = 0
+        self.max_mem_size = cfg.CONTEXT_ADAPT.MEM_SIZE
+        self.first_idx_to_fill = 0  # Circular buffer
+
+        # Head
+        """
+        See: https://pytorch.org/docs/1.9.1/generated/torch.nn.MultiheadAttention.html?highlight=attention#torch.nn.MultiheadAttention
+        """
+        self.att_embed_dim = 2304
+        self.att_num_heads = 1
+        self.att_head = torch.nn.MultiheadAttention(
+            embed_dim=self.att_embed_dim, num_heads=self.att_num_heads, batch_first=True,
+            dropout=0, bias=True, add_bias_kv=False,  # Defaults
+            vdim=None,  # Keep same output dim
+        )
+
+        # Add head to optimizer
+        opt: torch.optim.Optimizer = self.lightning_module.optimizers()  # Assume single
+        opt.add_param_group({
+            "params": list(self.att_head.parameters()),
+            "lr": cfg.SOLVER.BASE_LR,
+        })
+
+        # Overwrite fwd fn
+        self.lightning_module.forward = self.forward_overwrite  # Both during training/prediction
+
+    def forward_overwrite(self, x, return_feats=False):
+
+        # Q: Use feats as Queries
+        direct_preds, in_feats = self.lightning_module.forward(x, return_feats=True)  # Always return feats
+        squeeze_dims = [idx for idx, shape_dim in enumerate(in_feats.shape) if shape_dim == 1]
+        f_in = in_feats.squeeze()  # Get rid of 1 dims
+
+        # K,V: Get feats from memory and add self-feats
+        f_kv_mem = self._get_feats_from_mem()
+
+        f_kv = torch.stack((f_kv_mem, f_in)) if f_kv_mem is not None else f_in
+
+        # Store feats
+        self._store_feats_in_mem(f_in)
+
+        # K,V: Add positional encoding (if applicable)
+        # TODO
+
+        # Q,K,V: Forward through head
+        q = f_in.unsqueeze(0)  # With batch_first dim, add batch-dim=1 (process all feats in batch as tokens)
+        k = v = f_kv.unsqueeze(0)
+        att_feats = self.att_head(q, k, v).squeeze()  # Get rid of batch dim
+
+        # Forward new feats through classifier head
+        head_wrap = getattr(self.lightning_module.model, self.head_name)
+        multitask_head = None
+        for module in head_wrap.children():  # If Sequential wrapper around head
+            if isinstance(module, MultiTaskHead):
+                multitask_head = module
+                break
+        assert multitask_head is not None, "Not found MultiTask head"
+
+        # Return preds (and new feats if return_feats=True)
+        ret_feats = f_kv
+        for squeeze_dim in squeeze_dims:
+            ret_feats = ret_feats.unsqueeze(squeeze_dim)  # Add dims again for SlowFast head
+
+        att_preds = multitask_head(att_feats)
+
+        if return_feats:
+            return att_preds, ret_feats
+        else:
+            return att_preds
+
+    def _get_feats_from_mem(self):
+        """ Return entire buffer. """
+        return self.feat_mem[:self.n_samples_in_mem]  # Just return all
+
+    def _store_feats_in_mem(self, feats):
+        """ Store current feats in the memory. """
+
+        if self.feat_mem is None:
+            self.feat_mem = torch.tensor((self.max_mem_size, feats.shape[-1]), device=feats.device)
+
+        # FIFO
+        bs = feats.shape[0]
+        idxs_to_fill = [idx % self.max_mem_size for idx in range(self.first_idx_to_fill, self.first_idx_to_fill + bs)]
+
+        self.feat_mem[idxs_to_fill] = feats.detach()
+        self.first_idx_to_fill = (idxs_to_fill[-1] + 1) % self.max_mem_size
+
+        if self.n_samples_in_mem < self.max_mem_size:
+            self.n_samples_in_mem = min(self.n_samples_in_mem + bs, self.max_mem_size)
+
+    def training_first_forward(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        ret = self.method_to_wrap.training_first_forward(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
+
+        current_feats = []
+        for current_batch_stream_idx in current_batch_stream_idxs:
+            feat = self.lightning_module.stream_state.sample_idx_to_feat[current_batch_stream_idx]
+            assert feat is not None, ""
+            current_feats.append(feat)
+
+        return ret
+
+    # Make sure to wrap all methods
+    @property
+    def run_predict_before_train(self):
+        return self.method_to_wrap.run_predict_before_train
+
+    def train_before_update_batch_adapt(self, *args, **kwargs) -> Any:
+        return self.method_to_wrap.train_before_update_batch_adapt(*args, **kwargs)
+
+    def training_update_loop(self, *args, **kwargs):
+        return self.method_to_wrap.training_update_loop(*args, **kwargs)
+
+    def prediction_step(self, *args, **kwargs):
+        return self.method_to_wrap.prediction_step(*args, **kwargs)
