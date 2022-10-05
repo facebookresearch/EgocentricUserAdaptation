@@ -21,7 +21,7 @@ def construct_trainstream_loader(cfg, shuffle=False):
         split (str): the split of the data loader. Options include `train`,
             `val`, and `test`.
     """
-    dataset_name = cfg.TRAIN.DATASET
+    dataset_name = cfg.TRAIN.DATASET  # e.g. Ego4dContinualRecognition
     if cfg.SOLVER.ACCELERATOR not in ["dp", "gpu"]:
         batch_size = int(cfg.TRAIN.BATCH_SIZE / cfg.NUM_GPUS)
     else:

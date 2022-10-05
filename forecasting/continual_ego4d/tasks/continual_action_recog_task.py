@@ -260,8 +260,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     """
     Training mode: Visit samples in stream sequentially, update, and evaluate per update.
     Validation mode: Disabled.
-    Test mode: Disabled (No held-out test sets available for online learning)
-    Predict mode: Visit the stream and collect per-sample stats such as the loss. No learning is performed.
+    Predict mode: As preprocessing (no logging): Visit the stream and collect per-sample stats such as the loss. No learning is performed.
+    Test mode: Given the train stream (defined by cfg.DATA.USER_SUBSET) test on a fixed model
+    (pretrain if called in begin of stream, adapted if end of stream). Results are logged.
 
     For all lightning hooks, see: https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html#hooks
     """
@@ -958,13 +959,89 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 f"ALL Predict including uniform classifier loss: {pprint.pformat(self.pretrain_state.sample_idx_to_pretrain_loss)}")
 
     # ---------------------
+    # TEST FLOW CALLBACKS
+    # ---------------------
+    @torch.no_grad()
+    def test_step(self, batch, batch_idx):
+        inputs, labels, _, _ = batch
+        preds = self.forward(inputs, return_feats=False)
+        return {'predictions': preds, 'labels': labels}
+
+    def test_epoch_end(self, outputs: list[dict]):
+        pred_list: list[tuple[torch.Tensor, torch.Tensor]] = [pred_dict['predictions'] for pred_dict in outputs]
+        label_list: list[torch.Tensor, torch.Tensor] = [pred_dict['labels'] for pred_dict in outputs]
+
+        # Concat preds
+        preds_verb = [pred[0] for pred in pred_list]
+        preds_noun = [pred[1] for pred in pred_list]
+
+        preds_t: tuple[torch.Tensor, torch.Tensor] = (torch.cat(preds_verb), torch.cat(preds_noun))
+        labels_t: torch.Tensor = torch.cat(label_list)
+
+        # Total nb samples:
+        total_samples = labels_t.shape[0]
+
+        # Log losses as well
+        loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
+            preds_t, labels_t, self.loss_fun_unred, mean=True
+        )
+
+        # Accuracies
+        top1_acc_action: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
+            preds_t[0], preds_t[1], labels_t[:, 0], labels_t[:, 1], return_mode='acc'
+        )
+        top1_acc_verb, top5_acc_verb = metrics.distributed_topk_errors(
+            preds_t[0], labels_t[:, 0], (1, 5), return_mode='acc'
+        )
+        top1_acc_noun, top5_acc_noun = metrics.distributed_topk_errors(
+            preds_t[1], labels_t[:, 1], (1, 5), return_mode='acc'
+        )
+
+        result_dict = {
+            'num_samples_stream': total_samples,  # Can be used to calculate nb corrects for all acc's
+
+            # Avg Losses
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='loss'):
+                loss_action.item(),
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='verb', base_metric_name='loss'):
+                loss_verb.item(),
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='loss'):
+                loss_noun.item(),
+
+            # Avg acc's
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='top1_acc'):
+                top1_acc_action.item(),
+
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='verb', base_metric_name='top1_acc'):
+                top1_acc_verb.item(),
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='verb', base_metric_name='top5_acc'):
+                top5_acc_verb.item(),
+
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='top1_acc'):
+                top1_acc_noun.item(),
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='top5_acc'):
+                top5_acc_noun.item(),
+
+            # No AG as can use avg loss of pretrained model directly as baseline.
+        }
+
+        # Log
+        for logname, logval in result_dict.items():
+            self.log(logname, float(logval), on_epoch=True)
+
+        return result_dict
+
+    # ---------------------
     # TRAINING SETUP
     # ---------------------
     def forward(self, inputs, return_feats=False):
         return self.model(inputs, return_feats=return_feats)
 
     def setup(self, stage):
-        """For distributed processes, init anything shared outside nn.Modules here. """
+        """
+        This is called in train/predict/test phase inits.
+        For distributed processes, init anything shared outside nn.Modules here.
+        """
         # Setup is called immediately after the distributed processes have been
         # registered. We can now setup the distributed process groups for each machine
         # and create the distributed data loaders.
@@ -972,14 +1049,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def configure_head(self):
         """ Load output masker at training start, to make checkpoint loading independent of the module. """
-        if not self.head_masking_head_is_configured():
+        if not self.is_masking_head_configured():
             self.model.head = torch.nn.Sequential(
                 self.model.head,
                 UnseenVerbNounMaskerHead(self.stream_state)
             )
             logger.info(f"Wrapped incremental head for model: {self.model.head}")
 
-    def head_masking_head_is_configured(self):
+    def is_masking_head_configured(self):
         """Is the masking already configured. """
         for m in self.model.head.children():
             if isinstance(m, UnseenVerbNounMaskerHead):
@@ -992,6 +1069,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             self.model, self.cfg, steps_in_epoch, self.cfg.SOLVER.LR_POLICY
         )
 
+    # ---------------------
+    # LOADERS
+    # ---------------------
     def train_dataloader(self):
         return self.train_loader
 
@@ -999,16 +1079,13 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         """Gather predictions for train stream."""
         return self.predict_loader
 
+    def test_dataloader(self):
+        return self.predict_loader
+
     def val_dataloader(self):
         return None
 
-    def test_dataloader(self):
-        return None
-
     def validation_step(self, *args, **kwargs):
-        raise NotImplementedError()
-
-    def test_step(self, batch, batch_idx):
         raise NotImplementedError()
 
 

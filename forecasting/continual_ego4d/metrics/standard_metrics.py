@@ -116,7 +116,7 @@ class OnlineLossMetric(AvgMeterMetric):
         self.avg_meter.update(loss.item(), weight=batch_size)
 
     @staticmethod
-    def get_losses_from_preds(preds: list[Tensor], labels: Tensor, loss_fun, mean=False, take_sum=False):
+    def get_losses_from_preds(preds: tuple[Tensor, Tensor], labels: Tensor, loss_fun, mean=False, take_sum=False):
         """Apply the loss function on the 2-headed classifier given model outputs and labels."""
         loss_verb = loss_fun(preds[0], labels[:, 0])  # Verbs
         loss_noun = loss_fun(preds[1], labels[:, 1])  # Nouns

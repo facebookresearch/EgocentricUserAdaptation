@@ -17,7 +17,15 @@ _C.PARENT_SCRIPT_FILE_PATH = ""
 _C.RUN_UID = ""
 
 # ---------------------------------------------------------------------------- #
-# TRANSFER EVAL options
+# RUN MODE options
+# ---------------------------------------------------------------------------- #
+# Option used for CL task, skipping training and only evaluating the loaded pretrain model
+# This ensures we use the same dataloaders and the exact same stream is used for evaluation.
+# The stream is defined by cfg.DATA.USER_SUBSET: {train,test,pretrain}
+_C.STREAM_EVAL_ONLY = False
+
+# ---------------------------------------------------------------------------- #
+# CONTEXT ADAPTATION options
 # ---------------------------------------------------------------------------- #
 _C.CONTEXT_ADAPT = CfgNode()
 _C.CONTEXT_ADAPT.MEM_SIZE = 10

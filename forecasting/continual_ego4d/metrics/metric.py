@@ -16,7 +16,7 @@ TAG_FUTURE = 'future'
 TAG_PAST = 'past'
 
 ACTION_MODES = ('action', 'verb', 'noun')
-TRAIN_MODES = ('train', 'pred', 'analyze')
+TRAIN_MODES = ('train','test', 'pred', 'analyze')
 
 
 def get_metric_tag(main_parent_tag, train_mode='train', action_mode=None, base_metric_name=None):

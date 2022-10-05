@@ -304,8 +304,11 @@ def online_adaptation_single_user(
     # Overwrite (Always log on first step)
     trainer.logger_connector = CustomLoggerConnector(trainer, trainer.logger_connector.log_gpu_memory)
 
-    # TRAIN
-    interrupted = train(trainer, task)
+    # TRAIN or TEST
+    if cfg.STREAM_EVAL_ONLY:
+        interrupted = test(trainer, task)
+    else:
+        interrupted = train(trainer, task)
 
     # Cleanup process GPU-MEM allocation (Only process context will remain allocated)
     torch.cuda.empty_cache()
@@ -318,7 +321,7 @@ def online_adaptation_single_user(
     return ret  # For multiprocessing indicate which resources are free now
 
 
-def train(trainer, task):
+def train(trainer: Trainer, task):
     # Dependent on task: Might need to run prediction first (gather per-sample results for init model)
     if task.run_predict_before_train:
         logger.info("Starting Trainer Prediction round before fitting")
@@ -329,6 +332,15 @@ def train(trainer, task):
 
     interrupted = trainer.interrupted
     logger.info(f"Trainer interrupted signal = {interrupted}")
+    return interrupted
+
+
+def test(trainer: Trainer, task):
+    logger.info("Starting Trainer Testing")
+    trainer.test(task, ckpt_path=None)  # We loaded checkpoint before, use current PL-task model.
+
+    interrupted = trainer.interrupted
+    logger.info(f"Trainer interrupted signal in testing = {interrupted}")
     return interrupted
 
 
