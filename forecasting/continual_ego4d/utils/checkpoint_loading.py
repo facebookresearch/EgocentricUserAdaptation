@@ -76,7 +76,7 @@ class PathHandler:
     def setup_main_output_dir(cfg) -> (str, bool):
 
         orig_path = Path(cfg.OUTPUT_DIR)  # Insert grid_dir as parent dir to group runs based on grid params
-        grid_parent_dir = None
+        grid_parent_dir = "NO_GRID"  # For easy resuming with GRID_RESUME_LATEST
         if cfg.GRID_NODES is not None:
             grid_parent_dir_name = []
             for grid_node in cfg.GRID_NODES.split(','):
@@ -244,13 +244,13 @@ def load_slowfast_model_weights(ckp_path: str, task: LightningModule, load_head:
     )
     logger.info(f'PRETRAIN LOADING: \nmissing {missing_keys}\nunexpected {unexpected_keys}')
 
-    # Ensure only head key is missing.w
-    assert len(unexpected_keys) == 0, f"Unexpected keys: {unexpected_keys}"
-
+    # Ensure only head keys is missing (or unexpected e.g. when checkpoint has different classifier head)
     if not load_head:
         assert all(["head" in x for x in missing_keys]), f"Missing keys: {missing_keys}"
+        assert all(["head" in x for x in unexpected_keys]), f"Unexpected keys: {unexpected_keys}"
     else:
         assert len(missing_keys) == 0, f"Missing keys: {missing_keys}"
+        assert len(unexpected_keys) == 0, f"Unexpected keys: {unexpected_keys}"
 
     for key in missing_keys:
         logger.info(f"Could not load {key} weights")
