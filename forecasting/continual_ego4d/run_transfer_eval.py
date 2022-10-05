@@ -60,7 +60,7 @@ def parse_wandb_runs(project_name, group_name):
 
     # summary = final value (excludes NaN rows)
     # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
-    for user_run in get_group_run_iterator(project_name, group_name, finished_runs=True):
+    for user_run in get_group_run_iterator(project_name, group_name, finished_runs_only=True):
         user_id = user_run.config['DATA.COMPUTED_USER_ID']
         user_to_config[user_id] = copy.deepcopy(user_run.config)
 
@@ -274,7 +274,7 @@ def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, gr
 
     # Iterate runs over group and upload heatmaps
     logger.info(f"Uploading to WandB runs in group")
-    for user_run in get_group_run_iterator(project_name, group_name, finished_runs=True):
+    for user_run in get_group_run_iterator(project_name, group_name, finished_runs_only=True):
         # Log avg history
         wandb_update_diagonal(user_run, diagonal_AGs, eval_cfg, streamusers, modelusers)
 
