@@ -33,6 +33,26 @@ TODO: copy final jsons to another outputdir
 TODO: restore previous layout
 
 
+## Experiment Pipeline
+
+1. continual_ego4d/run_recog_CL.py: Train using multiprocessing over all user streams as a single group. Each independent user-adaptation stream is scheduled as a separate process. Scheduled automatically
+2. continual_ego4d/run_recog_CL.py/processing/run_adhoc_metric_processing_wandb.py: Aggregate all user stream results in single metric averaged over user streams per group.
+3. continual_ego4d/run_recog_CL.py/run_transfer_eval.py: Run evaluation of final user models with user streams. 
+   1. Diagonal only for calculating HAG.
+   2. Full transfer matrix for HAG transfer matrix (N user models x N user streams)
+## Configs
+
+To determine the dataset (e.g. EGO4d) and which user-split:
+
+    cfg.TRAIN.DATASET: Ego4dContinualRecognition # Dataset Object
+    
+    # Paths to preprocessed jsons, split per user (result from run_usersplits_ego4d.py)
+    cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT
+    cfg.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT
+    cfg.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT
+    
+    cfg.DATA.USER_SUBSET # Select one of the previous json paths (train/test/pretrain)
+    cfg.DATA.COMPUTED_USER_DS_ENTRIES: # Set dynamically to stream json
 
 ## How to unittest
 
@@ -74,13 +94,22 @@ This will generate a json split for pretraining. Use this json as input path for
 ### Pretrained model paths
 - All pretrained models are copied and backed up at:
   - /fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit
+
+USED
+- Original model checkpoints on our usersplit (incl NaN users), with LR 1e-4, cosine schedule for 66 epochs, without linear warmup:
+  - `/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-09-05_10-34-05_UIDd05ed672-01c5-4c3c-b790-9d0c76548825/checkpoints`  
+  - Copied to: `/fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit/pretrain_148usersplit_incl_nan/2022-09-05_10-34-05_UIDd05ed672-01c5-4c3c-b790-9d0c76548825/checkpoints/best_model.ckpt`
+- Model provided by ego4d paper, pretrained on kinetics400, then on ego4d.
+  - `/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/ego4d_slowfast8x8.ckpt`
+
+
+DEPRECATED
 - Model of 30 epochs on pretrain data (without NaN user):
   - /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-07-28_17-06-20_UIDe499d926-a3ff-4a28-9632-7d01054644fe/lightning_logs/version_0/checkpoints
 - Model of 30 epochs on pretrain data WITH NaN user:
   - /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-08-13_09-41-26_UID8196dadf-1ce7-4ed5-85c1-9bd3d1e6ffe6/lightning_logs/version_0/checkpoints
-- Original model checkpoints on our usersplit (incl NaN users), with LR 1e-4, cosine schedule for 66 epochs, without linear warmup:
-  - `/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-09-05_10-34-05_UIDd05ed672-01c5-4c3c-b790-9d0c76548825/checkpoints`  
-  - Copied to: `/fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit/pretrain_148usersplit_incl_nan/2022-09-05_10-34-05_UIDd05ed672-01c5-4c3c-b790-9d0c76548825/checkpoints/best_model.ckpt`
+
+
 ### Data paths
 - Usersplit including NaN-user + action sets:
   - /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-09_16-02-54_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json
