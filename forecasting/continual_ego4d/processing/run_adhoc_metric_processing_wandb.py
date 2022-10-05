@@ -44,15 +44,20 @@ from continual_ego4d.processing.utils import get_group_names_from_csv, get_group
 api = wandb.Api()
 
 train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
+test_users = [
+    "59", "23", "17", "37", "97", "22", "31", "10", "346", "359", "120", "19", "16", "283", "28", "20", "44", "38",
+    "262", "25", "51", "278", "55", "39", "45", "33", "331", "452", "453", "21", "431", "116", "35", "105", "378", "74",
+    "11", "126", "123", "436"
+]
 MODES = [
     'aggregate_OAG_over_user_streams',
     'aggregate_test_results_over_user_streams',
 ]
 
 # Adapt settings
-csv_filename = 'wandb_export_2022-10-04T16_54_49.708-07_00.csv'  # TODO copy file here and past name here
-NB_EXPECTED_USERS = len(train_users)
 MODE = MODES[1]
+csv_filename = 'wandb_export_2022-10-04T18_07_42.292-07_00.csv'  # TODO copy file here and past name here
+NB_EXPECTED_USERS = len(test_users)
 
 # Fixed Settings
 csv_dirname = '/home/mattdl/projects/ContextualOracle_Matthias/adhoc_results'  # Move file in this dir
@@ -149,8 +154,18 @@ def aggregate_test_results_over_user_streams(selected_group_names_csv_path):
     # Iterate groups (a collective of independent user-runs)
     for group_name in selected_group_names:
 
+        # Filter runs in group that have finished
+        run_filter = {
+            "$and": [
+                {"group": group_name},
+                {"summary_metrics.num_samples_stream": {"$ne": None}}
+            ]
+        }
+
         try:
-            user_ids, total_samples_per_user, final_stream_metric_userlists = _collect_user_test_results(group_name)
+            user_ids, total_samples_per_user, final_stream_metric_userlists = _collect_user_test_results(
+                group_name, run_filter
+            )
         except Exception as e:
             print(e)
             print(f"SKIPPING: contains error: Group ={group_name}")
@@ -184,7 +199,7 @@ def aggregate_test_results_over_user_streams(selected_group_names_csv_path):
         # Update all group entries:
         import tqdm
         for user_run in tqdm.tqdm(
-                get_group_run_iterator(PROJECT_NAME, group_name, finished_runs_only=False),
+                get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter),
                 desc=f"Uploading group results: {final_update_metrics_dict}"
         ):
             for name, new_val in final_update_metrics_dict.items():
@@ -193,7 +208,7 @@ def aggregate_test_results_over_user_streams(selected_group_names_csv_path):
             user_run.summary.update()  # UPLOAD
 
 
-def _collect_user_test_results(group_name):
+def _collect_user_test_results(group_name, run_filter):
     # Get metrics over runs(users)
     final_stream_metrics_per_user = {
         'test_action_batch/loss': [],
@@ -211,7 +226,7 @@ def _collect_user_test_results(group_name):
 
     # summary = final value (excludes NaN rows)
     # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
-    for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, finished_runs_only=False)):
+    for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
         user_ids.append(user_run.config['DATA.COMPUTED_USER_ID'])
         total_samples_per_user.append(user_run.summary['num_samples_stream'])
 

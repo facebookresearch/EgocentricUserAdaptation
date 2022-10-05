@@ -842,7 +842,8 @@ def parse_final00_01_and_02_pretrain_performance():
      ]
 
     """
-    csv_filename = "wandb_export_2022-10-04T17_12_15.398-07_00.csv"  # Full results all
+    # csv_filename = "wandb_export_2022-10-04T17_12_15.398-07_00.csv"  # TRAIN USERS: Full results all
+    csv_filename = "wandb_export_2022-10-04T18_26_17.293-07_00.csv"  # TEST USERS: Full results all
     caption = "Our pretrained vs original ego4d pretrained model."
     csv_path = os.path.join(csv_dirname, csv_filename)
     round_digits = 1

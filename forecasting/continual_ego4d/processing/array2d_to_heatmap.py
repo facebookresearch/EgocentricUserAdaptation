@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.font_manager
 import datetime
+import seaborn as sns
 
 from torch import Tensor
 
@@ -32,6 +33,7 @@ def plot_final01_01_finetune_best_avg_AG():
     """
     Plot best avg_AG for finetuning in final01_01 with LR=0.01.
     """
+    cmap = sns.color_palette('RdBu', as_cmap=True) # "gist_heat"
     modes = ['action', 'verb', 'noun']
 
     # Paths
@@ -159,7 +161,7 @@ def plot_final01_01_finetune_best_avg_AG():
             xlabel="User Stream",
             display_labels_y=y_labels,
             ylabel="User Model",
-            cmap="gist_heat",
+            cmap=cmap,
             # cmap="Blues",
             include_values=True,
             format_fn=lambda x: round(x, 1),
@@ -248,7 +250,8 @@ def cm_image_creator(
 
     if display_labels_y is None:
         display_labels_y = np.arange(n_classes)
-    fig.colorbar(im_, ax=ax)
+    bar = fig.colorbar(im_, ax=ax,boundaries=(-4,4))
+    # fig.set_clim(-4, 4)
 
     ax.set(
         xticks=np.arange(n_classes),
