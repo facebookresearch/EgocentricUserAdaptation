@@ -471,6 +471,9 @@ _C.DATA = CfgNode()
 # Disable to only load labels (e.g. for stream analysis)
 _C.DATA.RETURN_VIDEO = True
 
+# Enables shuffling the dataset on creation, without changing loader idxs.
+_C.DATA.SHUFFLE_DS_ORDER = False
+
 # User data splits
 _C.DATA.USER_SUBSET = 'train'  # train or test split for users.
 _C.DATA.PATH_TO_DATA_SPLIT_JSON = CfgNode()
@@ -655,12 +658,13 @@ _C.FAST_DEV_DATA_CUTOFF = 30
 
 # Path to the checkpoint to load the initial weight.
 _C.CHECKPOINT_FILE_PATH = ""
+_C.CHECKPOINT_PATH_FORMAT_FOR_USER = False  # if ckpt file path is fmt for user_id to fill in, e.g. "{}".format(user_id)
 
 # Whether the checkpoint follows the caffe2 format
 _C.CHECKPOINT_VERSION = ""
 
 # Whether to load model head or not. Useful for loading pretrained models.
-_C.CHECKPOINT_LOAD_MODEL_HEAD = False
+_C.CHECKPOINT_LOAD_MODEL_HEAD = True
 
 # Whether or not to run on fblearner
 _C.FBLEARNER = False

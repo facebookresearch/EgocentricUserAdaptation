@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import pprint
+import random
 
 import torch.utils.data
 from collections import defaultdict
@@ -127,6 +128,10 @@ class Ego4dContinualRecognition(torch.utils.data.Dataset):
             logger.debug(f"FAST-DEV DEBUG: cutting off user data "
                          f"from {len(self.seq_input_list)} to {cfg.FAST_DEV_DATA_CUTOFF}")
             self.seq_input_list = self.seq_input_list[:cfg.FAST_DEV_DATA_CUTOFF]
+
+        if cfg.DATA.SHUFFLE_DS_ORDER:
+            random.shuffle(self.seq_input_list)
+            logger.debug(f"SHUFFLED dataset a priori.")
 
         # Visit all miniclips (with annotation) sequentially
         self.miniclip_sampler = SequentialSampler(self.seq_input_list)

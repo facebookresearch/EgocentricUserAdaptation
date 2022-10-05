@@ -50,14 +50,14 @@ if [[ $# -gt 0 ]]; then
 fi
 #exit
 #-----------------------------------------------------------------------------------------------#
-OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 10" # Workers per dataloader (i.e. per user process)
-#OVERWRITE_CFG_ARGS+=" USER_SELECTION 104,108" # Subset of users to process
+OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 4" # Workers per dataloader (i.e. per user process)
+OVERWRITE_CFG_ARGS+=" USER_SELECTION 24" # Subset of users to process
 OVERWRITE_CFG_ARGS+=" GPU_IDS 1 NUM_USERS_PER_DEVICE 1"
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # DEBUG
 #OVERWRITE_CFG_ARGS+=" GPU_IDS '0' FAST_DEV_RUN False FAST_DEV_DATA_CUTOFF 30" # DEBUG
 
 # TODO tmp
-OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 10 TRAIN.BATCH_SIZE 2 CONTINUAL_EVAL.BATCH_SIZE 10 CONTINUAL_EVAL.PLOTTING_FREQ 1" # DEBUG
+OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 30 TRAIN.BATCH_SIZE 4" # DEBUG
 
 
 # RESUME
@@ -81,8 +81,8 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="${run_id}_MATT"
-screen -dmS "${screenname}" \
-python \
+#screen -dmS "${screenname}" \
+python -m pdb -c continue \
 -m continual_ego4d.run_recog_CL \
   --job_name "$screenname" \
   --working_directory "${OUTPUT_DIR}" \

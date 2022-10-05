@@ -288,6 +288,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # See: https://pytorch-lightning.readthedocs.io/en/stable/common/optimization.html#automatic-optimization
         self.automatic_optimization = False
 
+        assert cfg.SOLVER.MAX_EPOCH == 1, f"Learning from stream can only for 1 epoch, not {cfg.SOLVER.MAX_EPOCH}"
+
         # Backwards compatibility.
         if isinstance(cfg.MODEL.NUM_CLASSES, int):
             cfg.MODEL.NUM_CLASSES = [cfg.MODEL.NUM_CLASSES]
@@ -611,7 +613,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def on_train_end(self) -> None:
         """Dump any additional stats about the training."""
-        wandb_logger: WandbLogger = self.get_logger_instance(WandbLogger)
+        wandb_logger: WandbLogger = self.get_logger_instance(self.logger, WandbLogger)
         assert wandb_logger is not None, "Must have wandb logger to finish run!"
 
         dump_dict = self.stream_state.get_state_dump()
@@ -816,12 +818,13 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # ---------------------
     # HELPER METHODS
     # ---------------------
+    @staticmethod
     def get_logger_instance(
-            self,
+            loggers,
             logger_type: Union[Type[WandbLogger], Type[TensorBoardLogger]]) -> \
             Union[TensorBoardLogger, WandbLogger, None]:
         """ Get specific result logger from trainer. """
-        result_loggers = [result_logger for result_logger in self.logger if isinstance(result_logger, logger_type)]
+        result_loggers = [result_logger for result_logger in loggers if isinstance(result_logger, logger_type)]
         if len(result_loggers) == 0:
             logger.info(f"No {logger_type.__class__.__name__} logger found, skipping image plotting.")
             return None
@@ -1045,20 +1048,22 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Setup is called immediately after the distributed processes have been
         # registered. We can now setup the distributed process groups for each machine
         # and create the distributed data loaders.
-        self.configure_head()
+        self.configure_head(self.model, self.stream_state)
 
-    def configure_head(self):
+    @staticmethod
+    def configure_head(model, stream_state: StreamStateTracker):
         """ Load output masker at training start, to make checkpoint loading independent of the module. """
-        if not self.is_masking_head_configured():
-            self.model.head = torch.nn.Sequential(
-                self.model.head,
-                UnseenVerbNounMaskerHead(self.stream_state)
+        if not ContinualMultiTaskClassificationTask.is_masking_head_configured(model):
+            model.head = torch.nn.Sequential(
+                model.head,
+                UnseenVerbNounMaskerHead(stream_state)
             )
-            logger.info(f"Wrapped incremental head for model: {self.model.head}")
+            logger.info(f"Wrapped incremental head for model: {model.head}")
 
-    def is_masking_head_configured(self):
+    @staticmethod
+    def is_masking_head_configured(model):
         """Is the masking already configured. """
-        for m in self.model.head.children():
+        for m in model.head.children():
             if isinstance(m, UnseenVerbNounMaskerHead):
                 return True
         return False

@@ -24,6 +24,7 @@ from ego4d.utils.parser import load_config, parse_args
 from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
 
 from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
+from continual_ego4d.tasks.iid_action_recog_task import IIDMultiTaskClassificationTask
 from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 
 from scripts.slurm import copy_and_run_with_config
@@ -156,9 +157,9 @@ def overwrite_config_continual_learning(cfg):
     overwrite_dict = {
         "SOLVER.ACCELERATOR": "gpu",
         "NUM_SHARDS": 1,  # no DDP supported
-        "SOLVER.MAX_EPOCH": 1,
+        # "SOLVER.MAX_EPOCH": 1, # Allow IID
         # "SOLVER.LR_POLICY": "constant",
-        "CHECKPOINT_LOAD_MODEL_HEAD": True,  # From pretrain we also load model head
+        # "CHECKPOINT_LOAD_MODEL_HEAD": True,  # From pretrain we also load model head
     }
 
     for hierarchy_k, v in overwrite_dict.items():
@@ -262,14 +263,18 @@ def online_adaptation_single_user(
     if cfg.DATA.TASK == "continual_classification":
         task = ContinualMultiTaskClassificationTask(cfg)
 
+    elif cfg.DATA.TASK == "iid_classification":
+        task = IIDMultiTaskClassificationTask(cfg)
+
     else:
         raise ValueError(f"cfg.DATA.TASK={cfg.DATA.TASK} not supported")
     logger.info(f"Initialized task as {task}")
 
     # LOAD PRETRAINED
-    # ckpt_task_types = [MultiTaskClassificationTask,
-    #                    ContinualMultiTaskClassificationTask]
-    load_slowfast_model_weights(cfg.CHECKPOINT_FILE_PATH, task, cfg.CHECKPOINT_LOAD_MODEL_HEAD)
+    ckp_path = cfg.CHECKPOINT_FILE_PATH
+    if cfg.CHECKPOINT_PATH_FORMAT_FOR_USER:
+        ckp_path = ckp_path.format(user_id)
+    load_slowfast_model_weights(ckp_path, task, cfg.CHECKPOINT_LOAD_MODEL_HEAD)
 
     # Freeze model if applicable
     if cfg.MODEL.FREEZE_BACKBONE:

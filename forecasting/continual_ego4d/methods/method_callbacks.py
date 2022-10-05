@@ -21,12 +21,14 @@ import torch.nn.functional as F
 import os
 from continual_ego4d.utils.models import get_flat_gradient_vector, get_name_to_grad_dict, grad_dict_to_vector
 from ego4d.models.head_helper import MultiTaskHead
+import numpy as np
 
 from typing import TYPE_CHECKING
 from collections import deque
 
 if TYPE_CHECKING:
     from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
+    from continual_ego4d.datasets.continual_action_recog_dataset import Ego4dContinualRecognition
     from pytorch_lightning import Trainer
 
 logger = logging.get_logger(__name__)
@@ -35,8 +37,13 @@ logger = logging.get_logger(__name__)
 class Method:
     run_predict_before_train = True
 
-    def __init__(self, cfg, lightning_module: 'ContinualMultiTaskClassificationTask'):
+    def __init__(self, cfg, lightning_module: 'ContinualMultiTaskClassificationTask', iid: bool = False):
         """ At Task init, the lightning_module.trainer=None. """
+        if not iid:
+            assert not cfg.DATA.SHUFFLE_DS_ORDER
+        else:
+            assert cfg.DATA.SHUFFLE_DS_ORDER, f"Need shuffled dataset list for iid method."
+
         self.cfg = cfg  # For method-specific params
         self.lightning_module = lightning_module
 
@@ -161,6 +168,14 @@ class Method:
             logger.info(f"[INNER-LOOP UPDATE] iter {inner_iter}/{self.lightning_module.inner_loop_iters}: "
                         f"fwd, bwd, step. Action_loss={loss_action_m.item()}")
 
+    # def checks_end_batch(self):
+    #     """ Checks to run after update. """
+    #     ss = self.lightning_module.stream_state
+    #
+    #     # For standard stream methods assume no revisiting of samples
+    #     assert len(ss.seen_samples_idxs) == len(np.unique(ss.seen_samples_idxs)), \
+    #         f"Duplicate visited samples in {ss.seen_samples_idxs}"
+
     def prediction_step(self, inputs, labels, stream_sample_idxs: list, *args, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
         """ Default: Get all info we also get during training."""
@@ -181,6 +196,35 @@ class Method:
             }
 
         return loss_action, preds, sample_to_results
+
+
+from torch.utils.data.sampler import RandomSampler, SequentialSampler
+
+
+@METHOD_REGISTRY.register()
+class IIDFinetuning(Method):
+    """
+    Overwrite lightning_module dataloaders to do IID finetuning.
+    This still enables learning from the stream, but an IID shuffled stream, while tracking online metrics such as OAG.
+    For multi-epoch training, define a IID-task instead, where we only use the same dataloader, but don't care to
+    track metrics.
+    """
+    run_predict_before_train = True
+
+    def __init__(self, cfg, lightning_module):
+        super().__init__(cfg, lightning_module, iid=True)
+
+        # TODO overwrite checks of sample idxs in stream
+
+        # Adhoc setting shuffle = True
+        assert isinstance(lightning_module.train_loader.sampler, SequentialSampler), \
+            f"Regular training should have sequential sampler (no shuffle)"
+
+        # ASSERT ds is shuffled a priori, as dataloader idx in __get_item__ is used as id of the samples in the list
+        # These are assumed to be consecutive in the stream (need Sequential sampler).
+        # As dataset is initialized before method, we need to define in cfg at creation, as changing ds params may
+        # result in wrong references in the StreamState.
+        assert cfg.DATA.SHUFFLE_DS_ORDER, f"Need shuffled dataset list."
 
 
 @METHOD_REGISTRY.register()
@@ -1042,7 +1086,9 @@ class ContextAwareAdaptation(object):
         # K,V: Get feats from memory and add self-feats
         f_kv_mem = self._get_feats_from_mem()
 
+        logger.debug(f"f_kv_mem={f_kv_mem}, f_in={f_in}")
         f_kv = torch.cat((f_kv_mem, f_in)) if f_kv_mem is not None else f_in
+        logger.debug(f"f_kv_mem.shape={f_kv_mem.shape}, f_in.shape={f_in.shape}")
 
         # Store feats
         self._store_feats_in_mem(f_in)
@@ -1055,6 +1101,7 @@ class ContextAwareAdaptation(object):
         k = v = f_kv.unsqueeze(0)
         att_feats, _ = self.att_head(q, k, v)  # torch.Size([1, 4, 2304])
         att_feats.squeeze_()  # Get rid of batch dim
+        logger.debug(f"att_feats.shape={att_feats.shape}")
 
         # Forward new feats through classifier head
         head_wrap = getattr(self.lightning_module.model, self.lightning_module.model.head_name)
@@ -1070,6 +1117,7 @@ class ContextAwareAdaptation(object):
             att_feats = att_feats.unsqueeze(squeeze_dim)  # Add dims again for SlowFast head
 
         att_preds = multitask_head.forward_merged_feat(att_feats)
+        logger.debug(f"att_preds.shape={att_preds.shape}")
 
         if return_feats:
             return att_preds, att_feats

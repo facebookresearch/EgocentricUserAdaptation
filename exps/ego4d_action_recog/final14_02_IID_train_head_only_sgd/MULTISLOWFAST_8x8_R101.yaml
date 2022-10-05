@@ -1,39 +1,14 @@
+ENABLE_FEW_SHOT: False
 FAST_DEV_RUN: False
 OUTPUT_DIR: "" # OVERWRITTEN IN CALLING-SCRIPT
 RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/
 CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
 CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
 NUM_USERS_PER_DEVICE: 1
-CONTEXT_ADAPT:
-  WRAPS_METHOD: "Finetuning"
-  MEM_SIZE: 10
 METHOD:
-  METHOD_NAME: "ContextAwareAdaptation"
-  REPLAY:
-    MEMORY_SIZE_SAMPLES: 64
-    STORAGE_POLICY: "reservoir_stream"
-    ANALYZE_GRADS: True
-ANALYZE_STREAM:
-  LOOKBACK_STRIDE_ITER: 5
-  WINDOW_SIZE_SAMPLES: 20
-  # SGD lr 0.01 with fixed feat extractor exp, can directly use these feats dump (final03)!:
-  # SGD lr 0.01 with adapting feats:
-#  PARENT_DIR_FEAT_DUMP: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/final01_01_finetuning_sgd/logs/GRID_SOLVER-BASE_LR=0-01_SOLVER-MOMENTUM=0-0_SOLVER-NESTEROV=True/2022-09-13_10-53-52_UID958392f7-c477-4a09-a7ac-c72cc81251c2"
-CONTINUAL_EVAL:
-  FREQ: 1
-  BATCH_SIZE: 8 # For speedup with parallel dataloading
-  NUM_WORKERS: 8 # Half for not overloading server
-  PAST_SAMPLE_CAPACITY: 64
-  PAST_SAMPLER_MODE: 'full' #'windowed'
-PREDICT_PHASE:
-  BATCH_SIZE: 10
-  NUM_WORKERS: 8
-TRAIN:
-  ENABLE: True
-  DATASET: Ego4dContinualRecognition
-  BATCH_SIZE: 4 # Process 1 new video-subsequence a time (Online)
+  METHOD_NAME: "Finetuning"
 DATA:
-  RETURN_VIDEO: True
+  SHUFFLE_DS_ORDER: False # Define this for IIDFinetuning
   USER_SUBSET: 'train' # train or test usersplit
   TARGET_FPS: 30
   NUM_FRAMES: 32
@@ -42,7 +17,22 @@ DATA:
   TRAIN_CROP_SIZE: 224
   TEST_CROP_SIZE: 256
   INPUT_CHANNEL_NUM: [ 3, 3 ]
-  TASK: "continual_classification"
+  TASK: "iid_classification" # IID classificaiton required for multi-epoch training without tracking performance.
+TEST:
+  ENABLE: False
+CONTINUAL_EVAL:
+  FREQ: -1
+  BATCH_SIZE: 8 # For speedup with parallel dataloading
+  NUM_WORKERS: 8 # Half for not overloading server
+  PAST_SAMPLE_CAPACITY: 64
+PREDICT_PHASE:
+  BATCH_SIZE: 10
+  NUM_WORKERS: 8
+TRAIN:
+  ENABLE: True
+  DATASET: Ego4dContinualRecognition
+  BATCH_SIZE: 32 # Process 1 new video-subsequence a time (Online)
+
 SLOWFAST:
   ALPHA: 4
   BETA_INV: 8
@@ -67,10 +57,10 @@ BN:
 #  NUM_BATCHES_PRECISE: 200 # After this many batches, Recomputes Batch-stats on actual fixed model instead of running avg
 SOLVER:
   BASE_LR: 1e-2
-  CLASSIFIER_LR: 1e-1
   LR_POLICY: constant
-  MAX_EPOCH: 1
+  MAX_EPOCH: 10 # Train head for 10 epochs
   MOMENTUM: 0.0
+  NESTEROV: True # If 0, should set to False
   OPTIMIZING_METHOD: sgd
   WEIGHT_DECAY: 0.0
 MODEL:
@@ -80,7 +70,7 @@ MODEL:
   LOSS_FUNC: cross_entropy
   DROPOUT_RATE: 0.5
 DATA_LOADER:
-  NUM_WORKERS: 8
+  NUM_WORKERS: 2 # Only current-training batch, and due to eval next one will have quite some time
   PIN_MEMORY: True
 NUM_GPUS: 1
 NUM_SHARDS: 1

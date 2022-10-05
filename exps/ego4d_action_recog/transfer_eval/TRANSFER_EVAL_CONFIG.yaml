@@ -5,7 +5,10 @@ TRANSFER_EVAL:
   #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_36_21.953-07_00.csv"
   #
   # Final01_01
-  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_04_58.100-07_00.csv"
+  # Final10_01
+  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-30T13_55_05.251-07_00.csv"
+  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-28T09_14_24.439-07_00.csv"
+  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-26T21_24_46.577-07_00.csv"
   # Final01_01: All runs (not just best):
   #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-23T12_06_30.906-07_00.csv"
   #
