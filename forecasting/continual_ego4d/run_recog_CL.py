@@ -274,7 +274,12 @@ def online_adaptation_single_user(
     ckp_path = cfg.CHECKPOINT_FILE_PATH
     if cfg.CHECKPOINT_PATH_FORMAT_FOR_USER:
         ckp_path = ckp_path.format(user_id)
-    load_slowfast_model_weights(ckp_path, task, cfg.CHECKPOINT_LOAD_MODEL_HEAD)
+    try:
+        load_slowfast_model_weights(ckp_path, task, cfg.CHECKPOINT_LOAD_MODEL_HEAD)
+    except:
+        # Wrap head with masker, enables resuming checkpoints after learning streams
+        ContinualMultiTaskClassificationTask.configure_head(task.model, task.stream_state)
+        load_slowfast_model_weights(ckp_path, task, cfg.CHECKPOINT_LOAD_MODEL_HEAD)
 
     # Freeze model if applicable
     if cfg.MODEL.FREEZE_BACKBONE:
