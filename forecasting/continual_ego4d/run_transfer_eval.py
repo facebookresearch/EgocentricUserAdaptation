@@ -568,7 +568,7 @@ def eval_single_model_single_stream(
             load_model_path, task, eval_cfg.CHECKPOINT_LOAD_MODEL_HEAD,
         )
     except:
-        task.configure_head()  # Add outputhead masker so checkpoint can load the params
+        task.configure_head(task.model, task.stream_state)  # Add outputhead masker so checkpoint can load the params
         load_slowfast_model_weights(
             load_model_path, task, eval_cfg.CHECKPOINT_LOAD_MODEL_HEAD,
         )
