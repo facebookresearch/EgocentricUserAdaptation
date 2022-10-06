@@ -131,6 +131,7 @@ class SchedulerConfig:
             logger.info(f"Finished processing run {finished_run_id}"
                         f" -> run_id_queue= {run_id_queue}, "
                         f"available_devices={device_id}, "
+                        f"UNFINISHED={set(self.run_ids_to_process) - set(finished_run_ids)}, "
                         f"finished runs={finished_run_ids} out of {self.run_ids_to_process}")
 
             if interrupted:
