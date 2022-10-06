@@ -936,6 +936,141 @@ def parse_final00_01_and_02_pretrain_performance():
     print_end_table()
 
 
+def parse_final14_01_and_02_replay_classifier_retrain():
+    """
+    COLS:
+    ['Name', 'SOLVER.BASE_LR', 'SOLVER.NESTEROV', 'SOLVER.MOMENTUM',
+           'adhoc_users_aggregate/user_aggregate_count',
+
+
+    New metric results: [
+    'adhoc_users_aggregate/user_aggregate_count/test',
+
+    # LOSSES
+     'adhoc_users_aggregate/test_action_batch/loss/mean',
+     'adhoc_users_aggregate/test_action_batch/loss/SE',
+
+     'adhoc_users_aggregate/test_verb_batch/loss/mean',
+     'adhoc_users_aggregate/test_verb_batch/loss/SE',
+
+     'adhoc_users_aggregate/test_noun_batch/loss/mean',
+     'adhoc_users_aggregate/test_noun_batch/loss/SE',
+
+
+     # ACTION ACC
+     'adhoc_users_aggregate/test_action_batch/top1_acc/mean',
+     'adhoc_users_aggregate/test_action_batch/top1_acc/SE',
+
+     # VERB ACC
+     'adhoc_users_aggregate/test_verb_batch/top1_acc/mean',
+     'adhoc_users_aggregate/test_verb_batch/top1_acc/SE',
+
+     'adhoc_users_aggregate/test_verb_batch/top5_acc/mean',
+     'adhoc_users_aggregate/test_verb_batch/top5_acc/SE',
+
+     # NOUN ACC
+     'adhoc_users_aggregate/test_noun_batch/top1_acc/mean',
+     'adhoc_users_aggregate/test_noun_batch/top1_acc/SE',
+
+     'adhoc_users_aggregate/test_noun_batch/top5_acc/mean',
+     'adhoc_users_aggregate/test_noun_batch/top5_acc/SE'
+     ]
+
+    """
+    csv_filename = "wandb_export_2022-10-05T18_47_30.747-07_00.csv"  # TEST USERS: Full results all
+    caption = "Replay vs SGD classifier retrain on final fixed feature extractor."
+    csv_path = os.path.join(csv_dirname, csv_filename)
+    round_digits = 1
+
+    orig_df = pd.read_csv(csv_path)
+
+    # FILTER
+    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
+    # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR','TRAIN.INNER_LOOP_ITERS', ])
+    # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR', 'SOLVER.CLASSIFIER_LR'])
+
+    # Place here in order you want the latex columns to be
+    ordered_cols = [
+
+        LatexColumn(
+            'CHECKPOINT_FILE_PATH',
+            latex_col_report_name=r"Path",
+            format_fn_overwrite=lambda x: x,
+        ),
+
+        # LOSSES
+        LatexColumn(
+            'adhoc_users_aggregate/test_action_batch/loss/mean',
+            'adhoc_users_aggregate/test_action_batch/loss/SE',
+            latex_col_report_name=r"$\overline{\mathcal{L}}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/test_verb_batch/loss/mean',
+            'adhoc_users_aggregate/test_verb_batch/loss/SE',
+            latex_col_report_name=r"$\overline{\mathcal{L}}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/test_noun_batch/loss/mean',
+            'adhoc_users_aggregate/test_noun_batch/loss/SE',
+            latex_col_report_name=r"$\overline{\mathcal{L}}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
+
+        # ACTION ACC
+        LatexColumn(
+            'adhoc_users_aggregate/test_action_batch/top1_acc/mean',
+            'adhoc_users_aggregate/test_action_batch/top1_acc/SE',
+            latex_col_report_name=r"$\overline{\text{ACC}}_{\text{top-1, action}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/test_verb_batch/top1_acc/mean',
+            'adhoc_users_aggregate/test_verb_batch/top1_acc/SE',
+            latex_col_report_name=r"$\overline{\text{ACC}}_{\text{top-1, verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/test_noun_batch/top1_acc/mean',
+            'adhoc_users_aggregate/test_noun_batch/top1_acc/SE',
+            latex_col_report_name=r"$\overline{\text{ACC}}_{\text{top-1, noun}}$",
+            round_digits=round_digits,
+        ),
+
+        # TOP-5 acc
+        LatexColumn(
+            'adhoc_users_aggregate/test_verb_batch/top5_acc/mean',
+            'adhoc_users_aggregate/test_verb_batch/top5_acc/SE',
+            latex_col_report_name=r"$\overline{\text{ACC}}_{\text{top-5, verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/test_noun_batch/top5_acc/mean',
+            'adhoc_users_aggregate/test_noun_batch/top5_acc/SE',
+            latex_col_report_name=r"$\overline{\text{ACC}}_{\text{top-5, noun}}$",
+            round_digits=round_digits,
+        ),
+    ]
+
+    latex_df = pd.DataFrame()
+
+    for col in ordered_cols:
+
+        if col.pandas_col_std_name is not None:
+            latex_df[col.latex_col_report_name] = orig_df.loc[:,
+                                                  (col.pandas_col_mean_name, col.pandas_col_std_name)
+                                                  ].apply(col.format_fn, axis=1)
+        else:
+            latex_df[col.latex_col_report_name] = orig_df.loc[:, col.pandas_col_mean_name].apply(col.format_fn)
+
+    print_begin_table(caption)
+    with pd.option_context("max_colwidth", 1000):  # No truncating of strings
+        print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
+    print_end_table()
+
+
 def print_begin_table(caption=""):
     print(r"\begin{table}[]")
     print(rf"\caption{{{caption}}}")
@@ -950,4 +1085,4 @@ def print_end_table():
 
 
 if __name__ == "__main__":
-    parse_final00_01_and_02_pretrain_performance()
+    parse_final14_01_and_02_replay_classifier_retrain()

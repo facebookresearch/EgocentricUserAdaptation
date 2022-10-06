@@ -56,8 +56,8 @@ MODES = [
 
 # Adapt settings
 MODE = MODES[1]
-csv_filename = 'wandb_export_2022-10-04T18_07_42.292-07_00.csv'  # TODO copy file here and past name here
-NB_EXPECTED_USERS = len(test_users)
+csv_filename = 'wandb_export_2022-10-05T17_32_30.079-07_00.csv'  # TODO copy file here and past name here
+NB_EXPECTED_USERS = len(train_users)
 
 # Fixed Settings
 csv_dirname = '/home/mattdl/projects/ContextualOracle_Matthias/adhoc_results'  # Move file in this dir
