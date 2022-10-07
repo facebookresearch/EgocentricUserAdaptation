@@ -21,6 +21,7 @@ After training user-streams, evaluate on the final models with the full user-str
 import traceback
 from continual_ego4d.tasks.continual_action_recog_task import PretrainState
 from collections import Counter
+from continual_ego4d.processing.run_adhoc_metric_processing_wandb import update_test_results_wandb
 
 from continual_ego4d.utils.misc import makedirs
 import copy
@@ -79,7 +80,11 @@ def main():
         group_names = get_group_names_from_csv(eval_cfg.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH)
 
         if eval_cfg.TRANSFER_EVAL.CSV_RANGE is not None:
-            start_idx, end_idx = eval_cfg.TRANSFER_EVAL.CSV_RANGE
+            csv_range = eval_cfg.TRANSFER_EVAL.CSV_RANGE
+            if isinstance(csv_range, str):
+                csv_range = csv_range.split(',')
+
+            start_idx, end_idx = csv_range
             group_names = group_names[start_idx:end_idx]
     else:
         group_names = [eval_cfg.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL]
@@ -156,6 +161,8 @@ def process_group(eval_cfg, group_name, project_name):
     logger.info(f"Starting main script with OUTPUT_DIR={main_parent_dir}")
 
     # Dataset lists from json / users to process
+    if eval_cfg.USER_SELECTION is not None:
+        train_cfg.USER_SELECTION = eval_cfg.USER_SELECTION
     user_datasets, pretrain_dataset = load_datasets_from_jsons(train_cfg, return_pretrain=True)
     processed_trained_user_ids, all_trained_user_ids = get_user_ids(train_cfg, user_datasets, train_path_handler)
     assert len(processed_trained_user_ids) == len(all_trained_user_ids) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS, \
@@ -175,6 +182,7 @@ def process_group(eval_cfg, group_name, project_name):
     # Get run entries
     all_run_entries = []
     modeluser_streamuser_pairs = get_user_model_stream_pairs(eval_cfg, all_trained_user_ids)
+    logger.info(f"Processing pairs: {modeluser_streamuser_pairs}")
     for (model_userid, stream_userid) in modeluser_streamuser_pairs:
         run_id = get_pair_id(model_userid, stream_userid)
 
@@ -234,21 +242,65 @@ def process_group(eval_cfg, group_name, project_name):
         return
 
     logger.info(f"Starting postprocessing")
-    postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, group_name, pretrain_dataset)
+
+    if eval_cfg.TRANSFER_EVAL.INCLUDE_PRETRAIN_MODEL:
+        """ HAG processing, requires pretrain models. """
+        postprocess_instance_counts_from_csv_files(eval_cfg, modeluser_streamuser_pairs, pretrain_dataset)
+        postprocess_transfer_matrix_from_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, group_name)
+
+    """ Postprocess absolute values. Always possible, don't need pretrain for that. """
+    postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, group_name)
 
 
-def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, group_name, pretrain_dataset):
-    """
-    Get Avg loss per csv entry for
+def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, group_name):
+    """ Simply average per-stream-avg over all user streams and upload to wandb. """
 
-    - verb/noun/action.
-    - absolute loss + relative to pretrain (AG)
+    # Iterate diagonal of transfer matrix: Only same user with corresponding stream
+    # Collect results
+    metric_name_to_userlist = {
+        'test_action_batch/loss': [],
+        'test_verb_batch/loss': [],
+        'test_noun_batch/loss': [],
+        'test_action_batch/top1_acc': [],
+        'test_verb_batch/top1_acc': [],
+        'test_verb_batch/top5_acc': [],
+        'test_noun_batch/top1_acc': [],
+        'test_noun_batch/top5_acc': [],
+    }
 
-    2d Matrix is dims:
-    - rows (y-axis): model users
-    - cols (x-axis): stream users
-    """
+    # COLLECT RESULTS
+    user_ids = []  # all processed users
+    for model_userid, stream_userid in modeluser_streamuser_pairs:
+        if 'pretrain' in [model_userid, stream_userid]:  # TODO skipping pretrain cols/rows for now
+            logger.info(f"SKIPPING: model_userid={model_userid}, stream_userid={stream_userid}")
+            continue
+        if model_userid != stream_userid:
+            logger.info(
+                f"SKIPPING: Only considering diagonal: model_userid={model_userid}, stream_userid={stream_userid}")
+            continue
+        logger.info(f"Processing: model_userid={model_userid}, stream_userid={stream_userid}")
 
+        assert model_userid == stream_userid
+        userid = model_userid
+        user_ids.append(userid)
+
+        # Read CSV
+        stream_df = get_df_from_csv(eval_cfg, userid, userid)
+        avg_df = stream_df.iloc[[0]]  # Only first row
+
+        for name, val_list in metric_name_to_userlist.items():
+            val_list.append(avg_df[name].tolist()[0])  # Only take first avg (copied along column dim)
+
+    # AVG AND UPLOAD TO WANDB
+    logger.info(f"Collected test results for users {user_ids}:\n {metric_name_to_userlist}")
+    update_test_results_wandb(metric_name_to_userlist, group_name=group_name)  # returns finished runs from train group
+
+
+def postprocess_instance_counts_from_csv_files(eval_cfg, modeluser_streamuser_pairs, pretrain_dataset):
+    """ Postprocess and save in csv files for pretrain vs stream instance counts/action. """
+    ###################################################
+    # PRETRAIN vs INSTANCE COUNT ANALYSIS (includes HAG)
+    ###################################################
     # Action instance counts in pretrain/stream and avgs over action-performances per user
     instance_count_df_dict: dict[str, pd.DataFrame] = get_pretrain_stream_instance_count_df(
         eval_cfg, modeluser_streamuser_pairs, pretrain_dataset
@@ -260,6 +312,20 @@ def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, gr
                                 f"{action_mode}_instance_count.csv")
         action_mode_df.to_csv(filepath, index=False)
 
+
+def postprocess_transfer_matrix_from_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, group_name):
+    """
+    Get avg HAG and HAG transfer matrix results and upload to WandB.
+
+    Get Avg loss per csv entry for
+    - verb/noun/action
+    - absolute loss
+    - HAG (loss relative to pretrain)
+
+    2d Matrix is dims:
+    - rows (y-axis): model users
+    - cols (x-axis): stream users
+    """
     # Save HAG and transfer 2d-array for heatmap
     modelusers = sorted(list(
         set([entry_pair[0] for entry_pair in modeluser_streamuser_pairs]) - {'pretrain'}
@@ -280,17 +346,6 @@ def postprocess_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, gr
 
         # Plot Matrices
         wandb_update_transfer_matrix(user_run, transfer_matrices, streamusers, modelusers)
-
-        # Add tables
-        # wandb_update_instance_count_tables(user_run, instance_count_df_dict)
-
-
-# def wandb_update_instance_count_tables(user_run, df_dict):
-#     """ Currently not yet possible to allocate Artifact to run/group like this. """
-#     for action_mode, df in df_dict.items():
-#         user_run.summary[f"instance_count_table/{action_mode}"] = wandb.Table(data=df)
-#
-#     user_run.summary.update()
 
 
 def wandb_update_diagonal(user_run, diagonal_AGs, eval_cfg, streamusers, modelusers):
@@ -472,6 +527,10 @@ def get_transfer_results(eval_cfg, modeluser_streamuser_pairs, modelusers, strea
 
 
 def get_df_from_csv(eval_cfg, model_userid, stream_userid):
+    """ Get the csv path
+    - summary_results_csv=False:  CSV with per-sample verb/noun/action losses for Transfer analysis.
+    - summary_results_csv=True: CSV with final absolute test metrics averaged over stream (e.g. avg loss,...)
+    """
     # Read csv
     csv_path = os.path.join(
         eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR,
@@ -596,15 +655,30 @@ def eval_single_model_single_stream(
     )
 
     logger.info("PREDICTING (INFERENCE)")
-    sample_idx_to_loss_dict_list: list[dict] = trainer.predict(task)
+    sample_idx_to_loss_dict_list: list[dict[str, dict]] = trainer.predict(task)
+    """
+    Per batch contains mapping of sample_idx to dict of results.
+    [{
+    0: {'pred_action_batch/loss': 4.419626235961914, 'pred_verb_batch/loss': 0.3899345397949219, 'pred_noun_batch/loss': 4.029691696166992}, 
+    1: {'pred_action_batch/loss': 4.606912136077881, 'pred_verb_batch/loss': 0.47056838870048523, 'pred_noun_batch/loss': 4.136343955993652}
+    },
+    {
+    2: {'pred_action_batch/loss': 4.419626235961914, 'pred_verb_batch/loss': 0.3899345397949219, 'pred_noun_batch/loss': 4.029691696166992}, 
+    3: {'pred_action_batch/loss': 4.606912136077881, 'pred_verb_batch/loss': 0.47056838870048523, 'pred_noun_batch/loss': 4.136343955993652}
+    }]
+    """
 
-    # Flatten
-    sample_idx_to_losses_dict = {k: v for iter_dict in sample_idx_to_loss_dict_list for k, v in iter_dict.items()}
+    # Flatten out batch dim (single dict)
+    sample_idx_to_losses_dict: dict[str, dict] = {
+        k: v for iter_dict in sample_idx_to_loss_dict_list
+        for k, v in iter_dict.items()
+    }
 
     # Dataframe for csv
     df = pd.DataFrame(sample_idx_to_losses_dict).transpose()
     """
-        e.g.
+    As sample idxs are keys, they will be columns, so then transpose resulting in:
+        
            pred_action_batch/loss  pred_verb_batch/loss  pred_noun_batch/loss
     0               63.166710         -0.000000e+00             63.166710
     1               94.299492         -0.000000e+00             94.299492
@@ -620,6 +694,19 @@ def eval_single_model_single_stream(
     # CSV doesn't allow python object (e.g. tuples for action), instead save verb/noun separately
     df['verb'] = [action[0] for action in task.stream_state.sample_idx_to_action_list]
     df['noun'] = [action[1] for action in task.stream_state.sample_idx_to_action_list]
+
+    # Postprocess predictions/labels and remove columns
+    pred_list: list[tuple[torch.Tensor, torch.Tensor]] = df['prediction'].tolist()
+    label_list: list[torch.Tensor, torch.Tensor] = df['label'].tolist()
+
+    test_results: dict = task.get_test_metrics(pred_list, label_list, task.loss_fun_unred)
+    for result_name, result_val in test_results.items():
+        assert result_name not in df.columns.tolist(), f"Overwriting column {result_name} in df not allowed"
+        df[result_name] = result_val  # Assign entire column same value
+
+    # Clear csv to drop
+    df.drop('prediction', axis=1, inplace=True)
+    df.drop('label', axis=1, inplace=True)
 
     # Save
     df.to_csv(os.path.join(run_result_dir, f"{run_id}.csv"), index=False)

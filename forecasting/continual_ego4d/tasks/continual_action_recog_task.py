@@ -5,6 +5,7 @@ import torch
 import wandb
 from fvcore.nn.precise_bn import get_bn_modules
 from collections import Counter
+import pandas as pd
 
 from collections import defaultdict
 import numpy as np
@@ -907,14 +908,28 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         The returned values allow acces to the values through
         list_of_predictions = trainer.predict()
         """
-        inputs, labels, video_names, stream_sample_idxs = batch
+        inputs, labels, video_names, stream_sample_idxs_t = batch
+        stream_sample_idxs = stream_sample_idxs_t.tolist()
 
         # Loss per sample
-        _, _, sample_to_results = self.method.prediction_step(inputs, labels, stream_sample_idxs.tolist())
-        for k, v in sample_to_results.items():
-            self.pretrain_state.sample_idx_to_pretrain_loss[k] = v
+        sample_to_pred, sample_to_label, sample_to_loss_dict = self.method.prediction_step(
+            inputs, labels, stream_sample_idxs
+        )
 
-        return sample_to_results
+        # Set stream state tracker (For preprocessing in training)
+        for sample_idx, loss_dict in sample_to_loss_dict.items():
+            self.pretrain_state.sample_idx_to_pretrain_loss[sample_idx] = loss_dict
+
+        # Merge results for prediction (For postprocessing with prediction results)
+        ret_dict = {}
+        for stream_sample_idx in stream_sample_idxs:
+            ret_dict[stream_sample_idx] = {
+                'prediction': sample_to_pred[stream_sample_idx],
+                'label': sample_to_label[stream_sample_idx],
+                **sample_to_loss_dict[stream_sample_idx],
+            }
+
+        return ret_dict
 
     @torch.no_grad()
     def on_predict_end(self) -> None:
@@ -927,9 +942,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         """
         logger.info(f"Predict collected over stream: {pprint.pformat(self.pretrain_state.sample_idx_to_pretrain_loss)}")
 
+        # retrieve how many seen during pretrain
         nb_verbs_total, nb_nouns_total = self.cfg.MODEL.NUM_CLASSES  # [ 115, 478 ]
 
-        # retrieve how many seen during pretrain
         nb_verbs_seen_pretrain = len(self.pretrain_state.pretrain_verb_freq_dict)
         nb_nouns_seen_pretrain = len(self.pretrain_state.pretrain_noun_freq_dict)
         logger.info(f"Pretraining seen verbs = {nb_verbs_seen_pretrain}/{nb_verbs_total}, "
@@ -974,6 +989,21 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         pred_list: list[tuple[torch.Tensor, torch.Tensor]] = [pred_dict['predictions'] for pred_dict in outputs]
         label_list: list[torch.Tensor, torch.Tensor] = [pred_dict['labels'] for pred_dict in outputs]
 
+        result_dict = self.get_test_metrics(pred_list, label_list, self.loss_fun_unred)
+
+        # Log
+        for logname, logval in result_dict.items():
+            self.log(logname, float(logval), on_epoch=True)
+
+        # Use to indicate finished runs
+        self.log('finished_test_run', True, on_epoch=True)
+        return result_dict
+
+    @staticmethod
+    def get_test_metrics(pred_list: list[tuple[torch.Tensor, torch.Tensor]],
+                         label_list: list[torch.Tensor, torch.Tensor],
+                         loss_fun_unred,
+                         ) -> dict:
         # Concat preds
         preds_verb = [pred[0] for pred in pred_list]
         preds_noun = [pred[1] for pred in pred_list]
@@ -986,7 +1016,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # Log losses as well
         loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
-            preds_t, labels_t, self.loss_fun_unred, mean=True
+            preds_t, labels_t, loss_fun_unred, mean=True
         )
 
         # Accuracies
@@ -1027,11 +1057,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
             # No AG as can use avg loss of pretrained model directly as baseline.
         }
-
-        # Log
-        for logname, logval in result_dict.items():
-            self.log(logname, float(logval), on_epoch=True)
-
         return result_dict
 
     # ---------------------

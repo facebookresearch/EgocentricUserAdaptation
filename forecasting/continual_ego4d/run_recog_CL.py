@@ -128,7 +128,14 @@ def get_user_ids(cfg, user_datasets, path_handler):
         [(user_id, len(user_ds)) for user_id, user_ds in user_datasets.items()],
         key=lambda x: x[1], reverse=True
     )
-    all_user_ids = [x[0] for x in user_to_ds_len]
+    all_user_ids = [str(x[0]) for x in user_to_ds_len]
+
+    # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
+    processed_user_ids = []
+    if path_handler.is_resuming_run:
+        logger.info(f"Resuming run from {path_handler.main_output_dir}")
+        processed_user_ids = path_handler.get_processed_users_from_final_dumps()
+        logger.debug(f"LOADED META CHECKPOINT: Processed users = {processed_user_ids}")
 
     if cfg.USER_SELECTION is not None:  # Apply user-filter
         user_selection = cfg.USER_SELECTION
@@ -138,17 +145,13 @@ def get_user_ids(cfg, user_datasets, path_handler):
 
         for user_id in user_selection:
             assert user_id in all_user_ids, f"Config user-id '{user_id}' is invalid. Define one in {all_user_ids}"
+
+        # Filter to only selection
         all_user_ids = list(filter(lambda x: x in user_selection, all_user_ids))
+        processed_user_ids = list(filter(lambda x: x in user_selection, processed_user_ids))
 
     cfg.DATA.COMPUTED_ALL_USER_IDS = all_user_ids
     logger.info(f"Processing users in order: {all_user_ids}, with sizes {user_to_ds_len}")
-
-    # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
-    processed_user_ids = []
-    if path_handler.is_resuming_run:
-        logger.info(f"Resuming run from {path_handler.main_output_dir}")
-        processed_user_ids = path_handler.get_processed_users_from_final_dumps()
-        logger.debug(f"LOADED META CHECKPOINT: Processed users = {processed_user_ids}")
 
     return processed_user_ids, all_user_ids
 

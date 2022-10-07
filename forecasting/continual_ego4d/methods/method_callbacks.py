@@ -22,6 +22,7 @@ import os
 from continual_ego4d.utils.models import get_flat_gradient_vector, get_name_to_grad_dict, grad_dict_to_vector
 from ego4d.models.head_helper import MultiTaskHead
 import numpy as np
+from torch.utils.data.sampler import RandomSampler, SequentialSampler
 
 from typing import TYPE_CHECKING
 from collections import deque
@@ -168,25 +169,19 @@ class Method:
             logger.info(f"[INNER-LOOP UPDATE] iter {inner_iter}/{self.lightning_module.inner_loop_iters}: "
                         f"fwd, bwd, step. Action_loss={loss_action_m.item()}")
 
-    # def checks_end_batch(self):
-    #     """ Checks to run after update. """
-    #     ss = self.lightning_module.stream_state
-    #
-    #     # For standard stream methods assume no revisiting of samples
-    #     assert len(ss.seen_samples_idxs) == len(np.unique(ss.seen_samples_idxs)), \
-    #         f"Duplicate visited samples in {ss.seen_samples_idxs}"
-
     def prediction_step(self, inputs, labels, stream_sample_idxs: list, *args, **kwargs) \
-            -> Tuple[Tensor, List[Tensor], Dict]:
+            -> Tuple[Dict[int, Tensor], Dict[int, tuple], Dict[int, dict]]:
         """ Default: Get all info we also get during training."""
-        preds: list = self.lightning_module.forward(inputs, return_feats=False)
+        preds: list[Tensor, Tensor] = self.lightning_module.forward(inputs, return_feats=False)
         loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
             preds, labels, self.loss_fun_pred, mean=False
         )
 
-        sample_to_results = {}
+        sample_to_loss = {}
+        sample_to_pred = {}
+        sample_to_label = {}
         for batch_idx, stream_sample_idx in enumerate(stream_sample_idxs):
-            sample_to_results[stream_sample_idx] = {
+            sample_to_loss[stream_sample_idx] = {
                 get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='action', base_metric_name='loss'):
                     loss_action[batch_idx].item(),
                 get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='verb', base_metric_name='loss'):
@@ -194,11 +189,12 @@ class Method:
                 get_metric_tag(TAG_BATCH, train_mode='pred', action_mode='noun', base_metric_name='loss'):
                     loss_noun[batch_idx].item(),
             }
+            # Keep batch dim consistently (unsqueeze)
+            sample_to_pred[stream_sample_idx] = tuple([preds[0][batch_idx].cpu().unsqueeze(0),
+                                                       preds[1][batch_idx].cpu().unsqueeze(0)])
+            sample_to_label[stream_sample_idx] = labels[batch_idx].cpu().unsqueeze(0)
 
-        return loss_action, preds, sample_to_results
-
-
-from torch.utils.data.sampler import RandomSampler, SequentialSampler
+        return sample_to_pred, sample_to_label, sample_to_loss
 
 
 @METHOD_REGISTRY.register()
