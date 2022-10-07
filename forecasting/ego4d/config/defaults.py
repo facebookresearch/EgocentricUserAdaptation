@@ -487,9 +487,9 @@ _C.DATA.SEQ_OBSERVED_FRAME_STRIDE = None  # BY DEFAULT specified as None: a full
 
 # Custom data path names for Ego4d
 _C.DATA.PATH_TO_DATA_FILE = CfgNode()
-_C.DATA.PATH_TO_DATA_FILE.TRAIN = ""
-_C.DATA.PATH_TO_DATA_FILE.VAL = ""
-_C.DATA.PATH_TO_DATA_FILE.TEST = ""
+_C.DATA.PATH_TO_DATA_FILE.TRAIN = None
+_C.DATA.PATH_TO_DATA_FILE.VAL = None
+_C.DATA.PATH_TO_DATA_FILE.TEST = None
 
 # Default ego4d path, using default names for json files (overwrite by PATH_TO_DATA_FILE)
 _C.DATA.PATH_TO_DATA_DIR = ""

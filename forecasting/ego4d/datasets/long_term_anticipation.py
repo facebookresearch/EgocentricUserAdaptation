@@ -47,16 +47,17 @@ class Ego4dRecognition(torch.utils.data.Dataset):
                          ) / self.cfg.DATA.TARGET_FPS
         clip_sampler = make_clip_sampler(clip_sampler_type, clip_duration)
 
-        if len(self.cfg.DATA.PATH_TO_DATA_FILE) == 0:  # Ego4d defaults
+        if mode == 'train':
+            data_path = self.cfg.DATA.PATH_TO_DATA_FILE.TRAIN
+        elif mode == 'val':
+            data_path = self.cfg.DATA.PATH_TO_DATA_FILE.VAL
+        elif mode == 'test':
+            data_path = self.cfg.DATA.PATH_TO_DATA_FILE.TEST
+
+        if data_path is None: # Ego4d defaults
             mode_ = 'test_unannotated' if mode == 'test' else mode
             data_path = os.path.join(self.cfg.DATA.PATH_TO_DATA_DIR, f'fho_lta_{mode_}.json')
-        else:  # Custom paths
-            if mode == 'train':
-                data_path = self.cfg.DATA.PATH_TO_DATA_FILE.TRAIN
-            elif mode == 'val':
-                data_path = self.cfg.DATA.PATH_TO_DATA_FILE.VAL
-            elif mode == 'test':
-                data_path = self.cfg.DATA.PATH_TO_DATA_FILE.TEST
+
         logger.info(f"Evaluating from json in path: {data_path}")
 
         self.dataset = ptv_dataset_helper.clip_recognition_dataset(
