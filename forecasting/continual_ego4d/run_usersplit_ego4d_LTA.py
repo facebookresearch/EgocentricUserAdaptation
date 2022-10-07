@@ -11,7 +11,7 @@ import datetime
 import os
 from collections import defaultdict
 import sys
-from continual_ego4d.utils.misc import makedirs
+# from continual_ego4d.utils.misc import makedirs
 
 parser = argparse.ArgumentParser(description="User split for ego4d LTA task.")
 parser.add_argument(
@@ -92,7 +92,7 @@ def generate_usersplit_from_trainval(
     # Check outdir path
     now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     output_dir = osp.join(args.p_output_dir, f"{now}_ego4d_LTA_usersplit")
-    makedirs(output_dir, exist_ok=True, mode=0o777)
+    os.makedirs(output_dir, exist_ok=True, mode=0o777)
     sys.stdout = Logger(osp.join(output_dir, "logger_dump.txt"))
 
     # check args
@@ -254,12 +254,20 @@ def generate_usersplit_from_trainval(
     # PRETRAIN JSON (USER + USER-AGNOSTIC ENTRIES in 'users' and 'clips' keys)
     # The 'clips' key allows to use the Ego4d code directly, making the json compatible with the codebase
     split = 'pretrain_incl_nanusers'
-    json_test_filepath = osp.join(output_dir, json_filename.format(split, nb_pretrain_users_subset))
-    save_json(trainval_joined_df, user_id_col, pretrain_user_ids, json_col_names, json_test_filepath, split,
+    json_pretrain_filepath = osp.join(output_dir, json_filename.format(split, nb_pretrain_users_subset))
+    save_json(trainval_joined_df, user_id_col, pretrain_user_ids, json_col_names, json_pretrain_filepath, split,
               flatten=True, include_nan_user=True)
 
+    # JSON WITH ALL DATA: For pretrain comparison baseline TODO: Have to use train/test summary data as they filter in streams
+    # split = 'all_data_test_train_pretrain_incl_nanusers'
+    # json_all_data_filepath = osp.join(output_dir, json_filename.format(split, nb_total_users))
+    # all_user_ids = list(train_user_ids) + list(test_user_ids) + list(pretrain_user_ids)  # Train/test/pretrain (incl NaN user)
+    # assert len(all_user_ids) == nb_total_users
+    # save_json(trainval_joined_df, user_id_col, all_user_ids, json_col_names, json_all_data_filepath, split,
+    #           flatten=True, include_nan_user=True)
 
-def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_filepath, split,
+
+def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_filepath, split_name,
               flatten=False, include_nan_user=False,
               include_action_sets=True):
     """Filter json dataframe, parse to json-compatible object. Dump to json file.
@@ -282,7 +290,7 @@ def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_fi
     train_format_df = pre_train_df[json_col_names]
     train_format_df = train_format_df.rename(columns={"scenarios": "parent_video_scenarios"})
 
-    train_json = df_to_per_user_formatted_json(train_format_df, user_ids, split, user_id_col)  # Convert to json
+    train_json = df_to_per_user_formatted_json(train_format_df, user_ids, split_name, user_id_col)  # Convert to json
 
     # Additional level-1 entries besides 'users'
     if flatten:  # Generate flat list (user-agnostic) in clips-key

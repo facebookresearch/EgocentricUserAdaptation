@@ -68,6 +68,8 @@ def main(cfg):
     with open(checkpoint_path, 'wb') as f:
         pickle.dump(datasets, f)
 
+    return checkpoint_path
+
 
 def collect_user_dataset(
         cfg,
