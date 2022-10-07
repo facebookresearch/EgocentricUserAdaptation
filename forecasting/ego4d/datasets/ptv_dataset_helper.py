@@ -401,9 +401,9 @@ def clip_recognition_dataset(
         video_path_prefix: str = "",
         decode_audio: bool = True,
         decoder: str = "pyav",
-        fast_dev_data_cutoff:int = None,
+        fast_dev_data_cutoff: int = None,
 ):
-    assert os.path.exists(data_path), 'Please run data/parse_ego4d_json.py first. Will change this later'
+    assert os.path.exists(data_path), f'Please run data/parse_ego4d_json.py first. Not existing: {data_path}'
 
     if g_pathmgr.isfile(data_path):
         try:
@@ -417,12 +417,16 @@ def clip_recognition_dataset(
         # the verb and noun label, and the annotation boundaries.
         untrimmed_clip_annotations = []
         for entry in annotations:
+            # Entry mapping fixes
+            clip_start_sec_key = 'action_clip_start_sec' if 'action_clip_start_sec' in entry else 'clip_start_sec'
+            clip_end_sec_key = 'action_clip_end_sec' if 'action_clip_end_sec' in entry else 'clip_end_sec'
+
             untrimmed_clip_annotations.append(
                 (
                     os.path.join(video_path_prefix, f'{entry["clip_uid"]}.mp4'),
                     {
-                        "clip_start_sec": entry['action_clip_start_sec'],
-                        "clip_end_sec": entry['action_clip_end_sec'],
+                        "clip_start_sec": entry[clip_start_sec_key],
+                        "clip_end_sec": entry[clip_end_sec_key],
                         "noun_label": entry['noun_label'],
                         "verb_label": entry['verb_label'],
                         "action_idx": entry['action_idx'],

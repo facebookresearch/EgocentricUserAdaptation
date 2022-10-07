@@ -32,7 +32,7 @@ cp "${this_script_filepath}" "${OUTPUT_DIR}" # Make a copy of current script fil
 #-----------------------------------------------------------------------------------------------#
 OVERWRITE_CFG_ARGS="WANDB.TAGS '${p_dirname}','${pp_dirname}'"
 
-export CUDA_VISIBLE_DEVICES="1,2,3,4,5" # Set as environment variable for this script
+export CUDA_VISIBLE_DEVICES="2,3,4,5" # Set as environment variable for this script
 OVERWRITE_CFG_ARGS+=" NUM_GPUS 4"
 OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN False"
 
@@ -63,7 +63,7 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 # To detach again: ctrl+a, followed by ctrl+d
 screenname="${run_id}_MATT"
 screen -dmS "${screenname}" \
-  python -m scripts.run_lta \
+python -m scripts.run_lta \
   --job_name "$screenname" \
   --working_directory "${OUTPUT_DIR}" \
   --cfg "${CONFIG}" \

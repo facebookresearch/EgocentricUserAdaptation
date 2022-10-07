@@ -18,12 +18,17 @@ NUM_EXPECTED_USERS = 198  # 148 pretrain (incl non-assigned-user), 40 test, 10 t
 title = f"ego4d_ALL_DATA_pretrain_incl_nanusers_and_segmented_train_test_usersplit_{NUM_EXPECTED_USERS}users"
 
 # OUT PATH
-json_filepath_out = f'/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/2022-09-08_17-17-16_ego4d_LTA_usersplit/{title}.json'
+json_filepath_out = f'/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/{title}.json'
 
 # INPUT PATHS
 pretrain_unsegmented_json = '/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/2022-09-08_17-17-16_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
-train_segmented_ckpt = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/summarize_streams/logs/2022-10-06_16-26-29_UID212c29c9-1ae7-470d-88c5-6f6653ba4fb0/dataset_entries_train_FEWSHOT=False_ego4d_LTA_train_usersplit_10users.ckpt"
-test_segmented_ckpt = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/summarize_streams/logs/2022-10-06_16-33-57_UID9a2cc977-ab47-4cda-af0f-2924662bbf06/dataset_entries_test_FEWSHOT=False_ego4d_LTA_test_usersplit_40users.ckpt"
+
+# Missing clip_uid in summary for pretraining ego4d
+# train_segmented_ckpt = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/summarize_streams/logs/2022-10-06_16-26-29_UID212c29c9-1ae7-470d-88c5-6f6653ba4fb0/dataset_entries_train_FEWSHOT=False_ego4d_LTA_train_usersplit_10users.ckpt"
+# test_segmented_ckpt = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/summarize_streams/logs/2022-10-06_16-33-57_UID9a2cc977-ab47-4cda-af0f-2924662bbf06/dataset_entries_test_FEWSHOT=False_ego4d_LTA_test_usersplit_40users.ckpt"
+train_segmented_ckpt = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/summarize_streams/logs/2022-10-07_04-49-02_UIDa5c4c52b-a8d8-4155-b1f4-bed9cd82374e/dataset_entries_train_FEWSHOT=False_ego4d_LTA_train_usersplit_10users.ckpt"
+test_segmented_ckpt = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/summarize_streams/logs/2022-10-07_04-33-34_UIDd679068a-dc6e-40ff-b146-70ffe0671a97/dataset_entries_test_FEWSHOT=False_ego4d_LTA_test_usersplit_40users.ckpt"
+
 
 # Segmented checkpoints are pickled
 with open(train_segmented_ckpt, 'rb') as f:

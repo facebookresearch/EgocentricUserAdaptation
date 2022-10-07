@@ -1042,6 +1042,8 @@ def get_cfg_by_name(cfg: CfgNode, hierarchy_cfg_name: str):
 
 def convert_cfg_to_flat_dict(cfg: CfgNode, key_exclude_set: set = None):
     """ Dict hierarchy is transformed to '.'-separated string keys, to values."""
+    if key_exclude_set is None:
+        key_exclude_set = []
 
     def _get_leafnodes_dict(cfg_node, key_list, final_dict):
         if not isinstance(cfg_node, CfgNode):  # Final node

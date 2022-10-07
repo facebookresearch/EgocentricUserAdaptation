@@ -902,7 +902,6 @@ class MViT(nn.Module):
         if self.norm_stem:
             x = self.norm_stem(x)
 
-        # import pdb; pdb.set_trace()
         thw = [T, H, W]
         for blk in self.blocks:
             x, thw = blk(x, thw)
@@ -1389,9 +1388,7 @@ class TransformerBasicHead(nn.Module):
         if dropout_rate > 0.0:
             self.dropout = nn.Dropout(dropout_rate)
 
-        # import pdb; pdb.set_trace()
-
-        # Not sure why this error comes with MViT 
+        # Not sure why this error comes with MViT
         if isinstance(num_classes, list):
             assert len(num_classes) == 1
             num_classes = num_classes[0]

@@ -8,8 +8,8 @@ DATA:
 #    BUGGED JSON DIDNT INCLUDE NAN-USER: TRAIN: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-05_18-22-53_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json"
 #    TRAIN: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-09_16-02-54_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json"
     # TRAIN ON train + val data:
-    TRAIN: "/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/2022-09-08_17-17-16_ego4d_LTA_usersplit/ego4d_ALL_DATA_pretrain_incl_nanusers_and_segmented_train_test_usersplit_198users.json"
-    VAL: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-08-09_16-02-54_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json"
+    TRAIN: "/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/ego4d_ALL_DATA_pretrain_incl_nanusers_and_segmented_train_test_usersplit_198users.json"
+    VAL: '/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/2022-09-08_17-17-16_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'
     TEST: "" # No testing anyway
   NUM_FRAMES: 32
   SAMPLING_RATE: 2

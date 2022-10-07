@@ -519,8 +519,8 @@ def get_formatted_entry(df_row, video_path_prefix, user_id):
             "verb": df_row['verb'],
             "action_idx": df_row['action_idx'],
             "parent_video_scenarios": df_row['parent_video_scenarios'],
-            "parent_video_uid": df_row['video_uid'],
-            "clip_5min_uid": df_row['clip_uid'],
+            "video_uid": df_row['video_uid'],
+            "clip_uid": df_row['clip_uid'],
             "user_id": user_id,  # Grouped by user
 
             # Get full dataset info access in stream
@@ -559,8 +559,8 @@ def get_video_transitions(seq_input_list):
     last_clip = None
     last_video = None
     for sample_idx, (_, entry) in enumerate(seq_input_list):
-        clip_5min_uid = entry['clip_5min_uid']
-        parent_video_uid = entry['parent_video_uid']
+        clip_5min_uid = entry['clip_uid']
+        video_uid = entry['video_uid']
 
         if last_clip is not None:
             assert last_video is not None
@@ -568,11 +568,11 @@ def get_video_transitions(seq_input_list):
             if last_clip != clip_5min_uid:
                 clip_5min_transition_idxs.append(sample_idx)
 
-            if last_video != parent_video_uid:
+            if last_video != video_uid:
                 parent_video_transition_idxs.append(sample_idx)
 
         # Update last
         last_clip = clip_5min_uid
-        last_video = parent_video_uid
+        last_video = video_uid
 
     return clip_5min_transition_idxs, parent_video_transition_idxs
