@@ -30,7 +30,7 @@ from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 from scripts.slurm import copy_and_run_with_config
 import os
 
-from continual_ego4d.utils.models import freeze_backbone_not_head, model_trainable_summary
+from continual_ego4d.utils.models import freeze_backbone_not_head, model_trainable_summary, freeze_full_model
 
 from fvcore.common.config import CfgNode
 
@@ -287,6 +287,8 @@ def online_adaptation_single_user(
     # Freeze model if applicable
     if cfg.MODEL.FREEZE_BACKBONE:
         freeze_backbone_not_head(task.model)
+    if cfg.MODEL.FREEZE_MODEL:
+        freeze_full_model(task.model)
 
     # Print summary
     model_trainable_summary(task.model)
@@ -321,7 +323,7 @@ def online_adaptation_single_user(
     if cfg.STREAM_EVAL_ONLY:
         interrupted = test(trainer, task)
     else:
-        interrupted = train(trainer, task)
+        interrupted = train(cfg, trainer, task)
 
     # Cleanup process GPU-MEM allocation (Only process context will remain allocated)
     torch.cuda.empty_cache()
@@ -334,9 +336,9 @@ def online_adaptation_single_user(
     return ret  # For multiprocessing indicate which resources are free now
 
 
-def train(trainer: Trainer, task):
+def train(cfg, trainer: Trainer, task):
     # Dependent on task: Might need to run prediction first (gather per-sample results for init model)
-    if task.run_predict_before_train:
+    if cfg.CONTINUAL_EVAL.ONLINE_OAG and task.method.run_predict_before_train:
         logger.info("Starting Trainer Prediction round before fitting")
         trainer.predict(task)  # Skip validation
 

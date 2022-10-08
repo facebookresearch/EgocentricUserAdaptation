@@ -1,35 +1,31 @@
 TRANSFER_EVAL:
   WANDB_PROJECT_NAME: "matthiasdelange/ContinualUserAdaptation"
   # Finetune SGD 0.01 plain
-  WANDB_GROUP_TO_EVAL: "Finetuning_2022-09-14_19-06-02_UID2c4355e2-c42c-46d9-ba37-8cb8abe8d1d0_MATT"
-  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T15_36_21.953-07_00.csv"
-  #
+  #  WANDB_GROUP_TO_EVAL: "Finetuning_2022-09-14_19-06-02_UID2c4355e2-c42c-46d9-ba37-8cb8abe8d1d0_MATT"
   # Final01_01
-  # Final10_01
-  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-30T13_55_05.251-07_00.csv"
-  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-28T09_14_24.439-07_00.csv"
-  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-26T21_24_46.577-07_00.csv"
-  # Final01_01: All runs (not just best):
-  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-23T12_06_30.906-07_00.csv"
-  #
-  # Final02_01: Replay
-  #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-09-21T17_44_32.708-07_00.csv"
+  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-07T18_01_53.506-07_00.csv"
   #  CSV_RANGE: (0,6)
   #  CSV_RANGE: (6,None)
   #  OUTPUT_DIR: ""
   DIAGONAL_ONLY: True # Cartesian product or only user-model with same user-stream.
   INCLUDE_PRETRAIN_STREAM: False
-  INCLUDE_PRETRAIN_MODEL: True
+  INCLUDE_PRETRAIN_MODEL: False # True if calculating OAG/HAG directly
   NUM_EXPECTED_USERS: 10
 
+  PRETRAIN_REFERENCE_GROUP_WANDB: 'train' # or test
+  PRETRAIN_TRAIN_USERS_GROUP_WANDB: "FixedNetwork_2022-10-07_21-50-23_UID80e71950-cea4-44ba-ba16-7dddfe95be26"
+  PRETRAIN_TEST_USERS_GROUP_WANDB: "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4"
+
 CHECKPOINT_LOAD_MODEL_HEAD: True
-NUM_USERS_PER_DEVICE: 8 # Model-stream pairs in parallel on 1 device
+NUM_USERS_PER_DEVICE: 6 # Model-stream pairs in parallel on 1 device
 GPU_IDS: None
 NUM_GPUS: 1
 
 PREDICT_PHASE:
-  NUM_WORKERS: 10
+  NUM_WORKERS: 7
   BATCH_SIZE: 10 # 10=5G/user
 
+# Debug/fast run
 FAST_DEV_RUN: False
 FAST_DEV_DATA_CUTOFF: None
+USER_SELECTION: None

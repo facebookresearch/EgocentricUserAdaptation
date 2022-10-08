@@ -2,6 +2,9 @@ TRAIN:
   ENABLE: True
   DATASET: Ego4dRecognition
   BATCH_SIZE: 64
+DATA_LOADER:
+  NUM_WORKERS: 20
+  PIN_MEMORY: True
 DATA:
   PATH_TO_DATA_FILE: # Train on PRETRAIN data, and validate on USER-TRAIN SUBSET (which we use for hyperparam tuning)
 #    TRAIN: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_pretrain_usersplit_147users.json"
@@ -58,10 +61,7 @@ TEST:
   ENABLE: False
   DATASET: Ego4dRecognition
   BATCH_SIZE: 64
-DATA_LOADER:
-  NUM_WORKERS: 4
-  PIN_MEMORY: True
-NUM_GPUS: 8
+NUM_GPUS: 4
 NUM_SHARDS: 1
 RNG_SEED: 0
 OUTPUT_DIR: .

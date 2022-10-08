@@ -10,7 +10,7 @@ grid_arg="SOLVER.BASE_LR ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
 # Grid specific resources
-grid_overwrite_args+=" GPU_IDS 5,7 NUM_USERS_PER_DEVICE 2 GRID_RESUME_LATEST False" # 0,7
+grid_overwrite_args+=" GPU_IDS 1,2,3,4 NUM_USERS_PER_DEVICE 2 GRID_RESUME_LATEST True" # 0,7
 
 # Report final
 echo "grid_overwrite_args=$grid_overwrite_args"

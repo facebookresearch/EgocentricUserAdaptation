@@ -21,7 +21,8 @@ After training user-streams, evaluate on the final models with the full user-str
 import traceback
 from continual_ego4d.tasks.continual_action_recog_task import PretrainState
 from collections import Counter
-from continual_ego4d.processing.run_adhoc_metric_processing_wandb import update_test_results_wandb
+from continual_ego4d.processing.run_adhoc_metric_processing_wandb import update_test_results_wandb, \
+    _collect_wandb_group_absolute_online_results
 
 from continual_ego4d.utils.misc import makedirs
 import copy
@@ -68,11 +69,24 @@ def parse_wandb_runs(project_name, group_name):
     return user_to_config
 
 
+def eval_config_checks(eval_cfg):
+    if eval_cfg.USER_SELECTION is None:
+        if eval_cfg.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB == 'train':
+            assert eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS == 10
+
+        elif eval_cfg.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB == 'test':
+            assert eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS == 40
+
+        else:
+            raise ValueError()
+
+
 def main():
     """ Iterate users and aggregate. """
     print("Starting eval")
     args = parse_args()
     eval_cfg = load_config(args)
+    eval_config_checks(eval_cfg)
 
     if eval_cfg.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH is not None:
         assert os.path.isfile(eval_cfg.TRANSFER_EVAL.WANDB_GROUPS_TO_EVAL_CSV_PATH), \
@@ -145,8 +159,8 @@ def process_group(eval_cfg, group_name, project_name):
     user_to_checkpoint_path['pretrain'] = train_cfg['CHECKPOINT_FILE_PATH']  # Add pretrain as user
 
     # SET EVAL OUTPUT_DIR
-    main_parent_dirname = 'transfer_eval' if not eval_cfg.FAST_DEV_RUN else \
-        f"transfer_eval_DEBUG_CUTOFF_{eval_cfg.FAST_DEV_DATA_CUTOFF}"
+    main_parent_dirname = 'HAG_transfer_eval' if not eval_cfg.FAST_DEV_RUN else \
+        f"HAG_transfer_eval_DEBUG_CUTOFF_{eval_cfg.FAST_DEV_DATA_CUTOFF}"
     main_parent_dir = os.path.join(train_group_outputdir, main_parent_dirname)
     eval_cfg.TRANSFER_EVAL.COMPUTED_POSTPROCESS_RESULTDIR = os.path.join(main_parent_dir, 'postprocess_results')
     eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR = os.path.join(main_parent_dir, 'results')
@@ -249,10 +263,10 @@ def process_group(eval_cfg, group_name, project_name):
         postprocess_transfer_matrix_from_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, group_name)
 
     """ Postprocess absolute values. Always possible, don't need pretrain for that. """
-    postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, group_name)
+    postprocess_absolute_stream_results(eval_cfg, all_trained_user_ids, group_name)
 
 
-def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, group_name):
+def postprocess_absolute_stream_results(eval_cfg, all_trained_user_ids, group_name):
     """ Simply average per-stream-avg over all user streams and upload to wandb. """
 
     # Iterate diagonal of transfer matrix: Only same user with corresponding stream
@@ -268,32 +282,69 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         'test_noun_batch/top5_acc': [],
     }
 
-    # COLLECT RESULTS
-    user_ids = []  # all processed users
-    for model_userid, stream_userid in modeluser_streamuser_pairs:
-        if 'pretrain' in [model_userid, stream_userid]:  # TODO skipping pretrain cols/rows for now
-            logger.info(f"SKIPPING: model_userid={model_userid}, stream_userid={stream_userid}")
-            continue
-        if model_userid != stream_userid:
-            logger.info(
-                f"SKIPPING: Only considering diagonal: model_userid={model_userid}, stream_userid={stream_userid}")
-            continue
-        logger.info(f"Processing: model_userid={model_userid}, stream_userid={stream_userid}")
+    # Pretrain results are collected during training (online)
+    metric_name_to_pretrain_name_mapping = {
+        'test_action_batch/top1_acc': 'train_action_batch/top1_acc_running_avg',
 
-        assert model_userid == stream_userid
-        userid = model_userid
-        user_ids.append(userid)
+        'test_verb_batch/top1_acc': 'train_verb_batch/top1_acc_running_avg',
+        'test_verb_batch/top5_acc': 'train_verb_batch/top5_acc_running_avg',
+
+        'test_noun_batch/top1_acc': 'train_noun_batch/top1_acc_running_avg',
+        'test_noun_batch/top5_acc': 'train_noun_batch/top5_acc_running_avg'
+    }
+
+    AG_name_to_userlist = defaultdict(list)  # To fill
+
+    # Load results from pretrain run
+    if eval_cfg.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB == 'train':
+        pretrain_group = eval_cfg.TRANSFER_EVAL.PRETRAIN_TRAIN_USERS_GROUP_WANDB
+
+    elif eval_cfg.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB == 'test':
+        pretrain_group = eval_cfg.TRANSFER_EVAL.PRETRAIN_TEST_USERS_GROUP_WANDB
+    else:
+        raise ValueError()
+
+    pretrain_user_ids, pretrain_final_stream_metric_userlists = _collect_wandb_group_absolute_online_results(
+        pretrain_group, run_filter=None, user_ids=all_trained_user_ids)
+    assert pretrain_user_ids == all_trained_user_ids
+
+    # COLLECT RESULTS
+    for user_id in all_trained_user_ids:
 
         # Read CSV
-        stream_df = get_df_from_csv(eval_cfg, userid, userid)
+        stream_df = get_df_from_csv(eval_cfg, user_id, user_id)
         avg_df = stream_df.iloc[[0]]  # Only first row
 
-        for name, val_list in metric_name_to_userlist.items():
-            val_list.append(avg_df[name].tolist()[0])  # Only take first avg (copied along column dim)
+        # Iterate metrics, and add user result to each
+        for metric_name, val_list in metric_name_to_userlist.items():
+            user_stream_avg_result = avg_df[metric_name].tolist()[0]
+            val_list.append(user_stream_avg_result)  # Only take first avg (copied along column dim)
+
+            # In pretrain train metrics -> also test metrics
+            if metric_name not in metric_name_to_pretrain_name_mapping:
+                logger.info(f"Skipping metric {metric_name} for AG as not existing in pretrain")
+                continue
+            pretrain_key = metric_name_to_pretrain_name_mapping[metric_name]
+            pretrain_avg_result = np.mean(pretrain_final_stream_metric_userlists[pretrain_key])
+
+            # Get AG (delta)
+            if 'acc' in metric_name:  # Positive delta
+                delta_sign = 1
+            elif 'loss' in metric_name:
+                delta_sign = -1
+            else:
+                raise ValueError()
+
+            AG_name_to_userlist[f"{metric_name}/adhoc_hindsight_AG"].append(
+                delta_sign * (user_stream_avg_result - pretrain_avg_result)
+            )
+
+    # Merge dicts
+    final_dict = {**metric_name_to_userlist, **AG_name_to_userlist}
 
     # AVG AND UPLOAD TO WANDB
-    logger.info(f"Collected test results for users {user_ids}:\n {metric_name_to_userlist}")
-    update_test_results_wandb(metric_name_to_userlist, group_name=group_name)  # returns finished runs from train group
+    logger.info(f"Collected test results for users {all_trained_user_ids}:\n {final_dict}")
+    update_test_results_wandb(final_dict, group_name=group_name)  # returns finished runs from train group
 
 
 def postprocess_instance_counts_from_csv_files(eval_cfg, modeluser_streamuser_pairs, pretrain_dataset):
@@ -654,6 +705,9 @@ def eval_single_model_single_stream(
         logger=False,
     )
 
+    # TODO fix the online performance: Read csv and reprocess
+
+    # TODO this is the hindsight performance:
     logger.info("PREDICTING (INFERENCE)")
     sample_idx_to_loss_dict_list: list[dict[str, dict]] = trainer.predict(task)
     """

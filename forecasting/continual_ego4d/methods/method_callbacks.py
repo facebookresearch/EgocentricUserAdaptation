@@ -235,6 +235,20 @@ class Finetuning(Method):
 
 
 @METHOD_REGISTRY.register()
+class FixedNetwork(Method):
+    run_predict_before_train = False
+
+    def __init__(self, cfg, lightning_module):
+        super().__init__(cfg, lightning_module)
+
+    def training_first_forward(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        return super().training_first_forward(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
+
+    def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        logger.info("Skipping update as no params to train")
+
+
+@METHOD_REGISTRY.register()
 class FinetuningMomentumReset(Method):
     run_predict_before_train = True
 

@@ -47,30 +47,188 @@ class LatexColumn:
 def parse_final01_01_momentum_table():
     """
     COLS:
-    ['Name', 'SOLVER.BASE_LR', 'SOLVER.NESTEROV', 'SOLVER.MOMENTUM',
-           'adhoc_users_aggregate/user_aggregate_count',
 
-       'adhoc_users_aggregate/train_noun_batch/AG_cumul/SE',
-       'adhoc_users_aggregate/train_noun_batch/AG_cumul/mean',
+    New metric results: ['adhoc_users_aggregate/user_aggregate_count/test',
 
-       'adhoc_users_aggregate/train_verb_batch/AG_cumul/SE',
-       'adhoc_users_aggregate/train_verb_batch/AG_cumul/mean',
+######### OAG ################
+    # ABSOLUTE VALUES
+ 'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/mean',
+ 'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/SE',
+ 'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/mean',
+ 'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/SE',
+ 'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/mean',
+ 'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/SE',
+ 'adhoc_users_aggregate/train_verb_batch/top5_acc_running_avg/mean',
+ 'adhoc_users_aggregate/train_verb_batch/top5_acc_running_avg/SE',
+ 'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/mean',
+ 'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/SE',
 
-       'adhoc_users_aggregate/train_action_batch/AG_cumul/mean',
-       'adhoc_users_aggregate/train_action_batch/AG_cumul/SE',
 
-       'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/SE',
-       'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/mean',
+ # PRETRAIN REFERENCE
+ 'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/PRETRAIN_abs/SE',
+  'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/PRETRAIN_abs/SE',
+  'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/PRETRAIN_abs/SE',
+  'adhoc_users_aggregate/train_verb_batch/top5_acc_running_avg/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_verb_batch/top5_acc_running_avg/PRETRAIN_abs/SE',
+  'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/PRETRAIN_abs/SE',
 
-       'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/SE',
-       'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/mean',
+ # OAGs
+ 'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/adhoc_AG/mean', # Top1
+ 'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/adhoc_AG/SE',
 
-       'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/SE',
-       'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/mean'],
+ 'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/adhoc_AG/mean',
+ 'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/adhoc_AG/SE',
+
+ 'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/adhoc_AG/mean',
+ 'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/adhoc_AG/SE',
+
+ 'adhoc_users_aggregate/train_verb_batch/top5_acc_running_avg/adhoc_AG/mean', # Top5
+ 'adhoc_users_aggregate/train_verb_batch/top5_acc_running_avg/adhoc_AG/SE',
+
+ 'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/adhoc_AG/mean',
+ 'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/adhoc_AG/SE',
+ ]
+
+ ########### HAG ############
+
+adhoc_users_aggregate/test_action_batch/loss/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_action_batch/loss/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_verb_batch/loss/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_verb_batch/loss/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_noun_batch/loss/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_noun_batch/loss/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_action_batch/top1_acc/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_action_batch/top1_acc/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_verb_batch/top1_acc/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_verb_batch/top1_acc/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_verb_batch/top5_acc/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_verb_batch/top5_acc/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_noun_batch/top1_acc/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_noun_batch/top1_acc/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_noun_batch/top5_acc/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_noun_batch/top5_acc/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_action_batch/top1_acc/adhoc_hindsight_AG/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_action_batch/top1_acc/adhoc_hindsight_AG/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_verb_batch/top1_acc/adhoc_hindsight_AG/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_verb_batch/top1_acc/adhoc_hindsight_AG/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_verb_batch/top5_acc/adhoc_hindsight_AG/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_verb_batch/top5_acc/adhoc_hindsight_AG/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_noun_batch/top1_acc/adhoc_hindsight_AG/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_noun_batch/top1_acc/adhoc_hindsight_AG/SE',
+
+
+
+
+ 'adhoc_users_aggregate/test_noun_batch/top5_acc/adhoc_hindsight_AG/mean',
+
+
+
+
+ 'adhoc_users_aggregate/test_noun_batch/top5_acc/adhoc_hindsight_AG/SE']
+
+
+
+
+
+
     """
-    # csv_filename = "wandb_export_2022-09-21T11_36_57.254-07_00.csv"
-    # csv_filename = "wandb_export_2022-09-21T17_57_58.323-07_00.csv"  # Full results grid only
-    csv_filename = "wandb_export_2022-09-24T16_35_35.285-07_00.csv"  # Full results all
+    csv_filename = "wandb_export_2022-10-07T18_01_53.506-07_00.csv"  # OAG -ACC results
 
     csv_path = os.path.join(csv_dirname, csv_filename)
     round_digits = 2
@@ -79,7 +237,7 @@ def parse_final01_01_momentum_table():
 
     # FILTER
     # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001) & (orig_df['SOLVER.NESTEROV'] == True)]
-    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
+    orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
     # orig_df = orig_df.loc[(orig_df['SOLVER.MOMENTUM'] == 0)] # TODO: Set to False or True to get both parts
     orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.MOMENTUM', 'SOLVER.BASE_LR'])
 
@@ -108,43 +266,43 @@ def parse_final01_01_momentum_table():
 
         # ONLINE AG
         LatexColumn(
-            'adhoc_users_aggregate/train_action_batch/AG_cumul/mean',
-            'adhoc_users_aggregate/train_action_batch/AG_cumul/SE',
+            'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/adhoc_AG/mean',  # Top1
+            'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/adhoc_AG/SE',
             latex_col_report_name=r"$\overline{\text{OAG}}_{\text{action}}$",
             round_digits=round_digits,
         ),
         LatexColumn(
-            'adhoc_users_aggregate/train_verb_batch/AG_cumul/mean',
-            'adhoc_users_aggregate/train_verb_batch/AG_cumul/SE',
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/adhoc_AG/SE',
             latex_col_report_name=r"$\overline{\text{OAG}}_{\text{verb}}$",
             round_digits=round_digits,
         ),
         LatexColumn(
-            'adhoc_users_aggregate/train_noun_batch/AG_cumul/mean',
-            'adhoc_users_aggregate/train_noun_batch/AG_cumul/SE',
+            'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/adhoc_AG/SE',
             latex_col_report_name=r"$\overline{\text{OAG}}_{\text{noun}}$",
             round_digits=round_digits,
         ),
 
-        # HISTORY AG
-        LatexColumn(
-            'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/mean',
-            'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/SE',
-            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{action}}$",
-            round_digits=round_digits,
-        ),
-        LatexColumn(
-            'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/mean',
-            'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/SE',
-            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{verb}}$",
-            round_digits=round_digits,
-        ),
-        LatexColumn(
-            'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/mean',
-            'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/SE',
-            latex_col_report_name=r"$\overline{\text{HAG}}_{\text{noun}}$",
-            round_digits=round_digits,
-        ),
+        # # HISTORY AG
+        # LatexColumn(
+        #     'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/mean',
+        #     'adhoc_users_aggregate_history/pred_action_batch/loss/avg_history_AG/SE',
+        #     latex_col_report_name=r"$\overline{\text{HAG}}_{\text{action}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/mean',
+        #     'adhoc_users_aggregate_history/pred_verb_batch/loss/avg_history_AG/SE',
+        #     latex_col_report_name=r"$\overline{\text{HAG}}_{\text{verb}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/mean',
+        #     'adhoc_users_aggregate_history/pred_noun_batch/loss/avg_history_AG/SE',
+        #     latex_col_report_name=r"$\overline{\text{HAG}}_{\text{noun}}$",
+        #     round_digits=round_digits,
+        # ),
     ]
 
     latex_df = pd.DataFrame()
@@ -1085,4 +1243,4 @@ def print_end_table():
 
 
 if __name__ == "__main__":
-    parse_final14_01_and_02_replay_classifier_retrain()
+    parse_final01_01_momentum_table()

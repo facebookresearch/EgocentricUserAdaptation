@@ -43,21 +43,31 @@ from continual_ego4d.processing.utils import get_group_names_from_csv, get_group
 
 api = wandb.Api()
 
-train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
-test_users = [
-    "59", "23", "17", "37", "97", "22", "31", "10", "346", "359", "120", "19", "16", "283", "28", "20", "44", "38",
-    "262", "25", "51", "278", "55", "39", "45", "33", "331", "452", "453", "21", "431", "116", "35", "105", "378", "74",
-    "11", "126", "123", "436"
-]
 MODES = [
-    'aggregate_OAG_over_user_streams',
+    'aggregate_avg_train_results_over_user_streams',
     'aggregate_test_results_over_user_streams',
+    'aggregate_OAG_over_user_streams',  # online OAG
 ]
 
 # Adapt settings
 MODE = MODES[0]
-csv_filename = 'wandb_export_2022-10-06T09_29_23.798-07_00.csv'  # TODO copy file here and past name here
-NB_EXPECTED_USERS = len(test_users)
+train = True
+csv_filename = 'wandb_export_2022-10-07T16_19_05.692-07_00.csv'  # TODO copy file here and past name here
+
+if train:
+    train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
+    USER_LIST = train_users
+    NB_EXPECTED_USERS = len(train_users)
+    PRETRAIN_GROUP = "FixedNetwork_2022-10-07_21-50-23_UID80e71950-cea4-44ba-ba16-7dddfe95be26"
+
+else:
+    test_users = [
+        "59", "23", "17", "37", "97", "22", "31", "10", "346", "359", "120", "19", "16", "283", "28", "20", "44", "38",
+        "262", "25", "51", "278", "55", "39", "45", "33", "331", "452", "453", "21", "431", "116", "35", "105", "378",
+        "74", "11", "126", "123", "436"]
+    USER_LIST = test_users
+    NB_EXPECTED_USERS = len(test_users)
+    PRETRAIN_GROUP = "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4"
 
 # Fixed Settings
 csv_dirname = '/home/mattdl/projects/ContextualOracle_Matthias/adhoc_results'  # Move file in this dir
@@ -70,7 +80,7 @@ NEW_METRIC_PREFIX_SE = 'SE'  # Unbiased standard error
 USER_AGGREGATE_COUNT = f"{NEW_METRIC_PREFIX}/user_aggregate_count"  # Over how many users added, also used to check if processed
 
 
-def aggregate_OAG_over_user_streams(selected_group_names):
+def aggregate_online_calculated_OAG_over_user_streams(selected_group_names):
     """ Get OAG results for action/verb/noun per user, normalize over user stream samples, average and upload to wandb. """
 
     # Iterate groups (a collective of independent user-runs)
@@ -142,6 +152,109 @@ def _collect_user_AG_results(group_name):
     return user_ids, total_samples_per_user, final_stream_metrics_to_avg
 
 
+def aggregate_avg_train_results_over_user_streams(selected_group_names):
+    """ After training a model, aggregate the avg metrics over the stream such as ACC.
+    Aggregate over user stream results. """
+
+    # GET PRETRAIN as reference
+    pretrain_user_ids, pretrain_final_stream_metric_userlists = _collect_wandb_group_absolute_online_results(
+        PRETRAIN_GROUP, run_filter=None, user_ids=USER_LIST)
+
+    # Check users and nb of results
+    if not is_user_runs_valid(pretrain_user_ids, PRETRAIN_GROUP):
+        print(f"Pretrain not valid: exit")
+        return
+    for name, user_val_list in pretrain_final_stream_metric_userlists.items():
+        assert len(user_val_list) == NB_EXPECTED_USERS, f"{name} has not all user values: {user_val_list}"
+
+    # Iterate groups (a collective of independent user-runs)
+    for group_name in selected_group_names:
+
+        # Filter runs in group that have finished
+        try:
+            user_ids, final_stream_metric_userlists = _collect_wandb_group_absolute_online_results(
+                group_name, user_ids=USER_LIST, run_filter=None
+            )
+        except Exception as e:
+            print(e)
+            print(f"SKIPPING: contains error: Group ={group_name}")
+            continue
+
+        # Checks
+        assert pretrain_user_ids == user_ids
+
+        if not is_user_runs_valid(user_ids, group_name):
+            continue
+        for name, user_val_list in final_stream_metric_userlists.items():
+            assert len(user_val_list) == NB_EXPECTED_USERS, f"{name} has not all user values: {user_val_list}"
+            assert name in pretrain_final_stream_metric_userlists, f"KEY:{name} of user not in pretrain results!"
+
+        print(f"Processing users: {len(user_ids)}/{NB_EXPECTED_USERS} -> {user_ids}: Group ={group_name}")
+
+        # Get same results but delta with pretrain results
+
+        # make sure users have same order
+        print("Assuming for ACC: new result - pretrain result")
+        AG_dict = {}
+        for name, user_val_list in final_stream_metric_userlists.items():
+            assert 'acc' in name
+            pretrain_val_list = pretrain_final_stream_metric_userlists[name]
+            AG_dict[f"{name}/PRETRAIN_abs"] = pretrain_val_list
+            AG_dict[f"{name}/adhoc_AG"] = [
+                user_val - pretrain_val for pretrain_val, user_val in zip(pretrain_val_list, user_val_list)]
+
+        # Add to final results
+        all_results = {**final_stream_metric_userlists, **AG_dict}
+
+        update_test_results_wandb(all_results, group_name, run_filter=None)
+
+
+def _collect_wandb_group_absolute_online_results(group_name, run_filter, user_ids: list = None):
+    # Get metrics over runs(users)
+    final_stream_metrics_per_user = {
+        'train_action_batch/top1_acc_running_avg': [],
+        'train_verb_batch/top1_acc_running_avg': [],
+        'train_noun_batch/top1_acc_running_avg': [],
+        'train_verb_batch/top5_acc_running_avg': [],
+        'train_noun_batch/top5_acc_running_avg': [],
+        # 'num_samples_stream': [], # Can use to re-weight
+    }
+
+    def get_dynamic_user_results():
+        # summary = final value (excludes NaN rows)
+        # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
+        for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
+            user_ids.append(user_run.config['DATA.COMPUTED_USER_ID'])
+            for metric_name, val_list in final_stream_metrics_per_user.items():
+                user_metric_val = user_run.summary[metric_name]  # Only takes last value
+                val_list.append(user_metric_val)
+
+    def get_static_user_results():
+        # summary = final value (excludes NaN rows)
+        # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
+        for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
+            user_id = user_run.config['DATA.COMPUTED_USER_ID']
+            remote_users.append(user_id)
+            result_idx = user_ids.index(user_id)
+            for metric_name, val_list in final_stream_metrics_per_user.items():
+                user_metric_val = user_run.summary[metric_name]  # Only takes last value
+                val_list[result_idx] = user_metric_val
+
+    if user_ids is None:
+        user_ids = []  # all processed users
+        get_dynamic_user_results()
+
+    else:
+        for k, v in final_stream_metrics_per_user.items():
+            final_stream_metrics_per_user[k] = [None] * len(user_ids)  # Pre-init arrays
+
+        remote_users = []
+        get_static_user_results()  # Raises value error if user not found
+        assert len(remote_users) == len(user_ids), "Not all user values have been filled in!"
+
+    return user_ids, final_stream_metrics_per_user
+
+
 def aggregate_test_results_over_user_streams(selected_group_names):
     """ After testing on a model with cfg.STREAM_EVAL_ONLY=True, aggregate over user stream results. """
 
@@ -174,41 +287,6 @@ def aggregate_test_results_over_user_streams(selected_group_names):
         print(f"Processing users: {len(user_ids)}/{NB_EXPECTED_USERS} -> {user_ids}: Group ={group_name}")
 
         update_test_results_wandb(final_stream_metric_userlists, group_name, run_filter)
-
-
-def update_test_results_wandb(metricname_to_user_results_list: dict[str, list], group_name: str, run_filter=None):
-    """ Upload test results to wandb. """
-
-    # Change names for metrics
-    updated_metrics_dict = {}
-    new_metric_names = []
-    for orig_metric_name, metric_val in metricname_to_user_results_list.items():
-        new_metric_name = f"{NEW_METRIC_PREFIX}/{orig_metric_name}"
-        new_metric_names.append(new_metric_name)
-        updated_metrics_dict[new_metric_name] = metric_val
-
-    # Avg over user streams and get SE (No normalizing as is already avg metrics per stream)
-    updated_metrics_df = pd.DataFrame.from_dict(updated_metrics_dict)
-    total_count_key = f"{USER_AGGREGATE_COUNT}/test"
-    final_update_metrics_dict = {}
-    for col in updated_metrics_df.columns.tolist():
-        if total_count_key not in final_update_metrics_dict:
-            final_update_metrics_dict[total_count_key] = len(updated_metrics_df[col])  # Nb of users
-        final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_MEAN}"] = updated_metrics_df[col].mean()
-        final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_SE}"] = updated_metrics_df[col].sem()
-
-    print(f"New metric results: {pprint.pformat(list(final_update_metrics_dict.keys()))}")
-
-    # Update all group entries:
-    import tqdm
-    for user_run in tqdm.tqdm(
-            get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter),
-            desc=f"Uploading group results: {final_update_metrics_dict}"
-    ):
-        for name, new_val in final_update_metrics_dict.items():
-            user_run.summary[name] = new_val
-
-        user_run.summary.update()  # UPLOAD
 
 
 def _collect_user_test_results(group_name, run_filter):
@@ -254,12 +332,47 @@ def is_user_runs_valid(user_ids, group_name) -> bool:
     return True
 
 
+def update_test_results_wandb(metricname_to_user_results_list: dict[str, list], group_name: str, run_filter=None):
+    """ Upload test results to wandb. """
+
+    # Change names for metrics
+    updated_metrics_dict = {}
+    new_metric_names = []
+    for orig_metric_name, metric_val in metricname_to_user_results_list.items():
+        new_metric_name = f"{NEW_METRIC_PREFIX}/{orig_metric_name}"
+        new_metric_names.append(new_metric_name)
+        updated_metrics_dict[new_metric_name] = metric_val
+
+    # Avg over user streams and get SE (No normalizing as is already avg metrics per stream)
+    updated_metrics_df = pd.DataFrame.from_dict(updated_metrics_dict)
+    total_count_key = f"{USER_AGGREGATE_COUNT}/test"
+    final_update_metrics_dict = {}
+    for col in updated_metrics_df.columns.tolist():
+        if total_count_key not in final_update_metrics_dict:
+            final_update_metrics_dict[total_count_key] = len(updated_metrics_df[col])  # Nb of users
+        final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_MEAN}"] = updated_metrics_df[col].mean()
+        final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_SE}"] = updated_metrics_df[col].sem()
+
+    print(f"New metric results: {pprint.pformat(list(final_update_metrics_dict.keys()))}")
+
+    # Update all group entries:
+    import tqdm
+    for user_run in tqdm.tqdm(
+            get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter),
+            desc=f"Uploading group results: {final_update_metrics_dict}"
+    ):
+        for name, new_val in final_update_metrics_dict.items():
+            user_run.summary[name] = new_val
+
+        user_run.summary.update()  # UPLOAD
+
+
 if __name__ == "__main__":
     csv_path = os.path.join(csv_dirname, csv_filename)
     assert os.path.isfile(csv_path)
 
     # From WandB csv from overview, grouped by Group. Get all the names in the csv (these are the run group names).
-    selected_group_names: list[str] = get_group_names_from_csv(selected_group_names_csv_path)
+    selected_group_names: list[str] = get_group_names_from_csv(csv_path)
     print(f"Group names={pprint.pformat(selected_group_names)}")
 
     locals()[MODE](selected_group_names)  # Call function

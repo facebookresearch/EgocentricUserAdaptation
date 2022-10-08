@@ -37,6 +37,9 @@ _C.CONTEXT_ADAPT.WRAPS_METHOD = "Finetuning"
 _C.TRANSFER_EVAL = CfgNode()
 _C.TRANSFER_EVAL.WANDB_PROJECT_NAME = ""
 _C.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL = ""
+_C.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB = 'train' # or test
+_C.TRANSFER_EVAL.PRETRAIN_TRAIN_USERS_GROUP_WANDB = None
+_C.TRANSFER_EVAL.PRETRAIN_TEST_USERS_GROUP_WANDB = None
 _C.TRANSFER_EVAL.DIAGONAL_ONLY = True
 _C.TRANSFER_EVAL.INCLUDE_PRETRAIN_STREAM = False
 _C.TRANSFER_EVAL.INCLUDE_PRETRAIN_MODEL = True
@@ -148,6 +151,9 @@ _C.CONTINUAL_EVAL.FREQ = -1
 
 # When to plot figures for metrics
 _C.CONTINUAL_EVAL.PLOTTING_FREQ = -1
+
+# Measure online the OAG (First triggers prediction phase before training)
+_C.CONTINUAL_EVAL.ONLINE_OAG = False
 
 # ---------------------------------------------------------------------------- #
 # Training options.
@@ -322,7 +328,8 @@ _C.MODEL.HEAD_TTC_ACT = "softplus"
 _C.MODEL.MULTI_INPUT_FEATURES = 2048
 
 # If True, freezes clip feature backbone.
-_C.MODEL.FREEZE_BACKBONE = True
+_C.MODEL.FREEZE_BACKBONE = False
+_C.MODEL.FREEZE_MODEL = False
 
 # Transformer number of heads.
 _C.MODEL.TRANSFORMER_ENCODER_HEADS = 8

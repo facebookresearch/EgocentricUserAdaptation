@@ -388,21 +388,29 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         batch_metrics = []
 
         for mode in ['verb', 'noun', 'action']:
-            batch_metrics.extend([
 
+            # Measure OAG online (improvements over pretrain, collected in predict phase)
+            if self.cfg.CONTINUAL_EVAL.ONLINE_OAG:
+                batch_metrics.extend([
+                    # ADAPT METRICS
+                    OnlineAdaptationGainMetric(
+                        TAG_BATCH, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
+                        loss_mode=mode),
+                    RunningAvgOnlineAdaptationGainMetric(
+                        TAG_BATCH, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
+                        loss_mode=mode),
+                    CumulativeOnlineAdaptationGainMetric(
+                        TAG_BATCH, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
+                        loss_mode=mode),
+                ])
+
+            # TOP1-ACC
+            batch_metrics.extend([
                 # LOSS/ACC
                 OnlineTopkAccMetric(TAG_BATCH, k=1, mode=mode),
                 RunningAvgOnlineTopkAccMetric(TAG_BATCH, k=1, mode=mode),
                 # OnlineLossMetric -> Standard included for training
                 RunningAvgOnlineLossMetric(TAG_BATCH, loss_fun=self.loss_fun_unred, mode=mode),
-
-                # ADAPT METRICS
-                OnlineAdaptationGainMetric(
-                    TAG_BATCH, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss, loss_mode=mode),
-                RunningAvgOnlineAdaptationGainMetric(
-                    TAG_BATCH, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss, loss_mode=mode),
-                CumulativeOnlineAdaptationGainMetric(
-                    TAG_BATCH, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss, loss_mode=mode),
             ])
 
             # TOP5-ACC
@@ -473,23 +481,26 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
         # PAST ADAPTATION METRICS
         for action_mode in ['action', 'verb', 'noun']:
+            # ACTION METRICS
             past_metrics.extend([
-                # ADAPTATION METRICS
-                OnlineAdaptationGainMetric(
-                    TAG_PAST, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
-                    loss_mode=action_mode),
-                RunningAvgOnlineAdaptationGainMetric(
-                    TAG_PAST, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
-                    loss_mode=action_mode),
-                CumulativeOnlineAdaptationGainMetric(
-                    TAG_PAST, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
-                    loss_mode=action_mode),
-
-                # ACTION METRICS
                 OnlineTopkAccMetric(TAG_PAST, k=1, mode=action_mode),
                 OnlineLossMetric(TAG_PAST, loss_fun=self.loss_fun_unred, mode=action_mode),
-
             ])
+
+            # ADAPTATION METRICS
+            if self.cfg.CONTINUAL_EVAL.ONLINE_OAG:
+                past_metrics.extend([
+                    OnlineAdaptationGainMetric(
+                        TAG_PAST, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
+                        loss_mode=action_mode),
+                    RunningAvgOnlineAdaptationGainMetric(
+                        TAG_PAST, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
+                        loss_mode=action_mode),
+                    CumulativeOnlineAdaptationGainMetric(
+                        TAG_PAST, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
+                        loss_mode=action_mode),
+                ])
+
             if self.continual_eval_freq == 1:
                 past_metrics.extend([
                     ReexposureForgettingLossMetric(loss_fun_unred=self.loss_fun_unred, action_mode=action_mode),
