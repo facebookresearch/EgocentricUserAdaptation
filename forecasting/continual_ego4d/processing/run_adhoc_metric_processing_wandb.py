@@ -40,6 +40,7 @@ import wandb
 import pprint
 import os
 from continual_ego4d.processing.utils import get_group_names_from_csv, get_group_run_iterator
+import tqdm
 
 api = wandb.Api()
 
@@ -52,7 +53,7 @@ MODES = [
 # Adapt settings
 MODE = MODES[0]
 train = True
-csv_filename = 'wandb_export_2022-10-07T16_19_05.692-07_00.csv'  # TODO copy file here and past name here
+csv_filename = 'wandb_export_2022-10-09T11_23_33.094-07_00.csv'  # TODO copy file here and past name here
 
 if train:
     train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
@@ -181,7 +182,8 @@ def aggregate_avg_train_results_over_user_streams(selected_group_names):
             continue
 
         # Checks
-        assert pretrain_user_ids == user_ids
+        assert pretrain_user_ids == user_ids, \
+            "Order of pretrained and user ids should be same, otherwise SE will not be correct for avg the deltas. "
 
         if not is_user_runs_valid(user_ids, group_name):
             continue
@@ -197,8 +199,12 @@ def aggregate_avg_train_results_over_user_streams(selected_group_names):
         print("Assuming for ACC: new result - pretrain result")
         AG_dict = {}
         for name, user_val_list in final_stream_metric_userlists.items():
-            assert 'acc' in name
             pretrain_val_list = pretrain_final_stream_metric_userlists[name]
+
+            assert 'acc' in name
+            assert len(pretrain_val_list) == len(user_val_list)
+
+            # Add as later used to calculate /mean and /SE on
             AG_dict[f"{name}/PRETRAIN_abs"] = pretrain_val_list
             AG_dict[f"{name}/adhoc_AG"] = [
                 user_val - pretrain_val for pretrain_val, user_val in zip(pretrain_val_list, user_val_list)]
@@ -206,7 +212,7 @@ def aggregate_avg_train_results_over_user_streams(selected_group_names):
         # Add to final results
         all_results = {**final_stream_metric_userlists, **AG_dict}
 
-        update_test_results_wandb(all_results, group_name, run_filter=None)
+        avg_per_metric_upload_wandb(all_results, group_name, run_filter=None)
 
 
 def _collect_wandb_group_absolute_online_results(group_name, run_filter, user_ids: list = None):
@@ -221,6 +227,7 @@ def _collect_wandb_group_absolute_online_results(group_name, run_filter, user_id
     }
 
     def get_dynamic_user_results():
+        """ Add user results in order of downloading from WandB."""
         # summary = final value (excludes NaN rows)
         # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
         for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
@@ -230,6 +237,7 @@ def _collect_wandb_group_absolute_online_results(group_name, run_filter, user_id
                 val_list.append(user_metric_val)
 
     def get_static_user_results():
+        """ Fill in user results based on order given by user_ids. """
         # summary = final value (excludes NaN rows)
         # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
         for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
@@ -286,7 +294,7 @@ def aggregate_test_results_over_user_streams(selected_group_names):
 
         print(f"Processing users: {len(user_ids)}/{NB_EXPECTED_USERS} -> {user_ids}: Group ={group_name}")
 
-        update_test_results_wandb(final_stream_metric_userlists, group_name, run_filter)
+        avg_per_metric_upload_wandb(final_stream_metric_userlists, group_name, run_filter)
 
 
 def _collect_user_test_results(group_name, run_filter):
@@ -332,31 +340,36 @@ def is_user_runs_valid(user_ids, group_name) -> bool:
     return True
 
 
-def update_test_results_wandb(metricname_to_user_results_list: dict[str, list], group_name: str, run_filter=None):
-    """ Upload test results to wandb. """
+def avg_per_metric_upload_wandb(metricname_to_user_results_list: dict[str, list], group_name: str, run_filter=None,
+                                mean=True):
+    """
+    Calculate mean and SE for the list in each <str, list> pair in the dict.
+    The str/mean and str/SE are then uploaded to WandB.
+    """
 
-    # Change names for metrics
+    # Add adhoc-prefix to metric names
     updated_metrics_dict = {}
-    new_metric_names = []
     for orig_metric_name, metric_val in metricname_to_user_results_list.items():
         new_metric_name = f"{NEW_METRIC_PREFIX}/{orig_metric_name}"
-        new_metric_names.append(new_metric_name)
         updated_metrics_dict[new_metric_name] = metric_val
 
-    # Avg over user streams and get SE (No normalizing as is already avg metrics per stream)
-    updated_metrics_df = pd.DataFrame.from_dict(updated_metrics_dict)
-    total_count_key = f"{USER_AGGREGATE_COUNT}/test"
-    final_update_metrics_dict = {}
-    for col in updated_metrics_df.columns.tolist():
-        if total_count_key not in final_update_metrics_dict:
-            final_update_metrics_dict[total_count_key] = len(updated_metrics_df[col])  # Nb of users
-        final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_MEAN}"] = updated_metrics_df[col].mean()
-        final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_SE}"] = updated_metrics_df[col].sem()
+    final_update_metrics_dict = updated_metrics_dict
 
-    print(f"New metric results: {pprint.pformat(list(final_update_metrics_dict.keys()))}")
+    # Average over lists and get SEM
+    if mean:
+        updated_metrics_df = pd.DataFrame.from_dict(updated_metrics_dict)  # Dataframe with updated metric names
+
+        total_count_key = f"{USER_AGGREGATE_COUNT}/test"
+        final_update_metrics_dict = {}
+        for col in updated_metrics_df.columns.tolist():
+            if total_count_key not in final_update_metrics_dict:
+                final_update_metrics_dict[total_count_key] = len(updated_metrics_df[col])  # Nb of users
+            final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_MEAN}"] = updated_metrics_df[col].mean()
+            final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_SE}"] = updated_metrics_df[col].sem()
+
+    print(f"New metric results:\n{pprint.pformat(list(final_update_metrics_dict.keys()))}")
 
     # Update all group entries:
-    import tqdm
     for user_run in tqdm.tqdm(
             get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter),
             desc=f"Uploading group results: {final_update_metrics_dict}"
