@@ -412,7 +412,7 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         **metric_to_avg_AG_per_user
     }
     logger.info(f"Collected DIAGONAL results for users {streamusers}:\n {diagonal_dict}")
-    avg_per_metric_upload_wandb(diagonal_dict, group_name=group_name)  # returns finished runs from train group
+    avg_per_metric_upload_wandb(diagonal_dict, group_name=group_name, mean=True)
 
     # Upload matrix
     matrix_dict = {
@@ -663,10 +663,9 @@ def eval_single_model_single_stream(
         logger=False,
     )
 
-    # TODO fix the online performance: Read csv and reprocess
-
-    # TODO this is the hindsight performance:
     logger.info("PREDICTING (INFERENCE)")
+
+    """ On fixed final model, collect loss of all samples in stream in hindsight. """
     sample_idx_to_loss_dict_list: list[dict[str, dict]] = trainer.predict(task)
     """
     Per batch contains mapping of sample_idx to dict of results.
@@ -711,10 +710,12 @@ def eval_single_model_single_stream(
     pred_list: list[tuple[torch.Tensor, torch.Tensor]] = df['prediction'].tolist()
     label_list: list[torch.Tensor, torch.Tensor] = df['label'].tolist()
 
+    """ On fixed final model, collect summary metrics of all samples in stream in hindsight. """
     test_results: dict = task.get_test_metrics(pred_list, label_list, task.loss_fun_unred)
     for result_name, result_val in test_results.items():
         assert result_name not in df.columns.tolist(), f"Overwriting column {result_name} in df not allowed"
-        df[result_name] = result_val  # Assign entire column same value
+        df[result_name] = np.nan  # Empty col in csv
+        df.iloc[-1, df.columns.get_loc(result_name)] = result_val  # Assign last row the stream avg
 
     # Clear csv to drop
     df.drop('prediction', axis=1, inplace=True)
