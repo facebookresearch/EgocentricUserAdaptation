@@ -21,7 +21,7 @@ After training user-streams, evaluate on the final models with the full user-str
 import traceback
 from continual_ego4d.tasks.continual_action_recog_task import PretrainState
 from collections import Counter
-from continual_ego4d.processing.run_adhoc_metric_processing_wandb import update_test_results_wandb, \
+from continual_ego4d.processing.run_adhoc_metric_processing_wandb import avg_per_metric_upload_wandb, \
     _collect_wandb_group_absolute_online_results
 
 from continual_ego4d.utils.misc import makedirs
@@ -260,41 +260,85 @@ def process_group(eval_cfg, group_name, project_name):
     if eval_cfg.TRANSFER_EVAL.INCLUDE_PRETRAIN_MODEL:
         """ HAG processing, requires pretrain models. """
         postprocess_instance_counts_from_csv_files(eval_cfg, modeluser_streamuser_pairs, pretrain_dataset)
-        postprocess_transfer_matrix_from_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, group_name)
 
     """ Postprocess absolute values. Always possible, don't need pretrain for that. """
-    postprocess_absolute_stream_results(eval_cfg, all_trained_user_ids, group_name)
+    postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, group_name)
 
 
-def postprocess_absolute_stream_results(eval_cfg, all_trained_user_ids, group_name):
-    """ Simply average per-stream-avg over all user streams and upload to wandb. """
+def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, group_name):
+    """
+    Get transfer matrix result, absolute (loss/acc) and relative (loss/acc w.r.t. pretrain)
+    for measured metrics (action/verb/noun).
 
-    # Iterate diagonal of transfer matrix: Only same user with corresponding stream
-    # Collect results
-    metric_name_to_userlist = {
-        'test_action_batch/loss': [],
-        'test_verb_batch/loss': [],
-        'test_noun_batch/loss': [],
-        'test_action_batch/top1_acc': [],
-        'test_verb_batch/top1_acc': [],
-        'test_verb_batch/top5_acc': [],
-        'test_noun_batch/top1_acc': [],
-        'test_noun_batch/top5_acc': [],
-    }
+    The matrix is always calculated, even if only the diagonal is considered, unfilled values will contain np.inf.
+    2d Matrix is dims, the model and stream users are considered identical (also in ordering):
+    - rows (y-axis): model users
+    - cols (x-axis): stream users
 
-    # Pretrain results are collected during training (online)
+    Besides the matrix, the diagonal is used to calculate the hindsight average-over-users performance. (HAG)
+
+    All results are uploaded to wandb after processing.
+    """
+
+    #####################################
+    # INIT
+    #####################################
+    init_val = np.inf
+
+    def init_matrix():
+        return [[init_val for _ in range(len(streamusers))] for _ in range(len(modelusers))]
+
+    # MATRIX
+    modelusers = sorted(list(
+        set([entry_pair[0] for entry_pair in modeluser_streamuser_pairs]) - {'pretrain'}
+    ))
+    streamusers = sorted(list(
+        set([entry_pair[1] for entry_pair in modeluser_streamuser_pairs]) - {'pretrain'}
+    ))
+    assert modelusers == streamusers, "Only implemented for square matrix"
+
+    modeluser_to_row = {user: idx for idx, user in enumerate(modelusers)}
+    streamuser_to_col = {user: idx for idx, user in enumerate(streamusers)}
+
+    # PRETRAIN METRICS MAPPING: pretrain results are collected during training (online)
     metric_name_to_pretrain_name_mapping = {
-        'test_action_batch/top1_acc': 'train_action_batch/top1_acc_running_avg',
+        'test_action_batch/loss': 'train_action_batch/loss_running_avg',
+        'test_verb_batch/loss': 'train_verb_batch/loss_running_avg',
+        'test_noun_batch/loss': 'train_noun_batch/loss_running_avg',
 
+        'test_action_batch/top1_acc': 'train_action_batch/top1_acc_running_avg',
         'test_verb_batch/top1_acc': 'train_verb_batch/top1_acc_running_avg',
         'test_verb_batch/top5_acc': 'train_verb_batch/top5_acc_running_avg',
-
         'test_noun_batch/top1_acc': 'train_noun_batch/top1_acc_running_avg',
         'test_noun_batch/top5_acc': 'train_noun_batch/top5_acc_running_avg'
     }
 
-    AG_name_to_userlist = defaultdict(list)  # To fill
+    #####################################
+    # METRICS TO ACCUMULATE
+    #####################################
+    metric_names_stream_avg_to_deltasign = {  # delta*(User - pretrain)
+        'test_action_batch/loss': -1,
+        'test_verb_batch/loss': -1,
+        'test_noun_batch/loss': -1,
+        'test_action_batch/top1_acc': 1,
+        'test_verb_batch/top1_acc': 1,
+        'test_verb_batch/top5_acc': 1,
+        'test_noun_batch/top1_acc': 1,
+        'test_noun_batch/top5_acc': 1,
+    }
 
+    # DIAGONAL
+    metric_to_avg_abs_per_user = defaultdict(list)  # delta values (relative to pretrain)
+    metric_to_avg_AG_per_user = defaultdict(list)  # delta values (relative to pretrain)
+
+    # MATRIX
+    metric_to_avg_abs_matrix = defaultdict(init_matrix)  # Absolute values
+    metric_to_avg_AG_matrix = defaultdict(init_matrix)  # delta values (relative to pretrain)
+    # X and Y labels are based on modelusers and streamusers
+
+    #####################################
+    # PRETRAIN model, user stream results
+    #####################################
     # Load results from pretrain run
     if eval_cfg.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB == 'train':
         pretrain_group = eval_cfg.TRANSFER_EVAL.PRETRAIN_TRAIN_USERS_GROUP_WANDB
@@ -305,46 +349,79 @@ def postprocess_absolute_stream_results(eval_cfg, all_trained_user_ids, group_na
         raise ValueError()
 
     pretrain_user_ids, pretrain_final_stream_metric_userlists = _collect_wandb_group_absolute_online_results(
-        pretrain_group, run_filter=None, user_ids=all_trained_user_ids)
-    assert pretrain_user_ids == all_trained_user_ids
+        pretrain_group, run_filter=None, user_ids=streamusers)
+    assert len(pretrain_user_ids) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS
+    assert pretrain_user_ids == streamusers, "Order of users should be same"
+    pretrainuser_to_idx = streamuser_to_col
 
-    # COLLECT RESULTS
-    for user_id in all_trained_user_ids:
+    #####################################
+    # ITERATE USER-PAIRS
+    #####################################
+    for model_userid, stream_userid in modeluser_streamuser_pairs:
+        if 'pretrain' in [model_userid, stream_userid]:
+            logger.info(f"SKIPPING: model_userid={model_userid}, stream_userid={stream_userid}")
+            continue
+        logger.info(f"Processing: model_userid={model_userid}, stream_userid={stream_userid}")
+
+        # Pretrain model, user_stream results
+        pretrainuser_idx = pretrainuser_to_idx[stream_userid]
 
         # Read CSV
-        stream_df = get_df_from_csv(eval_cfg, user_id, user_id)
-        avg_df = stream_df.iloc[[0]]  # Only first row
+        stream_df = get_df_from_csv(eval_cfg, model_userid, stream_userid)
+        stream_avg_df = stream_df.iloc[[-1]]  # Only last row (final result/stream avg)
 
         # Iterate metrics, and add user result to each
-        for metric_name, val_list in metric_name_to_userlist.items():
-            user_stream_avg_result = avg_df[metric_name].tolist()[0]
-            val_list.append(user_stream_avg_result)  # Only take first avg (copied along column dim)
+        for metric_name, delta_sign in metric_names_stream_avg_to_deltasign.items():
 
-            # In pretrain train metrics -> also test metrics
+            # Absolute value
+            user_stream_avg_result = stream_avg_df[metric_name].tolist()[0]  # Select stream avg
+
+            # Deltas (AG): Only if available in pretrain as well
             if metric_name not in metric_name_to_pretrain_name_mapping:
                 logger.info(f"Skipping metric {metric_name} for AG as not existing in pretrain")
                 continue
             pretrain_key = metric_name_to_pretrain_name_mapping[metric_name]
-            pretrain_avg_result = np.mean(pretrain_final_stream_metric_userlists[pretrain_key])
+            pretrain_stream_avg_result = pretrain_final_stream_metric_userlists[pretrain_key][
+                pretrainuser_idx]  # Avg over pretrain users
 
-            # Get AG (delta)
-            if 'acc' in metric_name:  # Positive delta
-                delta_sign = 1
-            elif 'loss' in metric_name:
-                delta_sign = -1
-            else:
-                raise ValueError()
+            # Delta value
+            user_stream_avg_delta = delta_sign * (user_stream_avg_result - pretrain_stream_avg_result)
 
-            AG_name_to_userlist[f"{metric_name}/adhoc_hindsight_AG"].append(
-                delta_sign * (user_stream_avg_result - pretrain_avg_result)
-            )
+            # Add matrix values (absolute and delta)
+            row = modeluser_to_row[model_userid]
+            col = streamuser_to_col[stream_userid]
+            metric_to_avg_abs_matrix[f"TRANSFER_MATRIX/ABSOLUTE/{metric_name}"][row][col] = user_stream_avg_result
+            metric_to_avg_AG_matrix[f"TRANSFER_MATRIX/AG/{metric_name}"][row][col] = user_stream_avg_delta
 
-    # Merge dicts
-    final_dict = {**metric_name_to_userlist, **AG_name_to_userlist}
+            # Add diagonal values (absolute and delta)
+            if model_userid == stream_userid:
+                metric_to_avg_abs_per_user[f"{metric_name}"].append(
+                    user_stream_avg_result
+                )
+                metric_to_avg_AG_per_user[f"{metric_name}/adhoc_hindsight_AG"].append(
+                    user_stream_avg_delta
+                )
 
-    # AVG AND UPLOAD TO WANDB
-    logger.info(f"Collected test results for users {all_trained_user_ids}:\n {final_dict}")
-    update_test_results_wandb(final_dict, group_name=group_name)  # returns finished runs from train group
+    #####################################
+    #  AVG AND UPLOAD TO WANDB
+    #####################################
+
+    # Upload diagonal
+    diagonal_dict = {
+        **metric_to_avg_abs_per_user,
+        **metric_to_avg_AG_per_user
+    }
+    logger.info(f"Collected DIAGONAL results for users {streamusers}:\n {diagonal_dict}")
+    avg_per_metric_upload_wandb(diagonal_dict, group_name=group_name)  # returns finished runs from train group
+
+    # Upload matrix
+    matrix_dict = {
+        **metric_to_avg_abs_matrix,
+        **metric_to_avg_AG_matrix,
+        'TRANSFER_MATRIX/USERS_IN_ORDER': streamusers
+    }
+    logger.info(f"Collected MATRIX results for users {streamusers}:\n {pprint.pformat(matrix_dict)}")
+    avg_per_metric_upload_wandb(matrix_dict, group_name=group_name, mean=False)  # Don't average, but report 2d array
 
 
 def postprocess_instance_counts_from_csv_files(eval_cfg, modeluser_streamuser_pairs, pretrain_dataset):
@@ -364,70 +441,6 @@ def postprocess_instance_counts_from_csv_files(eval_cfg, modeluser_streamuser_pa
         action_mode_df.to_csv(filepath, index=False)
 
 
-def postprocess_transfer_matrix_from_csv_files(eval_cfg, modeluser_streamuser_pairs, project_name, group_name):
-    """
-    Get avg HAG and HAG transfer matrix results and upload to WandB.
-
-    Get Avg loss per csv entry for
-    - verb/noun/action
-    - absolute loss
-    - HAG (loss relative to pretrain)
-
-    2d Matrix is dims:
-    - rows (y-axis): model users
-    - cols (x-axis): stream users
-    """
-    # Save HAG and transfer 2d-array for heatmap
-    modelusers = sorted(list(
-        set([entry_pair[0] for entry_pair in modeluser_streamuser_pairs]) - {'pretrain'}
-    ))
-    streamusers = sorted(list(
-        set([entry_pair[1] for entry_pair in modeluser_streamuser_pairs]) - {'pretrain'}
-    ))
-
-    # Get transfer results
-    transfer_matrices, diagonal_AGs = get_transfer_results(
-        eval_cfg, modeluser_streamuser_pairs, modelusers, streamusers)
-
-    # Iterate runs over group and upload heatmaps
-    logger.info(f"Uploading to WandB runs in group")
-    for user_run in get_group_run_iterator(project_name, group_name, finished_runs_only=True):
-        # Log avg history
-        wandb_update_diagonal(user_run, diagonal_AGs, eval_cfg, streamusers, modelusers)
-
-        # Plot Matrices
-        wandb_update_transfer_matrix(user_run, transfer_matrices, streamusers, modelusers)
-
-
-def wandb_update_diagonal(user_run, diagonal_AGs, eval_cfg, streamusers, modelusers):
-    """ Use diagonal of transfer matrix to calculate HAG mean and SE. """
-    for loss_version, diagonal_avgAGs in diagonal_AGs.items():
-        assert len(diagonal_avgAGs) == len(modelusers) == len(streamusers) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS
-        avg_stream_AGs_df = pd.DataFrame(diagonal_avgAGs)[1]  # Only the values, not the user-ids
-
-        # Avg over all user-streams (avg of stream avgs)
-        user_avg_AG_history = avg_stream_AGs_df.mean()
-        user_SE_AG_history = avg_stream_AGs_df.sem()  # Get exact same result as current batch AG
-
-        new_name_prefix = f"adhoc_users_aggregate_history/{loss_version}/avg_history_AG"
-        user_run.summary[f"{new_name_prefix}/mean"] = user_avg_AG_history
-        user_run.summary[f"{new_name_prefix}/SE"] = user_SE_AG_history
-
-    user_run.summary.update()
-
-
-def wandb_update_transfer_matrix(user_run, matrices, streamusers, modelusers):
-    """ update 2d-Array and x and y labels. """
-    for heatmap_metric, subloss_dict in matrices.items():
-        for loss_version, matrix in subloss_dict.items():
-            logger.info(f"Uploading for user_run={user_run.config['DATA.COMPUTED_USER_ID']}")
-
-            user_run.summary[f"TRANSFER_MATRIX/{heatmap_metric}/{loss_version}"] = matrix
-            user_run.summary[f"TRANSFER_MATRIX/x_labels/{heatmap_metric}/{loss_version}/stream_users"] = streamusers
-            user_run.summary[f"TRANSFER_MATRIX/y_labels/{heatmap_metric}/{loss_version}/model_users"] = modelusers
-            user_run.summary.update()
-
-
 def get_pretrain_stream_instance_count_df(eval_cfg, modeluser_streamuser_pairs, pretrain_dataset) \
         -> dict[str, pd.DataFrame]:
     """
@@ -436,6 +449,7 @@ def get_pretrain_stream_instance_count_df(eval_cfg, modeluser_streamuser_pairs, 
     Each DataFrame has following columns averaged over action/verb/noun per user:
     user, action/verb/noun, avg_stream_loss, avg_stream_HAG, stream_count, pretrain_count
 
+    This is later user to calculate KDE map in the paper.
     """
     logger.info(f"PRETRAIN VS STREAM INSTANCE COUNT PROCESSING")
     ps = PretrainState(pretrain_dataset['user_action_sets']['user_agnostic'])
@@ -519,62 +533,6 @@ def get_pretrain_stream_instance_count_df(eval_cfg, modeluser_streamuser_pairs, 
                     'pretrain_count': action_pretrain_count,
                 })
     return {action_mode: pd.DataFrame(out_df_list) for action_mode, out_df_list in out_df_lists.items()}
-
-
-def get_transfer_results(eval_cfg, modeluser_streamuser_pairs, modelusers, streamusers):
-    """
-    Get transfer matrix result, absolute (avg_loss) and relative (avg_AG) for measured metrics (action/verb/noun).
-    Also return the diagonal directly.
-    """
-    logger.info(f"TRANSFER MATRIX PROCESSING")
-
-    def init_matrix():
-        return [[init_val for _ in range(len(streamusers))] for _ in range(len(modelusers))]
-
-    init_val = np.inf
-
-    # Mapping of idx in matrix to
-    modeluser_to_row = {user: idx for idx, user in enumerate(modelusers)}
-    streamuser_to_col = {user: idx for idx, user in enumerate(streamusers)}
-
-    matrices = {'avg_loss': {}, 'avg_AG': {}}
-    diagonal_AGs = defaultdict(list)
-    loss_names = ['pred_action_batch/loss', 'pred_verb_batch/loss', 'pred_noun_batch/loss']
-    for model_userid, stream_userid in modeluser_streamuser_pairs:
-        if 'pretrain' in [model_userid, stream_userid]:  # TODO skipping pretrain cols/rows for now
-            logger.info(f"SKIPPING: model_userid={model_userid}, stream_userid={stream_userid}")
-            continue
-        logger.info(f"Processing: model_userid={model_userid}, stream_userid={stream_userid}")
-
-        df = get_df_from_csv(eval_cfg, model_userid, stream_userid)
-        pretrain_df = get_df_from_csv(eval_cfg, 'pretrain', stream_userid)  # On pretrain model, but same stream
-
-        # Action/verb/noun
-        for loss_name in loss_names:
-            assert loss_name in df.columns, f"{loss_name} not in df cols: {df.columns}"
-
-            # Init matrix
-            if loss_name not in matrices['avg_loss']:
-                matrices['avg_loss'][loss_name] = init_matrix()
-
-            if loss_name not in matrices['avg_AG']:
-                matrices['avg_AG'][loss_name] = init_matrix()
-
-            # Process values
-            avg_stream_loss = df[loss_name].mean()  # Avg over nb samples to normalize stream length
-            avg_stream_AG = (pretrain_df[loss_name] - df[loss_name]).mean()
-
-            # Fill in value
-            row = modeluser_to_row[model_userid]
-            col = streamuser_to_col[stream_userid]
-            matrices['avg_loss'][loss_name][row][col] = avg_stream_loss
-            matrices['avg_AG'][loss_name][row][col] = avg_stream_AG
-
-            if model_userid == stream_userid and model_userid != 'pretrain':
-                diagonal_AGs[loss_name].append((model_userid, avg_stream_AG))
-
-    logger.info(f"Aggregated all results in matrices: \n{pprint.pformat(matrices, depth=4)}")
-    return matrices, diagonal_AGs
 
 
 def get_df_from_csv(eval_cfg, model_userid, stream_userid):
