@@ -91,7 +91,7 @@ class SchedulerConfig:
             - If want to join explicitly: do so for processes that returned a value in the queue
 
         """
-        process_timeout_s = 60 * 60 * 10  # 10-hours timeout for single run
+        process_timeout_s = 60 * 60 * 8  # hours timeout for single run
         run_id_queue = deque(copy.deepcopy(self.run_ids_to_process))
         submitted_run_ids = []
         finished_run_ids = []
@@ -118,7 +118,8 @@ class SchedulerConfig:
         logger.info(f"Started and joined processes for run ids: {submitted_run_ids}")
 
         # Receive results for ALL user-processes, also the last ones
-        while len(finished_run_ids) < len(self.runs_to_process):
+        remaining_runs_to_process = len(self.runs_to_process)
+        while len(finished_run_ids) < remaining_runs_to_process:
             # Get first next ready result
             try:
                 interrupted, device_id, finished_run_id = queue.get(block=True, timeout=process_timeout_s)
@@ -127,12 +128,14 @@ class SchedulerConfig:
                 logger.info(f"Executing on Queue time-out (deadlock?)")
                 exit(1)
             finished_run_ids.append(finished_run_id)
+            remaining_runs_to_process -= 1
 
             logger.info(f"Finished processing run {finished_run_id}"
                         f" -> run_id_queue= {run_id_queue}, "
                         f"available_devices={device_id}, "
                         f"UNFINISHED={set(self.run_ids_to_process) - set(finished_run_ids)}, "
-                        f"finished runs={finished_run_ids} out of {self.run_ids_to_process}")
+                        f"finished runs={len(finished_run_ids)}/{len(self.run_ids_to_process)},"
+                        f"#remaining runs: {remaining_runs_to_process}")
 
             if interrupted:
                 logger.exception(f"Process for RUN {finished_run_id} failed because of Trainer being Interrupted."
