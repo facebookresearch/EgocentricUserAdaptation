@@ -1,0 +1,78 @@
+ENABLE_FEW_SHOT: False
+FAST_DEV_RUN: False
+OUTPUT_DIR: "" # OVERWRITTEN IN CALLING-SCRIPT
+RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/
+CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
+CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
+NUM_USERS_PER_DEVICE: 1
+METHOD:
+  METHOD_NAME: "Finetuning"
+DATA:
+  SHUFFLE_DS_ORDER: False # Define this for IIDFinetuning
+  USER_SUBSET: 'train' # train or test usersplit
+  TARGET_FPS: 30
+  NUM_FRAMES: 32
+  SAMPLING_RATE: 2
+  TRAIN_JITTER_SCALES: [ 256, 320 ]
+  TRAIN_CROP_SIZE: 224
+  TEST_CROP_SIZE: 256
+  INPUT_CHANNEL_NUM: [ 3, 3 ]
+  TASK: "iid_classification" # IID classificaiton required for multi-epoch training without tracking performance.
+TEST:
+  ENABLE: False
+CONTINUAL_EVAL:
+  FREQ: -1
+  BATCH_SIZE: 8 # For speedup with parallel dataloading
+  NUM_WORKERS: 8 # Half for not overloading server
+  PAST_SAMPLE_CAPACITY: 64
+PREDICT_PHASE:
+  BATCH_SIZE: 10
+  NUM_WORKERS: 8
+TRAIN:
+  ENABLE: True
+  DATASET: Ego4dContinualRecognition
+  BATCH_SIZE: 32 # Process 1 new video-subsequence a time (Online)
+
+SLOWFAST:
+  ALPHA: 4
+  BETA_INV: 8
+  FUSION_CONV_CHANNEL_RATIO: 2
+  FUSION_KERNEL_SZ: 5
+RESNET:
+  ZERO_INIT_FINAL_BN: True
+  WIDTH_PER_GROUP: 64
+  NUM_GROUPS: 1
+  DEPTH: 101
+  TRANS_FUNC: bottleneck_transform
+  STRIDE_1X1: False
+  NUM_BLOCK_TEMP_KERNEL: [ [ 3, 3 ], [ 4, 4 ], [ 23, 23 ], [ 3, 3 ] ]
+  SPATIAL_STRIDES: [ [ 1, 1 ], [ 2, 2 ], [ 2, 2 ], [ 2, 2 ] ]
+  SPATIAL_DILATIONS: [ [ 1, 1 ], [ 1, 1 ], [ 1, 1 ], [ 1, 1 ] ]
+NONLOCAL:
+  LOCATION: [ [ [ ], [ ] ], [ [ ], [ ] ], [ [ ], [ ] ], [ [ ], [ ] ] ]
+  GROUP: [ [ 1, 1 ], [ 1, 1 ], [ 1, 1 ], [ 1, 1 ] ]
+  INSTANTIATION: softmax
+BN:
+  USE_PRECISE_STATS: False # Not for CL
+#  NUM_BATCHES_PRECISE: 200 # After this many batches, Recomputes Batch-stats on actual fixed model instead of running avg
+SOLVER:
+  BASE_LR: 1e-2
+  LR_POLICY: constant
+  MAX_EPOCH: 10 # Train head for 10 epochs
+  MOMENTUM: 0.0
+  NESTEROV: True # If 0, should set to False
+  OPTIMIZING_METHOD: sgd
+  WEIGHT_DECAY: 0.0
+MODEL:
+  NUM_CLASSES: [ 115, 478 ] # Verbs, nouns
+  ARCH: slowfast
+  MODEL_NAME: MultiTaskSlowFast
+  LOSS_FUNC: cross_entropy
+  DROPOUT_RATE: 0.5
+DATA_LOADER:
+  NUM_WORKERS: 2 # Only current-training batch, and due to eval next one will have quite some time
+  PIN_MEMORY: True
+NUM_GPUS: 1
+NUM_SHARDS: 1
+RNG_SEED: 0
+
