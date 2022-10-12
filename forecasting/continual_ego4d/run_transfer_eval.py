@@ -47,7 +47,8 @@ from continual_ego4d.utils.scheduler import SchedulerConfig, RunConfig
 import os
 
 from continual_ego4d.utils.models import freeze_full_model, model_trainable_summary
-from continual_ego4d.processing.utils import get_group_run_iterator, get_group_names_from_csv
+from continual_ego4d.processing.utils import get_group_run_iterator, get_group_names_from_csv, get_delta, \
+    get_delta_mappings
 
 from fvcore.common.config import CfgNode
 
@@ -316,16 +317,8 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
     #####################################
     # METRICS TO ACCUMULATE
     #####################################
-    metric_names_stream_avg_to_deltasign = {  # delta*(User - pretrain)
-        'test_action_batch/loss': -1,
-        'test_verb_batch/loss': -1,
-        'test_noun_batch/loss': -1,
-        'test_action_batch/top1_acc': 1,
-        'test_verb_batch/top1_acc': 1,
-        'test_verb_batch/top5_acc': 1,
-        'test_noun_batch/top1_acc': 1,
-        'test_noun_batch/top5_acc': 1,
-    }
+    metric_name_to_delta_sign = get_delta_mappings()
+    metrics_of_interest = list(metric_name_to_pretrain_name_mapping.keys())
 
     # DIAGONAL
     metric_to_avg_abs_per_user = defaultdict(list)  # delta values (relative to pretrain)
@@ -352,7 +345,7 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         pretrain_group, run_filter=None, user_ids=streamusers)
     assert len(pretrain_user_ids) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS
     assert pretrain_user_ids == streamusers, "Order of users should be same"
-    pretrainuser_to_idx = streamuser_to_col
+    pretrainuser_to_idx = {user: idx for idx, user in enumerate(pretrain_user_ids)}
 
     #####################################
     # ITERATE USER-PAIRS
@@ -371,7 +364,7 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         stream_avg_df = stream_df.iloc[[-1]]  # Only last row (final result/stream avg)
 
         # Iterate metrics, and add user result to each
-        for metric_name, delta_sign in metric_names_stream_avg_to_deltasign.items():
+        for metric_name in metrics_of_interest:
 
             # Absolute value
             user_stream_avg_result = stream_avg_df[metric_name].tolist()[0]  # Select stream avg
@@ -385,7 +378,8 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
                 pretrainuser_idx]  # Avg over pretrain users
 
             # Delta value
-            user_stream_avg_delta = delta_sign * (user_stream_avg_result - pretrain_stream_avg_result)
+            delta_sign = metric_name_to_delta_sign[metric_name]
+            user_stream_avg_delta = get_delta(delta_sign, user_stream_avg_result, pretrain_stream_avg_result)
 
             # Add matrix values (absolute and delta)
             row = modeluser_to_row[model_userid]
@@ -420,7 +414,7 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         **metric_to_avg_AG_matrix,
         'TRANSFER_MATRIX/USERS_IN_ORDER': streamusers
     }
-    logger.info(f"Collected MATRIX results for users {streamusers}:\n {pprint.pformat(matrix_dict)}")
+    logger.info(f"Collected MATRIX results for users {streamusers}:\n {matrix_dict}")
     avg_per_metric_upload_wandb(matrix_dict, group_name=group_name, mean=False)  # Don't average, but report 2d array
 
 

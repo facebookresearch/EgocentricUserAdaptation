@@ -130,17 +130,17 @@ def parse_final01_01_momentum_table():
      'adhoc_users_aggregate/test_noun_batch/top5_acc/adhoc_hindsight_AG/SE']
 
     """
-    csv_filename = "wandb_export_2022-10-07T18_01_53.506-07_00.csv"  # OAG -ACC results
+    csv_filename = "wandb_export_2022-10-10T10_21_32.541-07_00.csv"  # OAG -ACC results
 
     csv_path = os.path.join(csv_dirname, csv_filename)
-    round_digits = 2
+    round_digits = 1
 
     orig_df = pd.read_csv(csv_path)
 
     # FILTER
     # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001) & (orig_df['SOLVER.NESTEROV'] == True)]
     orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)]  # TODO: Set to False or True to get both parts
-    # orig_df = orig_df.loc[(orig_df['SOLVER.MOMENTUM'] == 0)] # TODO: Set to False or True to get both parts
+    orig_df = orig_df.loc[(orig_df['SOLVER.MOMENTUM'] == 0)]  # TODO: Set to False or True to get both parts
     orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.MOMENTUM', 'SOLVER.BASE_LR'])
 
     # Place here in order you want the latex columns to be
@@ -162,7 +162,7 @@ def parse_final01_01_momentum_table():
 
         LatexColumn(
             'SOLVER.BASE_LR',
-            latex_col_report_name=r"$\eta",
+            latex_col_report_name=r"$\eta$",
             format_fn_overwrite=lambda x: "{:.1g}".format(x)
         ),
 
@@ -229,7 +229,7 @@ def parse_final03_01_fixed_feats():
     ['Name', 'SOLVER.BASE_LR',
     ...
     """
-    csv_filename = "wandb_export_2022-10-09T17_12_44.119-07_00.csv" # ACC-based
+    csv_filename = "wandb_export_2022-10-09T17_12_44.119-07_00.csv"  # ACC-based
     csv_path = os.path.join(csv_dirname, csv_filename)
     round_digits = 1
 
@@ -246,7 +246,7 @@ def parse_final03_01_fixed_feats():
         # HPARAMS COL
         LatexColumn(
             'SOLVER.BASE_LR',
-            latex_col_report_name=r"$\eta",
+            latex_col_report_name=r"$\eta$",
             format_fn_overwrite=lambda x: x
         ),
 
@@ -463,7 +463,7 @@ def parse_exp04_01_momentum_video_reset_table():
 
         LatexColumn(
             'SOLVER.BASE_LR',
-            latex_col_report_name=r"$\eta",
+            latex_col_report_name=r"$\eta$",
             format_fn_overwrite=lambda x: "{:.1g}".format(x)
         ),
 
@@ -581,7 +581,7 @@ def parse_final05_01_repaly_with_momentum_table():
 
         # LatexColumn(
         #     'SOLVER.BASE_LR',
-        #     latex_col_report_name=r"$\eta",
+        #     latex_col_report_name=r"$\eta$",
         #     format_fn_overwrite=lambda x: "{:.1g}".format(x)
         # ),
 
@@ -644,8 +644,10 @@ def parse_final05_01_repaly_with_momentum_table():
 
 def parse_final07_01_sgd_multi_iter():
     """
+
+
     """
-    csv_filename = "wandb_export_2022-10-09T17_23_32.161-07_00.csv"  # Full results all
+    csv_filename = "wandb_export_2022-10-10T11_54_32.411-07_00.csv"  # Full results all
     caption = "SGD grid over multiple iterations and learning rates."
     csv_path = os.path.join(csv_dirname, csv_filename)
     round_digits = 1
@@ -655,8 +657,8 @@ def parse_final07_01_sgd_multi_iter():
     # FILTER
     orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001)]
     # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
-    # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR','TRAIN.INNER_LOOP_ITERS', ])
-    orig_df.sort_values(inplace=True, axis=0, by=['TRAIN.INNER_LOOP_ITERS', 'SOLVER.BASE_LR', ])
+    orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR', 'TRAIN.INNER_LOOP_ITERS', ])
+    # orig_df.sort_values(inplace=True, axis=0, by=['TRAIN.INNER_LOOP_ITERS', 'SOLVER.BASE_LR', ])
 
     # Place here in order you want the latex columns to be
     ordered_cols = [
@@ -677,29 +679,29 @@ def parse_final07_01_sgd_multi_iter():
 
         LatexColumn(
             'SOLVER.BASE_LR',
-            latex_col_report_name=r"$\eta",
+            latex_col_report_name=r"$\eta$",
             format_fn_overwrite=lambda x: "{:.1g}".format(x)
         ),
 
         # ONLINE AG
-        LatexColumn(
-            'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/adhoc_AG/mean',  # Top1
-            'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/adhoc_AG/SE',
-            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{action}}$",
-            round_digits=round_digits,
-        ),
-        LatexColumn(
-            'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/adhoc_AG/mean',
-            'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/adhoc_AG/SE',
-            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{verb}}$",
-            round_digits=round_digits,
-        ),
-        LatexColumn(
-            'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/adhoc_AG/mean',
-            'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/adhoc_AG/SE',
-            latex_col_report_name=r"$\overline{\text{OAG}}_{\text{noun}}$",
-            round_digits=round_digits,
-        ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/adhoc_AG/mean',  # Top1
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/adhoc_AG/SE',
+        #     latex_col_report_name=r"$\overline{\text{OAG}}_{\text{action}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/adhoc_AG/mean',
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/adhoc_AG/SE',
+        #     latex_col_report_name=r"$\overline{\text{OAG}}_{\text{verb}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/adhoc_AG/mean',
+        #     'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/adhoc_AG/SE',
+        #     latex_col_report_name=r"$\overline{\text{OAG}}_{\text{noun}}$",
+        #     round_digits=round_digits,
+        # ),
 
         # HISTORY AG
         LatexColumn(
@@ -721,6 +723,447 @@ def parse_final07_01_sgd_multi_iter():
             round_digits=round_digits,
         ),
     ]
+
+    latex_df = pd.DataFrame()
+
+    for col in ordered_cols:
+
+        if col.pandas_col_std_name is not None:
+            latex_df[col.latex_col_report_name] = orig_df.loc[:,
+                                                  (col.pandas_col_mean_name, col.pandas_col_std_name)
+                                                  ].apply(col.format_fn, axis=1)
+        else:
+            latex_df[col.latex_col_report_name] = orig_df.loc[:, col.pandas_col_mean_name].apply(col.format_fn)
+
+    print_begin_table(caption)
+    print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
+    print_end_table()
+
+
+def parse_LOSS_vs_ACC_vs_balancedLL_results_sgd_multi_iter():
+    """
+    Why different trends in delta? -> because log X - log Y = log X/Y
+    Then, avging gives skewed results: \sum log X/Y
+
+    To confirm this, we check the ABSOLUTE results for ACC and LOSS and see if they have the same trend.
+    Then this would explain the difference with the delta-results.
+
+
+
+    ######### OAG ################
+    # ABSOLUTE VALUES ACC
+ 'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/mean',
+ 'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/SE',
+ 'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/mean',
+ 'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/SE',
+ 'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/mean',
+ 'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/SE',
+ 'adhoc_users_aggregate/train_verb_batch/top5_acc_running_avg/mean',
+ 'adhoc_users_aggregate/train_verb_batch/top5_acc_running_avg/SE',
+ 'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/mean',
+ 'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/SE',
+
+
+    # ABSOLUTE VALUES LOSS
+    'adhoc_users_aggregate/train_action_batch/loss_running_avg/mean',
+    'adhoc_users_aggregate/train_action_batch/loss_running_avg/SE',
+    'adhoc_users_aggregate/train_verb_batch/loss_running_avg/mean',
+    'adhoc_users_aggregate/train_verb_batch/loss_running_avg/SE',
+    'adhoc_users_aggregate/train_noun_batch/loss_running_avg/mean',
+    'adhoc_users_aggregate/train_noun_batch/loss_running_avg/SE',
+
+
+ # PRETRAIN REFERENCE
+ 'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/PRETRAIN_abs/SE',
+  'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/PRETRAIN_abs/SE',
+  'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/PRETRAIN_abs/SE',
+  'adhoc_users_aggregate/train_verb_batch/top5_acc_running_avg/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_verb_batch/top5_acc_running_avg/PRETRAIN_abs/SE',
+  'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_noun_batch/top5_acc_running_avg/PRETRAIN_abs/SE',
+
+ # LL ABSOLUTE
+'adhoc_users_aggregate/train_action_batch/balanced_LL/mean',
+ 'adhoc_users_aggregate/train_action_batch/balanced_LL/SE',
+ 'adhoc_users_aggregate/train_verb_batch/balanced_LL/mean',
+ 'adhoc_users_aggregate/train_verb_batch/balanced_LL/SE',
+ 'adhoc_users_aggregate/train_noun_batch/balanced_LL/mean',
+ 'adhoc_users_aggregate/train_noun_batch/balanced_LL/SE',
+
+# LL OAG (delta)
+ 'adhoc_users_aggregate/train_action_batch/balanced_LL/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_action_batch/balanced_LL/PRETRAIN_abs/SE',
+ 'adhoc_users_aggregate/train_action_batch/balanced_LL/adhoc_AG/mean',
+ 'adhoc_users_aggregate/train_action_batch/balanced_LL/adhoc_AG/SE',
+ 'adhoc_users_aggregate/train_verb_batch/balanced_LL/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_verb_batch/balanced_LL/PRETRAIN_abs/SE',
+ 'adhoc_users_aggregate/train_verb_batch/balanced_LL/adhoc_AG/mean',
+ 'adhoc_users_aggregate/train_verb_batch/balanced_LL/adhoc_AG/SE',
+ 'adhoc_users_aggregate/train_noun_batch/balanced_LL/PRETRAIN_abs/mean',
+ 'adhoc_users_aggregate/train_noun_batch/balanced_LL/PRETRAIN_abs/SE',
+ 'adhoc_users_aggregate/train_noun_batch/balanced_LL/adhoc_AG/mean',
+ 'adhoc_users_aggregate/train_noun_batch/balanced_LL/adhoc_AG/SE']
+
+    # Loss balanced (OAG)
+     'adhoc_users_aggregate/train_action_batch/balanced_loss/mean',
+ 'adhoc_users_aggregate/train_action_batch/balanced_loss/SE',
+ 'adhoc_users_aggregate/train_verb_batch/balanced_loss/mean',
+ 'adhoc_users_aggregate/train_verb_batch/balanced_loss/SE',
+ 'adhoc_users_aggregate/train_noun_batch/balanced_loss/mean',
+ 'adhoc_users_aggregate/train_noun_batch/balanced_loss/SE',
+ ########### HAG ############
+
+    # ABSOLUTE VALUES
+    adhoc_users_aggregate/test_action_batch/loss/mean',
+     'adhoc_users_aggregate/test_action_batch/loss/SE',
+     'adhoc_users_aggregate/test_verb_batch/loss/mean',
+     'adhoc_users_aggregate/test_verb_batch/loss/SE',
+     'adhoc_users_aggregate/test_noun_batch/loss/mean',
+     'adhoc_users_aggregate/test_noun_batch/loss/SE',
+
+     'adhoc_users_aggregate/test_action_batch/top1_acc/mean',
+     'adhoc_users_aggregate/test_action_batch/top1_acc/SE',
+     'adhoc_users_aggregate/test_verb_batch/top1_acc/mean',
+     'adhoc_users_aggregate/test_verb_batch/top1_acc/SE',
+          'adhoc_users_aggregate/test_noun_batch/top1_acc/mean',
+     'adhoc_users_aggregate/test_noun_batch/top1_acc/SE',
+
+     'adhoc_users_aggregate/test_verb_batch/top5_acc/mean',
+     'adhoc_users_aggregate/test_verb_batch/top5_acc/SE',
+     'adhoc_users_aggregate/test_noun_batch/top5_acc/mean',
+     'adhoc_users_aggregate/test_noun_batch/top5_acc/SE',
+
+     # LOSS:
+     adhoc_users_aggregate/test_action_batch/loss/mean
+     adhoc_users_aggregate/test_action_batch/loss/SE
+
+     adhoc_users_aggregate/test_verb_batch/loss/mean
+     adhoc_users_aggregate/test_verb_batch/loss/SE
+
+     adhoc_users_aggregate/test_noun_batch/loss/mean
+     adhoc_users_aggregate/test_noun_batch/loss/SE
+
+    """
+    # csv_filename = "wandb_export_2022-10-10T20_28_09.281-07_00.csv"  # Full results all
+    # csv_filename = "wandb_export_2022-10-11T21_06_08.210-07_00.csv"  # including balanced LL results
+    csv_filename = "wandb_export_2022-10-11T21_36_51.823-07_00.csv"  # including balanced loss results
+    caption = "SGD grid over multiple iterations and learning rates."
+    csv_path = os.path.join(csv_dirname, csv_filename)
+    round_digits = 1
+    MODES = ['loss', 'acc', 'acc_pretrain', 'LL', 'loss_balanced']
+    mode = MODES[4]  # or acc
+    orig_df = pd.read_csv(csv_path)
+
+    # FILTER
+    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
+    orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR', 'TRAIN.INNER_LOOP_ITERS', ])
+    # orig_df.sort_values(inplace=True, axis=0, by=['TRAIN.INNER_LOOP_ITERS', 'SOLVER.BASE_LR', ])
+
+    # Place here in order you want the latex columns to be
+
+    if mode == 'loss':
+        ordered_cols = [
+
+            # HPARAMS COL
+            # LatexColumn(
+            #     'SOLVER.MOMENTUM',
+            #     'SOLVER.BASE_LR',
+            #     latex_col_report_name=r"$\rho (\eta)$",
+            #     format_fn_overwrite=lambda x: f"{x[0]} ({x[1]})"
+            # ),
+
+            LatexColumn(
+                'TRAIN.INNER_LOOP_ITERS',
+                latex_col_report_name=r"iters",
+                format_fn_overwrite=lambda x: x,
+            ),
+
+            LatexColumn(
+                'SOLVER.BASE_LR',
+                latex_col_report_name=r"$\eta$",
+                format_fn_overwrite=lambda x: "{:.1g}".format(x)
+            ),
+
+            # ONLINE AG
+            LatexColumn(
+                'adhoc_users_aggregate/train_action_batch/loss_running_avg/mean',
+                'adhoc_users_aggregate/train_action_batch/loss_running_avg/SE',
+                latex_col_report_name=r"$L_{\text{action}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/train_verb_batch/loss_running_avg/mean',
+                'adhoc_users_aggregate/train_verb_batch/loss_running_avg/SE',
+                latex_col_report_name=r"$L_{\text{verb}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/train_noun_batch/loss_running_avg/mean',
+                'adhoc_users_aggregate/train_noun_batch/loss_running_avg/SE',
+                latex_col_report_name=r"$L_{\text{noun}}$",
+                round_digits=round_digits,
+            ),
+
+            # HISTORY AG
+            LatexColumn(
+                'adhoc_users_aggregate/test_action_batch/loss/mean',
+                'adhoc_users_aggregate/test_action_batch/loss/SE',
+                latex_col_report_name=r"$\text{hindsight}-L_{\text{action}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/test_verb_batch/loss/mean',
+                'adhoc_users_aggregate/test_verb_batch/loss/SE',
+                latex_col_report_name=r"$\text{hindsight}-L_{\text{verb}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/test_noun_batch/loss/mean',
+                'adhoc_users_aggregate/test_noun_batch/loss/SE',
+                latex_col_report_name=r"$\text{hindsight}-L_{\text{noun}}$",
+                round_digits=round_digits,
+            ),
+        ]
+    elif mode == 'loss_balanced':
+
+        ordered_cols = [
+
+            # HPARAMS COL
+            # LatexColumn(
+            #     'SOLVER.MOMENTUM',
+            #     'SOLVER.BASE_LR',
+            #     latex_col_report_name=r"$\rho (\eta)$",
+            #     format_fn_overwrite=lambda x: f"{x[0]} ({x[1]})"
+            # ),
+
+            LatexColumn(
+                'TRAIN.INNER_LOOP_ITERS',
+                latex_col_report_name=r"iters",
+                format_fn_overwrite=lambda x: x,
+            ),
+
+            LatexColumn(
+                'SOLVER.BASE_LR',
+                latex_col_report_name=r"$\eta$",
+                format_fn_overwrite=lambda x: "{:.1g}".format(x)
+            ),
+
+            # ONLINE AG
+            LatexColumn(
+                'adhoc_users_aggregate/train_action_batch/balanced_loss/mean',
+                'adhoc_users_aggregate/train_action_batch/balanced_loss/SE',
+                latex_col_report_name=r"$L^{bal}_{\text{action}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/train_verb_batch/balanced_loss/mean',
+                'adhoc_users_aggregate/train_verb_batch/balanced_loss/SE',
+                latex_col_report_name=r"$L^{bal}_{\text{verb}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/train_noun_batch/balanced_loss/mean',
+                'adhoc_users_aggregate/train_noun_batch/balanced_loss/SE',
+                latex_col_report_name=r"$L^{bal}_{\text{noun}}$",
+                round_digits=round_digits,
+            ),
+
+            # HISTORY AG
+            # LatexColumn(
+            #     'adhoc_users_aggregate/test_action_batch/top1_acc/mean',
+            #     'adhoc_users_aggregate/test_action_batch/top1_acc/SE',
+            #     latex_col_report_name=r"$\text{hindsight-ACC}_{\text{action}}$",
+            #     round_digits=round_digits,
+            # ),
+            # LatexColumn(
+            #     'adhoc_users_aggregate/test_verb_batch/top1_acc/mean',
+            #     'adhoc_users_aggregate/test_verb_batch/top1_acc/SE',
+            #     latex_col_report_name=r"$\text{hindsight-ACC}_{\text{verb}}$",
+            #     round_digits=round_digits,
+            # ),
+            # LatexColumn(
+            #     'adhoc_users_aggregate/test_noun_batch/top1_acc/mean',
+            #     'adhoc_users_aggregate/test_noun_batch/top1_acc/SE',
+            #     latex_col_report_name=r"$\text{hindsight-ACC}_{\text{noun}}$",
+            #     round_digits=round_digits,
+            # ),
+        ]
+    elif mode == 'LL':
+
+        ordered_cols = [
+
+            # HPARAMS COL
+            # LatexColumn(
+            #     'SOLVER.MOMENTUM',
+            #     'SOLVER.BASE_LR',
+            #     latex_col_report_name=r"$\rho (\eta)$",
+            #     format_fn_overwrite=lambda x: f"{x[0]} ({x[1]})"
+            # ),
+
+            LatexColumn(
+                'TRAIN.INNER_LOOP_ITERS',
+                latex_col_report_name=r"iters",
+                format_fn_overwrite=lambda x: x,
+            ),
+
+            LatexColumn(
+                'SOLVER.BASE_LR',
+                latex_col_report_name=r"$\eta$",
+                format_fn_overwrite=lambda x: "{:.1g}".format(x)
+            ),
+
+            # ONLINE AG
+            LatexColumn(
+                'adhoc_users_aggregate/train_action_batch/balanced_LL/mean',
+                'adhoc_users_aggregate/train_action_batch/balanced_LL/SE',
+                latex_col_report_name=r"$\text{LL}_{\text{action}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/train_verb_batch/balanced_LL/mean',
+                'adhoc_users_aggregate/train_verb_batch/balanced_LL/SE',
+                latex_col_report_name=r"$\text{LL}_{\text{verb}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/train_noun_batch/balanced_LL/mean',
+                'adhoc_users_aggregate/train_noun_batch/balanced_LL/SE',
+                latex_col_report_name=r"$\text{LL}_{\text{noun}}$",
+                round_digits=round_digits,
+            ),
+
+            # HISTORY AG
+            # LatexColumn(
+            #     'adhoc_users_aggregate/test_action_batch/top1_acc/mean',
+            #     'adhoc_users_aggregate/test_action_batch/top1_acc/SE',
+            #     latex_col_report_name=r"$\text{hindsight-ACC}_{\text{action}}$",
+            #     round_digits=round_digits,
+            # ),
+            # LatexColumn(
+            #     'adhoc_users_aggregate/test_verb_batch/top1_acc/mean',
+            #     'adhoc_users_aggregate/test_verb_batch/top1_acc/SE',
+            #     latex_col_report_name=r"$\text{hindsight-ACC}_{\text{verb}}$",
+            #     round_digits=round_digits,
+            # ),
+            # LatexColumn(
+            #     'adhoc_users_aggregate/test_noun_batch/top1_acc/mean',
+            #     'adhoc_users_aggregate/test_noun_batch/top1_acc/SE',
+            #     latex_col_report_name=r"$\text{hindsight-ACC}_{\text{noun}}$",
+            #     round_digits=round_digits,
+            # ),
+        ]
+    elif mode == 'acc_pretrain':
+
+        ordered_cols = [
+
+            # HPARAMS COL
+            # LatexColumn(
+            #     'SOLVER.MOMENTUM',
+            #     'SOLVER.BASE_LR',
+            #     latex_col_report_name=r"$\rho (\eta)$",
+            #     format_fn_overwrite=lambda x: f"{x[0]} ({x[1]})"
+            # ),
+
+            LatexColumn(
+                'TRAIN.INNER_LOOP_ITERS',
+                latex_col_report_name=r"iters",
+                format_fn_overwrite=lambda x: x,
+            ),
+
+            LatexColumn(
+                'SOLVER.BASE_LR',
+                latex_col_report_name=r"$\eta$",
+                format_fn_overwrite=lambda x: "{:.1g}".format(x)
+            ),
+
+            # ONLINE AG
+            LatexColumn(
+                'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/PRETRAIN_abs/mean',
+                'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/PRETRAIN_abs/SE',
+                latex_col_report_name=r"$ACC_{\text{action}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/PRETRAIN_abs/mean',
+                'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/PRETRAIN_abs/SE',
+                latex_col_report_name=r"$ACC_{\text{verb}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/PRETRAIN_abs/mean',
+                'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/PRETRAIN_abs/SE',
+                latex_col_report_name=r"$ACC_{\text{noun}}$",
+                round_digits=round_digits,
+            ),
+        ]
+    elif mode == 'acc':
+
+        ordered_cols = [
+
+            # HPARAMS COL
+            # LatexColumn(
+            #     'SOLVER.MOMENTUM',
+            #     'SOLVER.BASE_LR',
+            #     latex_col_report_name=r"$\rho (\eta)$",
+            #     format_fn_overwrite=lambda x: f"{x[0]} ({x[1]})"
+            # ),
+
+            LatexColumn(
+                'TRAIN.INNER_LOOP_ITERS',
+                latex_col_report_name=r"iters",
+                format_fn_overwrite=lambda x: x,
+            ),
+
+            LatexColumn(
+                'SOLVER.BASE_LR',
+                latex_col_report_name=r"$\eta$",
+                format_fn_overwrite=lambda x: "{:.1g}".format(x)
+            ),
+
+            # ONLINE AG
+            LatexColumn(
+                'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/mean',
+                'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/SE',
+                latex_col_report_name=r"$ACC_{\text{action}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/mean',
+                'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/SE',
+                latex_col_report_name=r"$ACC_{\text{verb}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/mean',
+                'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/SE',
+                latex_col_report_name=r"$ACC_{\text{noun}}$",
+                round_digits=round_digits,
+            ),
+
+            # HISTORY AG
+            LatexColumn(
+                'adhoc_users_aggregate/test_action_batch/top1_acc/mean',
+                'adhoc_users_aggregate/test_action_batch/top1_acc/SE',
+                latex_col_report_name=r"$\text{hindsight-ACC}_{\text{action}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/test_verb_batch/top1_acc/mean',
+                'adhoc_users_aggregate/test_verb_batch/top1_acc/SE',
+                latex_col_report_name=r"$\text{hindsight-ACC}_{\text{verb}}$",
+                round_digits=round_digits,
+            ),
+            LatexColumn(
+                'adhoc_users_aggregate/test_noun_batch/top1_acc/mean',
+                'adhoc_users_aggregate/test_noun_batch/top1_acc/SE',
+                latex_col_report_name=r"$\text{hindsight-ACC}_{\text{noun}}$",
+                round_digits=round_digits,
+            ),
+        ]
 
     latex_df = pd.DataFrame()
 
@@ -1131,4 +1574,4 @@ def print_end_table():
 
 
 if __name__ == "__main__":
-    parse_final07_01_sgd_multi_iter()
+    parse_LOSS_vs_ACC_vs_balancedLL_results_sgd_multi_iter()

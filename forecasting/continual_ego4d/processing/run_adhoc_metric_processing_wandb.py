@@ -39,21 +39,26 @@ import pandas as pd
 import wandb
 import pprint
 import os
-from continual_ego4d.processing.utils import get_group_names_from_csv, get_group_run_iterator
+from continual_ego4d.processing.utils import get_group_names_from_csv, get_group_run_iterator, get_delta, \
+    get_delta_mappings
 import tqdm
+import torch
+from continual_ego4d.processing.utils import loss_CE_to_likelihood, ConditionalAverageMeterDict
 
 api = wandb.Api()
 
 MODES = [
+    'adhoc_balanced_LL_from_csv_dump_to_wandb',
     'aggregate_avg_train_results_over_user_streams',
     'aggregate_test_results_over_user_streams',
     'aggregate_OAG_over_user_streams',  # online OAG
 ]
-
 # Adapt settings
 MODE = MODES[0]
 train = True
-csv_filename = 'wandb_export_2022-10-09T11_23_33.094-07_00.csv'  # TODO copy file here and past name here
+csv_filename = 'wandb_export_2022-10-11T18_31_26.197-07_00.csv'  # TODO copy file here and past name here
+single_group_name = None
+remote = True
 
 if train:
     train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
@@ -71,7 +76,10 @@ else:
     PRETRAIN_GROUP = "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4"
 
 # Fixed Settings
-csv_dirname = '/home/mattdl/projects/ContextualOracle_Matthias/adhoc_results'  # Move file in this dir
+if remote:
+    csv_dirname = '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results'
+else:
+    csv_dirname = '/home/mattdl/projects/ContextualOracle_Matthias/adhoc_results'  # Move file in this dir
 PROJECT_NAME = "matthiasdelange/ContinualUserAdaptation"
 
 # New uploaded keys
@@ -79,6 +87,87 @@ NEW_METRIC_PREFIX = 'adhoc_users_aggregate'
 NEW_METRIC_PREFIX_MEAN = 'mean'
 NEW_METRIC_PREFIX_SE = 'SE'  # Unbiased standard error
 USER_AGGREGATE_COUNT = f"{NEW_METRIC_PREFIX}/user_aggregate_count"  # Over how many users added, also used to check if processed
+
+
+def adhoc_balanced_LL_from_csv_dump_to_wandb(selected_group_names, new_metric_name="balanced_LL"):
+    """
+    Get valid csv dump dir per user.
+    Upload per user-stream in group the csv-dump processed balanced-Likelihood.
+    Make sure to first do for pretrained model as delta is calculated afterwards in aggregating.
+    """
+    d = ConditionalAverageMeterDict()
+
+    entries = (
+        ('sample_idx_to_action_loss', 'action'),
+        ('sample_idx_to_verb_loss', 'verb'),
+        ('sample_idx_to_noun_loss', 'noun'),
+    )
+
+    # Collect from wandb
+    for group_name in selected_group_names:
+        print(f"\nUpdating group: {group_name}")
+        user_to_dump_path = {}
+
+        for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=None)):
+            user_id: str = user_run.config['DATA.COMPUTED_USER_ID']
+            user_dump_path = os.path.abspath(os.path.join(user_run.config['OUTPUT_DIR'], "user_logs", f"user_{user_id}",
+                                                          "stream_info_dump.pth"))
+            try:
+                assert os.path.exists(user_dump_path), f"Not existing: {user_dump_path}"
+            except Exception as e:
+                print(f"SKIPPING USER {user_id}: {e}")
+                continue
+            user_to_dump_path[user_id] = user_dump_path
+            user_dump_dict = torch.load(user_to_dump_path[user_id])
+
+            # Get labels
+            action_labels: list[tuple[int, int]] = user_dump_dict['sample_idx_to_action_list']
+
+            # Iterate action/verb/noun losses per instance
+            for dump_name, action_mode in entries:
+                sample_idx_to_loss: list[float] = user_dump_dict[dump_name]
+
+                sample_idx_to_loss_t = torch.tensor(sample_idx_to_loss)  # To tensor
+                sample_idx_to_LL_t: torch.Tensor = loss_CE_to_likelihood(sample_idx_to_loss_t)  # First convert to likelihood
+
+                # Get label set
+                if action_mode == 'action':
+                    selected_labels = action_labels
+                elif action_mode == 'verb':
+                    selected_labels = [x[0] for x in action_labels]
+                elif action_mode == 'noun':
+                    selected_labels = [x[1] for x in action_labels]
+                else:
+                    raise ValueError()
+
+                # Now average based on action label
+                # Get AverageMeter per conditional
+                d.reset()
+                d.update(sample_idx_to_LL_t.tolist(), cond_list=selected_labels)
+                balanced_avg_LL = d.result()  # Get total weighed avg LL
+
+                # Upload directly as per-user result
+                full_new_metric_name = f"train_{action_mode}_batch/{new_metric_name}"
+                user_run.summary[full_new_metric_name] = balanced_avg_LL
+
+                # Also get balanced loss
+                d.reset()
+                d.update(sample_idx_to_loss_t.tolist(), cond_list=selected_labels)
+                print(f"Balanced loss: {pprint.pformat(d.d)}")
+                balanced_loss = d.result()  # Get total weighed avg LL
+
+                # Upload directly as per-user result
+                full_balanced_loss_name = f"train_{action_mode}_batch/balanced_loss"
+                user_run.summary[full_balanced_loss_name] = balanced_loss
+
+                user_run.summary.update()  # UPLOAD
+                print(f"USER[{user_id}] Updated [{full_new_metric_name}] = {balanced_avg_LL}, "
+                      f"{full_balanced_loss_name} = {balanced_loss}")
+
+    print(f"Finished processing")
+
+    print(f"Aggregating over users in separate step:")
+    aggregate_avg_train_results_over_user_streams(selected_group_names)
 
 
 def aggregate_online_calculated_OAG_over_user_streams(selected_group_names):
@@ -165,8 +254,8 @@ def aggregate_avg_train_results_over_user_streams(selected_group_names):
     if not is_user_runs_valid(pretrain_user_ids, PRETRAIN_GROUP):
         print(f"Pretrain not valid: exit")
         return
-    for name, user_val_list in pretrain_final_stream_metric_userlists.items():
-        assert len(user_val_list) == NB_EXPECTED_USERS, f"{name} has not all user values: {user_val_list}"
+    for metric_name, user_val_list in pretrain_final_stream_metric_userlists.items():
+        assert len(user_val_list) == NB_EXPECTED_USERS, f"{metric_name} has not all user values: {user_val_list}"
 
     # Iterate groups (a collective of independent user-runs)
     for group_name in selected_group_names:
@@ -187,27 +276,28 @@ def aggregate_avg_train_results_over_user_streams(selected_group_names):
 
         if not is_user_runs_valid(user_ids, group_name):
             continue
-        for name, user_val_list in final_stream_metric_userlists.items():
-            assert len(user_val_list) == NB_EXPECTED_USERS, f"{name} has not all user values: {user_val_list}"
-            assert name in pretrain_final_stream_metric_userlists, f"KEY:{name} of user not in pretrain results!"
+        for metric_name, user_val_list in final_stream_metric_userlists.items():
+            assert len(user_val_list) == NB_EXPECTED_USERS, f"{metric_name} has not all user values: {user_val_list}"
+            assert metric_name in pretrain_final_stream_metric_userlists, f"KEY:{metric_name} of user not in pretrain results!"
 
         print(f"Processing users: {len(user_ids)}/{NB_EXPECTED_USERS} -> {user_ids}: Group ={group_name}")
 
         # Get same results but delta with pretrain results
+        delta_sign_map = get_delta_mappings()
 
         # make sure users have same order
         print("Assuming for ACC: new result - pretrain result")
         AG_dict = {}
-        for name, user_val_list in final_stream_metric_userlists.items():
-            pretrain_val_list = pretrain_final_stream_metric_userlists[name]
-
-            assert 'acc' in name
+        for metric_name, user_val_list in final_stream_metric_userlists.items():
+            delta_sign = delta_sign_map[metric_name]
+            pretrain_val_list = pretrain_final_stream_metric_userlists[metric_name]
             assert len(pretrain_val_list) == len(user_val_list)
 
             # Add as later used to calculate /mean and /SE on
-            AG_dict[f"{name}/PRETRAIN_abs"] = pretrain_val_list
-            AG_dict[f"{name}/adhoc_AG"] = [
-                user_val - pretrain_val for pretrain_val, user_val in zip(pretrain_val_list, user_val_list)]
+            AG_dict[f"{metric_name}/PRETRAIN_abs"] = pretrain_val_list
+            AG_dict[f"{metric_name}/adhoc_AG"] = [
+                get_delta(delta_sign, user_val, pretrain_val)
+                for pretrain_val, user_val in zip(pretrain_val_list, user_val_list)]
 
         # Add to final results
         all_results = {**final_stream_metric_userlists, **AG_dict}
@@ -218,12 +308,25 @@ def aggregate_avg_train_results_over_user_streams(selected_group_names):
 def _collect_wandb_group_absolute_online_results(group_name, run_filter, user_ids: list = None):
     # Get metrics over runs(users)
     final_stream_metrics_per_user = {
+        'train_action_batch/loss_running_avg': [],
+        'train_verb_batch/loss_running_avg': [],
+        'train_noun_batch/loss_running_avg': [],
+
         'train_action_batch/top1_acc_running_avg': [],
         'train_verb_batch/top1_acc_running_avg': [],
         'train_noun_batch/top1_acc_running_avg': [],
         'train_verb_batch/top5_acc_running_avg': [],
         'train_noun_batch/top5_acc_running_avg': [],
         # 'num_samples_stream': [], # Can use to re-weight
+
+        # TODO add LL(likelihood)
+        'train_action_batch/balanced_LL': [],
+        'train_verb_batch/balanced_LL': [],
+        'train_noun_batch/balanced_LL': [],
+
+        'train_action_batch/balanced_loss': [],
+        'train_verb_batch/balanced_loss': [],
+        'train_noun_batch/balanced_loss': [],
     }
 
     def get_dynamic_user_results():
@@ -381,11 +484,14 @@ def avg_per_metric_upload_wandb(metricname_to_user_results_list: dict[str, list]
 
 
 if __name__ == "__main__":
-    csv_path = os.path.join(csv_dirname, csv_filename)
-    assert os.path.isfile(csv_path)
+    if single_group_name is None:
+        csv_path = os.path.join(csv_dirname, csv_filename)
+        assert os.path.isfile(csv_path), f"Non-existing: {csv_path}"
 
-    # From WandB csv from overview, grouped by Group. Get all the names in the csv (these are the run group names).
-    selected_group_names: list[str] = get_group_names_from_csv(csv_path)
+        # From WandB csv from overview, grouped by Group. Get all the names in the csv (these are the run group names).
+        selected_group_names: list[str] = get_group_names_from_csv(csv_path)
+    else:
+        selected_group_names = [single_group_name]
     print(f"Group names={pprint.pformat(selected_group_names)}")
 
     locals()[MODE](selected_group_names)  # Call function
