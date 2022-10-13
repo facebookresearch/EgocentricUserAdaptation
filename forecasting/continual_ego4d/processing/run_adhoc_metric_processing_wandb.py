@@ -44,11 +44,12 @@ from continual_ego4d.processing.utils import get_group_names_from_csv, get_group
 import tqdm
 import torch
 from continual_ego4d.processing.utils import loss_CE_to_likelihood, ConditionalAverageMeterDict
+from ego4d.evaluation.lta_metrics import _get_topk_correct_onehot_matrix
 
 api = wandb.Api()
 
 MODES = [
-    'adhoc_balanced_LL_from_csv_dump_to_wandb',
+    'adhoc_metrics_from_csv_dump_to_wandb',
     'aggregate_avg_train_results_over_user_streams',
     'aggregate_test_results_over_user_streams',
     'aggregate_OAG_over_user_streams',  # online OAG
@@ -56,8 +57,9 @@ MODES = [
 # Adapt settings
 MODE = MODES[0]
 train = True
-csv_filename = 'wandb_export_2022-10-11T18_31_26.197-07_00.csv'  # TODO copy file here and past name here
+csv_filename = 'wandb_export_2022-10-12T14_35_29.228-07_01.csv'  # TODO copy file here and past name here
 single_group_name = None
+# single_group_name = "FixedNetwork_2022-10-07_21-50-23_UID80e71950-cea4-44ba-ba16-7dddfe95be26"
 remote = True
 
 if train:
@@ -89,29 +91,34 @@ NEW_METRIC_PREFIX_SE = 'SE'  # Unbiased standard error
 USER_AGGREGATE_COUNT = f"{NEW_METRIC_PREFIX}/user_aggregate_count"  # Over how many users added, also used to check if processed
 
 
-def adhoc_balanced_LL_from_csv_dump_to_wandb(selected_group_names, new_metric_name="balanced_LL"):
+def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True):
     """
     Get valid csv dump dir per user.
     Upload per user-stream in group the csv-dump processed balanced-Likelihood.
     Make sure to first do for pretrained model as delta is calculated afterwards in aggregating.
     """
-    d = ConditionalAverageMeterDict()
 
-    entries = (
-        ('sample_idx_to_action_loss', 'action'),
-        ('sample_idx_to_verb_loss', 'verb'),
-        ('sample_idx_to_noun_loss', 'noun'),
-    )
+    action_modes = ('action', 'verb', 'noun')
+    metric_names = set()
+
+    def _save_to_wandb_summary(metric_name, user_val, user_run):
+        metric_names.add(metric_name)
+        if overwrite or metric_name not in user_run.summary:
+            user_run.summary[metric_name] = user_val
+            print(f"USER[{user_id}] Updated [{metric_name}] = {user_val}")
 
     # Collect from wandb
     for group_name in selected_group_names:
         print(f"\nUpdating group: {group_name}")
         user_to_dump_path = {}
 
+        # Iterate user-runs in group
         for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=None)):
+
+            # Get CSV DUMP locally
             user_id: str = user_run.config['DATA.COMPUTED_USER_ID']
-            user_dump_path = os.path.abspath(os.path.join(user_run.config['OUTPUT_DIR'], "user_logs", f"user_{user_id}",
-                                                          "stream_info_dump.pth"))
+            user_dump_path = os.path.abspath(os.path.join(
+                user_run.config['OUTPUT_DIR'], "user_logs", f"user_{user_id}", "stream_info_dump.pth"))
             try:
                 assert os.path.exists(user_dump_path), f"Not existing: {user_dump_path}"
             except Exception as e:
@@ -120,58 +127,561 @@ def adhoc_balanced_LL_from_csv_dump_to_wandb(selected_group_names, new_metric_na
             user_to_dump_path[user_id] = user_dump_path
             user_dump_dict = torch.load(user_to_dump_path[user_id])
 
-            # Get labels
-            action_labels: list[tuple[int, int]] = user_dump_dict['sample_idx_to_action_list']
-
             # Iterate action/verb/noun losses per instance
-            for dump_name, action_mode in entries:
-                sample_idx_to_loss: list[float] = user_dump_dict[dump_name]
+            for action_mode in action_modes:
+                ####################################
+                # LOSS/CONFIDENCE BASED METRICS
+                ####################################
 
-                sample_idx_to_loss_t = torch.tensor(sample_idx_to_loss)  # To tensor
-                sample_idx_to_LL_t: torch.Tensor = loss_CE_to_likelihood(sample_idx_to_loss_t)  # First convert to likelihood
+                # Unbalanced LL
+                user_val, metric_name = dump_to_LL(user_dump_dict, action_mode, balanced=False)
+                _save_to_wandb_summary(metric_name, user_val, user_run)
 
-                # Get label set
-                if action_mode == 'action':
-                    selected_labels = action_labels
-                elif action_mode == 'verb':
-                    selected_labels = [x[0] for x in action_labels]
-                elif action_mode == 'noun':
-                    selected_labels = [x[1] for x in action_labels]
-                else:
-                    raise ValueError()
-
-                # Now average based on action label
-                # Get AverageMeter per conditional
-                d.reset()
-                d.update(sample_idx_to_LL_t.tolist(), cond_list=selected_labels)
-                balanced_avg_LL = d.result()  # Get total weighed avg LL
-
-                # Upload directly as per-user result
-                full_new_metric_name = f"train_{action_mode}_batch/{new_metric_name}"
-                user_run.summary[full_new_metric_name] = balanced_avg_LL
+                # Balanced LL
+                user_val, metric_name = dump_to_LL(user_dump_dict, action_mode, balanced=True)
+                _save_to_wandb_summary(metric_name, user_val, user_run)
 
                 # Also get balanced loss
-                d.reset()
-                d.update(sample_idx_to_loss_t.tolist(), cond_list=selected_labels)
-                print(f"Balanced loss: {pprint.pformat(d.d)}")
-                balanced_loss = d.result()  # Get total weighed avg LL
+                user_val, metric_name = dump_to_loss(user_dump_dict, action_mode, balanced=True)
+                _save_to_wandb_summary(metric_name, user_val, user_run)
 
-                # Upload directly as per-user result
-                full_balanced_loss_name = f"train_{action_mode}_batch/balanced_loss"
-                user_run.summary[full_balanced_loss_name] = balanced_loss
+                # Get balanced ACC
+                user_val, metric_name = dump_to_ACC(user_dump_dict, action_mode, balanced=True)
+                _save_to_wandb_summary(metric_name, user_val, user_run)
 
-                user_run.summary.update()  # UPLOAD
-                print(f"USER[{user_id}] Updated [{full_new_metric_name}] = {balanced_avg_LL}, "
-                      f"{full_balanced_loss_name} = {balanced_loss}")
+                # Get conditional analysis
+                metric_dict: dict[str, float] = dump_to_correct_conditional_metrics(user_dump_dict, action_mode)
+                for metric_name, user_val in metric_dict.items():
+                    _save_to_wandb_summary(metric_name, user_val, user_run)
 
     print(f"Finished processing")
+    metric_names = sorted(list(metric_names))
 
-    print(f"Aggregating over users in separate step:")
-    aggregate_avg_train_results_over_user_streams(selected_group_names)
+    print(f"Aggregating over users in separate step: \n{pprint.pformat(metric_names)}")
+    avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=metric_names, skip_pretrain_delta=True)
+
+
+def dump_to_LL(user_dump_dict, action_mode, balanced=True, return_per_sample_result=False):
+    """Likelihood (LL) or confidence (C) in our paper."""
+    balance_name = "balanced_" if balanced else ""
+    full_new_metric_name = f"train_{action_mode}_batch/{balance_name}LL"
+    d = ConditionalAverageMeterDict(action_balanced=balanced)
+
+    # Get labels
+    action_labels: list[tuple[int, int]] = user_dump_dict['sample_idx_to_action_list']
+    if action_mode == 'action':
+        selected_labels = action_labels
+        loss_dump_name = 'sample_idx_to_action_loss'
+
+    elif action_mode == 'verb':
+        selected_labels = [x[0] for x in action_labels]
+        loss_dump_name = 'sample_idx_to_verb_loss'
+
+    elif action_mode == 'noun':
+        selected_labels = [x[1] for x in action_labels]
+        loss_dump_name = 'sample_idx_to_noun_loss'
+
+    else:
+        raise ValueError()
+
+    sample_idx_to_loss: list[float] = user_dump_dict[loss_dump_name]
+    sample_idx_to_loss_t = torch.tensor(sample_idx_to_loss)  # To tensor
+    sample_idx_to_LL_t: torch.Tensor = loss_CE_to_likelihood(sample_idx_to_loss_t).mul(100)  # convert to likelihood
+
+    if return_per_sample_result:
+        return sample_idx_to_LL_t
+
+    # Now average based on action label
+    # Get AverageMeter per conditional
+    d.update(sample_idx_to_LL_t.tolist(), cond_list=selected_labels)
+    balanced_avg_LL = d.result()  # Get total weighed avg LL
+
+    return balanced_avg_LL, full_new_metric_name
+
+
+def dump_to_correct_conditional_metrics(user_dump_dict, action_mode):
+    """ Split loss and likelihood (confidence in correct class) in 2 ways:
+     1) When it is predicted correctly
+     2) When it is predicted incorrectly
+
+     Results in metrics:
+
+'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/CORRECT_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/CORRECT_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/CORRECT_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/CORRECT_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/CORRECT_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/CORRECT_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/WRONG_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/WRONG_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/WRONG_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/WRONG_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/WRONG_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/LL/WRONG_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/CORRECT_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/CORRECT_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/CORRECT_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/CORRECT_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/CORRECT_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/CORRECT_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/WRONG_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/WRONG_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/WRONG_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/WRONG_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/WRONG_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_action_batch/loss/WRONG_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/CORRECT_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/CORRECT_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/CORRECT_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/CORRECT_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/CORRECT_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/CORRECT_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/WRONG_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/WRONG_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/WRONG_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/WRONG_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/WRONG_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/LL/WRONG_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/CORRECT_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/CORRECT_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/CORRECT_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/CORRECT_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/CORRECT_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/CORRECT_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/WRONG_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/WRONG_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/WRONG_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/WRONG_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/WRONG_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_noun_batch/loss/WRONG_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/CORRECT_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/CORRECT_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/CORRECT_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/CORRECT_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/CORRECT_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/CORRECT_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/WRONG_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/WRONG_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/WRONG_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/WRONG_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/WRONG_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/LL/WRONG_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/CORRECT_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/CORRECT_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/CORRECT_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/CORRECT_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/CORRECT_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/CORRECT_COND/sum/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/WRONG_COND/avg/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/WRONG_COND/avg/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/WRONG_COND/count/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/WRONG_COND/count/SE',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/WRONG_COND/sum/mean',
+ 'adhoc_users_aggregate/CONDITIONAL_ANALYSIS/train_verb_batch/loss/WRONG_COND/sum/SE',
+
+     """
+    metric_name_prefix = f"CONDITIONAL_ANALYSIS/train_{action_mode}_batch"
+
+    # Get loss and likelihood
+    sample_to_likelihood_t = dump_to_LL(user_dump_dict, action_mode, return_per_sample_result=True)
+    sample_to_loss_t = dump_to_loss(user_dump_dict, action_mode, return_per_sample_result=True)
+    nb_samples_stream = sample_to_loss_t.shape[0]
+    print(f"Nb samples = {nb_samples_stream}")
+
+    # Get conditional
+    sample_to_correct_t = dump_to_ACC(user_dump_dict, action_mode, return_per_sample_result=True)
+
+    # Use corrects-tensor, and label list
+    likelihood_d = ConditionalAverageMeterDict()  # Use it's dict
+    likelihood_d.update(sample_to_likelihood_t.tolist(), cond_list=sample_to_correct_t.tolist())
+
+    likelihood_corrects = likelihood_d.meter_dict[1]
+    likelihood_wrongs = likelihood_d.meter_dict[0]
+
+    # Loss
+    loss_d = ConditionalAverageMeterDict()  # Use it's dict
+    loss_d.update(sample_to_loss_t.tolist(), cond_list=sample_to_correct_t.tolist())
+
+    loss_corrects = loss_d.meter_dict[1]
+    loss_wrongs = loss_d.meter_dict[0]
+
+    # Avgs are over correct/wrong separately per stream! Fix by using sum and total count
+    # Later is avged over users as well, which is also how we calculate our metrics
+    ret_metrics = {
+
+        # Likelihood
+        f"{metric_name_prefix}/LL/CORRECT_COND/avg": likelihood_corrects.sum / nb_samples_stream,
+        f"{metric_name_prefix}/LL/CORRECT_COND/sum": likelihood_corrects.sum,
+        f"{metric_name_prefix}/LL/CORRECT_COND/count": likelihood_corrects.count,
+
+        f"{metric_name_prefix}/LL/WRONG_COND/avg": likelihood_wrongs.sum / nb_samples_stream,
+        f"{metric_name_prefix}/LL/WRONG_COND/sum": likelihood_wrongs.sum,
+        f"{metric_name_prefix}/LL/WRONG_COND/count": likelihood_wrongs.count,
+
+        # Loss
+        f"{metric_name_prefix}/loss/CORRECT_COND/avg": loss_corrects.sum / nb_samples_stream,
+        f"{metric_name_prefix}/loss/CORRECT_COND/sum": loss_corrects.sum,
+        f"{metric_name_prefix}/loss/CORRECT_COND/count": loss_corrects.count,
+
+        f"{metric_name_prefix}/loss/WRONG_COND/avg": loss_wrongs.sum / nb_samples_stream,
+        f"{metric_name_prefix}/loss/WRONG_COND/sum": loss_wrongs.sum,
+        f"{metric_name_prefix}/loss/WRONG_COND/count": loss_wrongs.count,
+
+    }
+
+    return ret_metrics
+
+
+def dump_to_loss(user_dump_dict, action_mode, balanced=True, return_per_sample_result=False):
+    """ Loss. """
+    balance_name = "balanced_" if balanced else ""
+    full_new_metric_name = f"train_{action_mode}_batch/{balance_name}loss"
+    d = ConditionalAverageMeterDict(action_balanced=balanced)
+
+    # Get labels
+    action_labels: list[tuple[int, int]] = user_dump_dict['sample_idx_to_action_list']
+    if action_mode == 'action':
+        selected_labels = action_labels
+        loss_dump_name = 'sample_idx_to_action_loss'
+
+    elif action_mode == 'verb':
+        selected_labels = [x[0] for x in action_labels]
+        loss_dump_name = 'sample_idx_to_verb_loss'
+
+    elif action_mode == 'noun':
+        selected_labels = [x[1] for x in action_labels]
+        loss_dump_name = 'sample_idx_to_noun_loss'
+
+    else:
+        raise ValueError()
+
+    sample_idx_to_loss: list[float] = user_dump_dict[loss_dump_name]
+    sample_idx_to_loss_t = torch.tensor(sample_idx_to_loss)  # To tensor
+
+    if return_per_sample_result:
+        return sample_idx_to_loss_t
+
+    # Now average based on action label
+    d.update(sample_idx_to_loss_t.tolist(), cond_list=selected_labels)
+    result = d.result()  # Get total weighed avg LL
+
+    return result, full_new_metric_name
+
+
+def dump_to_ACC(user_dump_dict, action_mode, balanced=True, k=1, return_per_sample_result=False):
+    """ ACC. """
+    assert k == 1
+
+    balance_name = "balanced_" if balanced else ""
+    full_new_metric_name = f"train_{action_mode}_batch/{balance_name}top1_acc"
+    d = ConditionalAverageMeterDict(action_balanced=balanced)
+
+    # Get labels
+    action_labels: list[tuple[int, int]] = user_dump_dict['sample_idx_to_action_list']
+    action_labels_t: torch.Tensor = torch.tensor(action_labels)
+    verb_labels_t = action_labels_t[:, 0]
+    noun_labels_t = action_labels_t[:, 1]
+
+    # Get predictions for verbs/nouns
+    verb_preds: list[torch.Tensor] = user_dump_dict['sample_idx_to_verb_pred']
+    noun_preds: list[torch.Tensor] = user_dump_dict['sample_idx_to_noun_pred']
+
+    verb_preds_t = torch.stack(verb_preds)
+    noun_preds_t = torch.stack(noun_preds)
+
+    # (k x batch_size) indicator matrix
+    verb_corrects_t = _get_topk_correct_onehot_matrix(verb_preds_t, verb_labels_t, ks=[k])
+    noun_corrects_t = _get_topk_correct_onehot_matrix(noun_preds_t, noun_labels_t, ks=[k])
+    action_corrects_t = torch.logical_and(verb_corrects_t, noun_corrects_t)  # Take AND operation on indicator matrix
+
+    # Select which corrects-tensor to use
+    if action_mode == 'action':
+        selected_labels = action_labels
+        corrects_t = action_corrects_t
+
+    elif action_mode == 'verb':
+        selected_labels = [x[0] for x in action_labels]
+        corrects_t = verb_corrects_t
+
+    elif action_mode == 'noun':
+        selected_labels = [x[1] for x in action_labels]
+        corrects_t = noun_corrects_t
+
+    else:
+        raise ValueError()
+
+    # Squeeze
+    corrects_t = corrects_t.squeeze()
+
+    if return_per_sample_result:
+        return corrects_t
+
+    # Use corrects-tensor, and label list
+    d.update(corrects_t.tolist(), cond_list=selected_labels)
+    result = d.result() * 100  # Get total weighed avg LL
+
+    return result, full_new_metric_name
+
+
+def avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=None, skip_pretrain_delta=False):
+    """ After training a model, aggregate the avg metrics over the stream such as ACC.
+    Aggregate over user stream results. """
+
+    default_metrics = [
+        'train_action_batch/loss_running_avg',
+        'train_verb_batch/loss_running_avg',
+        'train_noun_batch/loss_running_avg',
+
+        'train_action_batch/top1_acc_running_avg',
+        'train_verb_batch/top1_acc_running_avg',
+        'train_noun_batch/top1_acc_running_avg',
+        'train_verb_batch/top5_acc_running_avg',
+        'train_noun_batch/top5_acc_running_avg',
+    ]
+
+    # Default metrics logged at runtime
+    if metrics is None:  # Always add defaults anyway
+        metrics = default_metrics
+    else:
+        metrics = default_metrics + metrics
+
+    # GET PRETRAIN as reference
+    if not skip_pretrain_delta:
+        pretrain_user_ids, pretrain_final_stream_metric_userlists = get_pretrain_user_results(metrics)
+
+    # Iterate groups (a collective of independent user-runs)
+    for group_name in selected_group_names:
+
+        # Filter runs in group that have finished
+        try:
+            user_ids, final_stream_metric_userlists = _collect_wandb_group_user_results_for_metrics(
+                group_name, metric_names=metrics, user_ids=USER_LIST, run_filter=None,
+            )
+        except Exception as e:
+            print(e)
+            print(f"SKIPPING: contains error: Group ={group_name}")
+            continue
+
+        # Checks
+        if not is_user_runs_valid(user_ids, group_name):
+            continue
+        for metric_name, user_val_list in final_stream_metric_userlists.items():
+            assert len(user_val_list) == NB_EXPECTED_USERS, f"{metric_name} has not all user values: {user_val_list}"
+
+        print(f"Processing users: {len(user_ids)}/{NB_EXPECTED_USERS} -> {user_ids}: Group ={group_name}")
+
+        all_results = final_stream_metric_userlists
+        if not skip_pretrain_delta:
+            AG_dict = get_pretrain_delta_with_user_results(
+                pretrain_user_ids, user_ids, final_stream_metric_userlists, pretrain_final_stream_metric_userlists
+            )
+            all_results = {**all_results, **AG_dict}  # Add to final results
+
+        # Upload for group the avg over runs from dict
+        upload_metric_dict_to_wandb(all_results, group_name, run_filter=None)
+
+
+def get_pretrain_user_results(metrics):
+    pretrain_user_ids, pretrain_final_stream_metric_userlists = _collect_wandb_group_user_results_for_metrics(
+        PRETRAIN_GROUP, metric_names=metrics, run_filter=None, user_ids=USER_LIST)
+
+    # Check users and nb of results
+    if not is_user_runs_valid(pretrain_user_ids, PRETRAIN_GROUP):
+        print(f"Pretrain not valid: exit")
+        return
+    for metric_name, user_val_list in pretrain_final_stream_metric_userlists.items():
+        assert len(user_val_list) == NB_EXPECTED_USERS, f"{metric_name} has not all user values: {user_val_list}"
+
+    return pretrain_user_ids, pretrain_final_stream_metric_userlists
+
+
+def get_pretrain_delta_with_user_results(pretrain_user_ids,
+                                         user_ids,
+                                         final_stream_metric_userlists,
+                                         pretrain_final_stream_metric_userlists
+                                         ):
+    AG_dict = {}
+    assert pretrain_user_ids == user_ids, \
+        "Order of pretrained and user ids should be same, otherwise SE will not be correct for avg the deltas. "
+
+    for metric_name, user_val_list in final_stream_metric_userlists.items():
+        assert metric_name in pretrain_final_stream_metric_userlists, \
+            f"KEY:{metric_name} of user not in pretrain results!"
+
+    # Get same results but delta with pretrain results
+    delta_sign_map = get_delta_mappings()
+
+    # make sure users have same order
+    print("Assuming for ACC: new result - pretrain result")
+    for metric_name, user_val_list in final_stream_metric_userlists.items():
+        delta_sign = delta_sign_map[metric_name]
+        pretrain_val_list = pretrain_final_stream_metric_userlists[metric_name]
+        assert len(pretrain_val_list) == len(user_val_list)
+
+        # Add as later used to calculate /mean and /SE on
+        AG_dict[f"{metric_name}/PRETRAIN_abs"] = pretrain_val_list
+        AG_dict[f"{metric_name}/adhoc_AG"] = [
+            get_delta(delta_sign, user_val, pretrain_val)
+            for pretrain_val, user_val in zip(pretrain_val_list, user_val_list)]
+
+    return AG_dict
+
+
+def upload_metric_dict_to_wandb(metricname_to_user_results_list: dict[str, list], group_name: str, run_filter=None,
+                                mean=True):
+    """
+    Calculate mean and SE for the list in each <str, list> pair in the dict.
+    The str/mean and str/SE are then uploaded to WandB.
+    """
+
+    # Add adhoc-prefix to metric names
+    updated_metrics_dict = {}
+    for orig_metric_name, metric_val in metricname_to_user_results_list.items():
+        new_metric_name = f"{NEW_METRIC_PREFIX}/{orig_metric_name}"
+        updated_metrics_dict[new_metric_name] = metric_val
+
+    final_update_metrics_dict = updated_metrics_dict
+
+    # Average over lists and get SEM
+    if mean:
+        updated_metrics_df = pd.DataFrame.from_dict(updated_metrics_dict)  # Dataframe with updated metric names
+
+        total_count_key = f"{USER_AGGREGATE_COUNT}/test"
+        final_update_metrics_dict = {}
+        for col in updated_metrics_df.columns.tolist():
+            if total_count_key not in final_update_metrics_dict:
+                final_update_metrics_dict[total_count_key] = len(updated_metrics_df[col])  # Nb of users
+            final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_MEAN}"] = updated_metrics_df[col].mean()
+            final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_SE}"] = updated_metrics_df[col].sem()
+
+    print(f"New metric results:\n{pprint.pformat(list(final_update_metrics_dict.keys()))}")
+
+    # Update all group entries:
+    for user_run in tqdm.tqdm(
+            get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter),
+            desc=f"Uploading group results: {final_update_metrics_dict}"
+    ):
+        for name, new_val in final_update_metrics_dict.items():
+            user_run.summary[name] = new_val
+
+        user_run.summary.update()  # UPLOAD
+
+
+def _collect_wandb_group_user_results_for_metrics(group_name, run_filter, metric_names, user_ids: list = None,
+                                                  metrics_strict=True):
+    # Get metrics over runs(users)
+    final_stream_metrics_per_user = {metric_name: [] for metric_name in metric_names}
+
+    def get_dynamic_user_results():
+        """ Add user results in order of downloading from WandB."""
+        # summary = final value (excludes NaN rows)
+        # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
+        for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
+            user_ids.append(user_run.config['DATA.COMPUTED_USER_ID'])
+            for metric_name, val_list in final_stream_metrics_per_user.items():
+
+                if not metrics_strict and metric_name not in user_run.summary:
+                    print(f"[NOT STRICT] Skipping metric {metric_name} as not found in user run")
+                    continue
+
+                user_metric_val = user_run.summary[metric_name]  # Only takes last value
+                val_list.append(user_metric_val)
+
+    def get_static_user_results():
+        """ Fill in user results based on order given by user_ids. """
+        # summary = final value (excludes NaN rows)
+        # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
+        for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
+            user_id = user_run.config['DATA.COMPUTED_USER_ID']
+            remote_users.append(user_id)
+            result_idx = user_ids.index(user_id)
+            for metric_name, val_list in final_stream_metrics_per_user.items():
+
+                if not metrics_strict and metric_name not in user_run.summary:
+                    print(f"[NOT STRICT] Skipping metric {metric_name} as not found in user run")
+                    continue
+
+                user_metric_val = user_run.summary[metric_name]  # Only takes last value
+                val_list[result_idx] = user_metric_val
+
+    if user_ids is None:
+        user_ids = []  # all processed users
+        get_dynamic_user_results()
+
+    else:
+        for k, v in final_stream_metrics_per_user.items():
+            final_stream_metrics_per_user[k] = [None] * len(user_ids)  # Pre-init arrays
+
+        remote_users = []
+        get_static_user_results()  # Raises value error if user not found
+        assert len(remote_users) == len(user_ids), "Not all user values have been filled in!"
+
+    return user_ids, final_stream_metrics_per_user
+
+
+def aggregate_test_results_over_user_streams(selected_group_names):
+    """ After testing on a model with cfg.STREAM_EVAL_ONLY=True, aggregate over user stream results. """
+
+    # Iterate groups (a collective of independent user-runs)
+    for group_name in selected_group_names:
+
+        # Filter runs in group that have finished
+        run_filter = {
+            "$and": [
+                {"group": group_name},
+                {"summary_metrics.num_samples_stream": {"$ne": None}}
+            ]
+        }
+
+        try:
+            user_ids, final_stream_metric_userlists = _collect_user_test_results(
+                group_name, run_filter
+            )
+        except Exception as e:
+            print(e)
+            print(f"SKIPPING: contains error: Group ={group_name}")
+            continue
+
+        if not is_user_runs_valid(user_ids, group_name):
+            continue
+
+        for name, user_val_list in final_stream_metric_userlists.items():
+            assert len(user_val_list) == NB_EXPECTED_USERS, f"{name} has not all user values: {user_val_list}"
+
+        print(f"Processing users: {len(user_ids)}/{NB_EXPECTED_USERS} -> {user_ids}: Group ={group_name}")
+
+        upload_metric_dict_to_wandb(final_stream_metric_userlists, group_name, run_filter)
+
+
+def _collect_user_test_results(group_name, run_filter):
+    # Get metrics over runs(users)
+    final_stream_metrics_per_user = {
+        'test_action_batch/loss': [],
+        'test_verb_batch/loss': [],
+        'test_noun_batch/loss': [],
+        'test_action_batch/top1_acc': [],
+        'test_verb_batch/top1_acc': [],
+        'test_verb_batch/top5_acc': [],
+        'test_noun_batch/top1_acc': [],
+        'test_noun_batch/top5_acc': [],
+        # 'num_samples_stream': [], # Can use to re-weight
+    }
+    user_ids = []  # all processed users
+
+    # summary = final value (excludes NaN rows)
+    # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
+    for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
+        user_ids.append(user_run.config['DATA.COMPUTED_USER_ID'])
+
+        for metric_name, val_list in final_stream_metrics_per_user.items():
+            user_metric_val = user_run.summary[metric_name]
+            val_list.append(user_metric_val)
+
+    return user_ids, final_stream_metrics_per_user
 
 
 def aggregate_online_calculated_OAG_over_user_streams(selected_group_names):
-    """ Get OAG results for action/verb/noun per user, normalize over user stream samples, average and upload to wandb. """
+    """ Get OAG results for action/verb/noun per user, normalize cumulative metric over user stream samples, average and upload to wandb. """
 
     # Iterate groups (a collective of independent user-runs)
     for group_name in selected_group_names:
@@ -242,191 +752,6 @@ def _collect_user_AG_results(group_name):
     return user_ids, total_samples_per_user, final_stream_metrics_to_avg
 
 
-def aggregate_avg_train_results_over_user_streams(selected_group_names):
-    """ After training a model, aggregate the avg metrics over the stream such as ACC.
-    Aggregate over user stream results. """
-
-    # GET PRETRAIN as reference
-    pretrain_user_ids, pretrain_final_stream_metric_userlists = _collect_wandb_group_absolute_online_results(
-        PRETRAIN_GROUP, run_filter=None, user_ids=USER_LIST)
-
-    # Check users and nb of results
-    if not is_user_runs_valid(pretrain_user_ids, PRETRAIN_GROUP):
-        print(f"Pretrain not valid: exit")
-        return
-    for metric_name, user_val_list in pretrain_final_stream_metric_userlists.items():
-        assert len(user_val_list) == NB_EXPECTED_USERS, f"{metric_name} has not all user values: {user_val_list}"
-
-    # Iterate groups (a collective of independent user-runs)
-    for group_name in selected_group_names:
-
-        # Filter runs in group that have finished
-        try:
-            user_ids, final_stream_metric_userlists = _collect_wandb_group_absolute_online_results(
-                group_name, user_ids=USER_LIST, run_filter=None
-            )
-        except Exception as e:
-            print(e)
-            print(f"SKIPPING: contains error: Group ={group_name}")
-            continue
-
-        # Checks
-        assert pretrain_user_ids == user_ids, \
-            "Order of pretrained and user ids should be same, otherwise SE will not be correct for avg the deltas. "
-
-        if not is_user_runs_valid(user_ids, group_name):
-            continue
-        for metric_name, user_val_list in final_stream_metric_userlists.items():
-            assert len(user_val_list) == NB_EXPECTED_USERS, f"{metric_name} has not all user values: {user_val_list}"
-            assert metric_name in pretrain_final_stream_metric_userlists, f"KEY:{metric_name} of user not in pretrain results!"
-
-        print(f"Processing users: {len(user_ids)}/{NB_EXPECTED_USERS} -> {user_ids}: Group ={group_name}")
-
-        # Get same results but delta with pretrain results
-        delta_sign_map = get_delta_mappings()
-
-        # make sure users have same order
-        print("Assuming for ACC: new result - pretrain result")
-        AG_dict = {}
-        for metric_name, user_val_list in final_stream_metric_userlists.items():
-            delta_sign = delta_sign_map[metric_name]
-            pretrain_val_list = pretrain_final_stream_metric_userlists[metric_name]
-            assert len(pretrain_val_list) == len(user_val_list)
-
-            # Add as later used to calculate /mean and /SE on
-            AG_dict[f"{metric_name}/PRETRAIN_abs"] = pretrain_val_list
-            AG_dict[f"{metric_name}/adhoc_AG"] = [
-                get_delta(delta_sign, user_val, pretrain_val)
-                for pretrain_val, user_val in zip(pretrain_val_list, user_val_list)]
-
-        # Add to final results
-        all_results = {**final_stream_metric_userlists, **AG_dict}
-
-        avg_per_metric_upload_wandb(all_results, group_name, run_filter=None)
-
-
-def _collect_wandb_group_absolute_online_results(group_name, run_filter, user_ids: list = None):
-    # Get metrics over runs(users)
-    final_stream_metrics_per_user = {
-        'train_action_batch/loss_running_avg': [],
-        'train_verb_batch/loss_running_avg': [],
-        'train_noun_batch/loss_running_avg': [],
-
-        'train_action_batch/top1_acc_running_avg': [],
-        'train_verb_batch/top1_acc_running_avg': [],
-        'train_noun_batch/top1_acc_running_avg': [],
-        'train_verb_batch/top5_acc_running_avg': [],
-        'train_noun_batch/top5_acc_running_avg': [],
-        # 'num_samples_stream': [], # Can use to re-weight
-
-        # TODO add LL(likelihood)
-        'train_action_batch/balanced_LL': [],
-        'train_verb_batch/balanced_LL': [],
-        'train_noun_batch/balanced_LL': [],
-
-        'train_action_batch/balanced_loss': [],
-        'train_verb_batch/balanced_loss': [],
-        'train_noun_batch/balanced_loss': [],
-    }
-
-    def get_dynamic_user_results():
-        """ Add user results in order of downloading from WandB."""
-        # summary = final value (excludes NaN rows)
-        # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
-        for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
-            user_ids.append(user_run.config['DATA.COMPUTED_USER_ID'])
-            for metric_name, val_list in final_stream_metrics_per_user.items():
-                user_metric_val = user_run.summary[metric_name]  # Only takes last value
-                val_list.append(user_metric_val)
-
-    def get_static_user_results():
-        """ Fill in user results based on order given by user_ids. """
-        # summary = final value (excludes NaN rows)
-        # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
-        for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
-            user_id = user_run.config['DATA.COMPUTED_USER_ID']
-            remote_users.append(user_id)
-            result_idx = user_ids.index(user_id)
-            for metric_name, val_list in final_stream_metrics_per_user.items():
-                user_metric_val = user_run.summary[metric_name]  # Only takes last value
-                val_list[result_idx] = user_metric_val
-
-    if user_ids is None:
-        user_ids = []  # all processed users
-        get_dynamic_user_results()
-
-    else:
-        for k, v in final_stream_metrics_per_user.items():
-            final_stream_metrics_per_user[k] = [None] * len(user_ids)  # Pre-init arrays
-
-        remote_users = []
-        get_static_user_results()  # Raises value error if user not found
-        assert len(remote_users) == len(user_ids), "Not all user values have been filled in!"
-
-    return user_ids, final_stream_metrics_per_user
-
-
-def aggregate_test_results_over_user_streams(selected_group_names):
-    """ After testing on a model with cfg.STREAM_EVAL_ONLY=True, aggregate over user stream results. """
-
-    # Iterate groups (a collective of independent user-runs)
-    for group_name in selected_group_names:
-
-        # Filter runs in group that have finished
-        run_filter = {
-            "$and": [
-                {"group": group_name},
-                {"summary_metrics.num_samples_stream": {"$ne": None}}
-            ]
-        }
-
-        try:
-            user_ids, final_stream_metric_userlists = _collect_user_test_results(
-                group_name, run_filter
-            )
-        except Exception as e:
-            print(e)
-            print(f"SKIPPING: contains error: Group ={group_name}")
-            continue
-
-        if not is_user_runs_valid(user_ids, group_name):
-            continue
-
-        for name, user_val_list in final_stream_metric_userlists.items():
-            assert len(user_val_list) == NB_EXPECTED_USERS, f"{name} has not all user values: {user_val_list}"
-
-        print(f"Processing users: {len(user_ids)}/{NB_EXPECTED_USERS} -> {user_ids}: Group ={group_name}")
-
-        avg_per_metric_upload_wandb(final_stream_metric_userlists, group_name, run_filter)
-
-
-def _collect_user_test_results(group_name, run_filter):
-    # Get metrics over runs(users)
-    final_stream_metrics_per_user = {
-        'test_action_batch/loss': [],
-        'test_verb_batch/loss': [],
-        'test_noun_batch/loss': [],
-        'test_action_batch/top1_acc': [],
-        'test_verb_batch/top1_acc': [],
-        'test_verb_batch/top5_acc': [],
-        'test_noun_batch/top1_acc': [],
-        'test_noun_batch/top5_acc': [],
-        # 'num_samples_stream': [], # Can use to re-weight
-    }
-    user_ids = []  # all processed users
-
-    # summary = final value (excludes NaN rows)
-    # history() = gives DF of all values (includes NaN entries for multiple logs per single train/global_step)
-    for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter)):
-        user_ids.append(user_run.config['DATA.COMPUTED_USER_ID'])
-
-        for metric_name, val_list in final_stream_metrics_per_user.items():
-            user_metric_val = user_run.summary[metric_name]
-            val_list.append(user_metric_val)
-
-    return user_ids, final_stream_metrics_per_user
-
-
 def is_user_runs_valid(user_ids, group_name) -> bool:
     # Check if all users:
     if len(user_ids) < NB_EXPECTED_USERS:
@@ -441,46 +766,6 @@ def is_user_runs_valid(user_ids, group_name) -> bool:
         return False
 
     return True
-
-
-def avg_per_metric_upload_wandb(metricname_to_user_results_list: dict[str, list], group_name: str, run_filter=None,
-                                mean=True):
-    """
-    Calculate mean and SE for the list in each <str, list> pair in the dict.
-    The str/mean and str/SE are then uploaded to WandB.
-    """
-
-    # Add adhoc-prefix to metric names
-    updated_metrics_dict = {}
-    for orig_metric_name, metric_val in metricname_to_user_results_list.items():
-        new_metric_name = f"{NEW_METRIC_PREFIX}/{orig_metric_name}"
-        updated_metrics_dict[new_metric_name] = metric_val
-
-    final_update_metrics_dict = updated_metrics_dict
-
-    # Average over lists and get SEM
-    if mean:
-        updated_metrics_df = pd.DataFrame.from_dict(updated_metrics_dict)  # Dataframe with updated metric names
-
-        total_count_key = f"{USER_AGGREGATE_COUNT}/test"
-        final_update_metrics_dict = {}
-        for col in updated_metrics_df.columns.tolist():
-            if total_count_key not in final_update_metrics_dict:
-                final_update_metrics_dict[total_count_key] = len(updated_metrics_df[col])  # Nb of users
-            final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_MEAN}"] = updated_metrics_df[col].mean()
-            final_update_metrics_dict[f"{col}/{NEW_METRIC_PREFIX_SE}"] = updated_metrics_df[col].sem()
-
-    print(f"New metric results:\n{pprint.pformat(list(final_update_metrics_dict.keys()))}")
-
-    # Update all group entries:
-    for user_run in tqdm.tqdm(
-            get_group_run_iterator(PROJECT_NAME, group_name, run_filter=run_filter),
-            desc=f"Uploading group results: {final_update_metrics_dict}"
-    ):
-        for name, new_val in final_update_metrics_dict.items():
-            user_run.summary[name] = new_val
-
-        user_run.summary.update()  # UPLOAD
 
 
 if __name__ == "__main__":

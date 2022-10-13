@@ -10,23 +10,25 @@ api = wandb.Api()
 
 
 class ConditionalAverageMeterDict:
-    def __init__(self):
-        self.d = defaultdict(AverageMeter)
+    def __init__(self, action_balanced=True):
+        self.meter_dict = defaultdict(AverageMeter)
+        self.action_balanced = action_balanced  # Or instance-balanced
 
     def reset(self):
-        self.d = defaultdict(AverageMeter)
+        self.meter_dict = defaultdict(AverageMeter)
 
     def update(self, val_list: list, cond_list: list):
         assert len(val_list) == len(cond_list)
 
         for val, conditional in zip(val_list, cond_list):
-            self.d[conditional].update(val, weight=1)
+            self.meter_dict[conditional].update(val, weight=1)
 
     def result(self):
         """ Return equally weighed average over conditionals, which are each averaged as well. """
         meter_total = AverageMeter()
-        for meter_cond in self.d.values():
-            meter_total.update(meter_cond.avg, weight=1)
+        for meter_cond in self.meter_dict.values():
+            weight = 1 if self.action_balanced else meter_cond.count  # Weigh equally or weigh by nb of samples
+            meter_total.update(meter_cond.avg, weight=weight)
         return meter_total.avg
 
 
@@ -36,7 +38,7 @@ def loss_CE_to_likelihood(loss_t: torch.Tensor):
     :param loss_t: tensor of shape (B,1) with B=batch size.
     :return:
     """
-    return loss_t.mul(-1).exp().mul(100)
+    return loss_t.mul(-1).exp()
 
 
 def get_group_names_from_csv(selected_group_names_csv_path):
@@ -88,6 +90,10 @@ def get_delta_mappings():
             'train_action_batch/balanced_loss',
             'train_verb_batch/balanced_loss',
             'train_noun_batch/balanced_loss',
+
+            'train_action_batch/balanced_loss'
+            'train_verb_batch/balanced_loss',
+            'train_noun_batch/balanced_loss',
         ]
     }
 
@@ -106,9 +112,22 @@ def get_delta_mappings():
             'test_noun_batch/top1_acc',
             'test_noun_batch/top5_acc',
 
+            'train_action_batch/balanced_top1_acc',
+            'train_verb_batch/balanced_top1_acc',
+            'train_noun_batch/balanced_top1_acc',
+
+            'train_action_batch/LL',
+            'train_noun_batch/LL',
+            'train_verb_batch/LL',
+
             'train_action_batch/balanced_LL',
             'train_verb_batch/balanced_LL',
             'train_noun_batch/balanced_LL',
+
+
+
+
+
         ]
     }
 
