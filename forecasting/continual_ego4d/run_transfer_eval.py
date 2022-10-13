@@ -21,8 +21,8 @@ After training user-streams, evaluate on the final models with the full user-str
 import traceback
 from continual_ego4d.tasks.continual_action_recog_task import PretrainState
 from collections import Counter
-from continual_ego4d.processing.run_adhoc_metric_processing_wandb import avg_per_metric_upload_wandb, \
-    _collect_wandb_group_absolute_online_results
+from continual_ego4d.processing.run_adhoc_metric_processing_wandb import upload_metric_dict_to_wandb, \
+    _collect_wandb_group_user_results_for_metrics
 
 from continual_ego4d.utils.misc import makedirs
 import copy
@@ -341,8 +341,9 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
     else:
         raise ValueError()
 
-    pretrain_user_ids, pretrain_final_stream_metric_userlists = _collect_wandb_group_absolute_online_results(
-        pretrain_group, run_filter=None, user_ids=streamusers)
+    pretrain_metric_names = list(metric_name_to_pretrain_name_mapping.values())
+    pretrain_user_ids, pretrain_final_stream_metric_userlists = _collect_wandb_group_user_results_for_metrics(  # TODO
+        pretrain_group, metric_names=pretrain_metric_names, run_filter=None, user_ids=streamusers)
     assert len(pretrain_user_ids) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS
     assert pretrain_user_ids == streamusers, "Order of users should be same"
     pretrainuser_to_idx = {user: idx for idx, user in enumerate(pretrain_user_ids)}
@@ -406,7 +407,7 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         **metric_to_avg_AG_per_user
     }
     logger.info(f"Collected DIAGONAL results for users {streamusers}:\n {diagonal_dict}")
-    avg_per_metric_upload_wandb(diagonal_dict, group_name=group_name, mean=True)
+    upload_metric_dict_to_wandb(diagonal_dict, group_name=group_name, mean=True)
 
     # Upload matrix
     matrix_dict = {
@@ -415,7 +416,7 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         'TRANSFER_MATRIX/USERS_IN_ORDER': streamusers
     }
     logger.info(f"Collected MATRIX results for users {streamusers}:\n {matrix_dict}")
-    avg_per_metric_upload_wandb(matrix_dict, group_name=group_name, mean=False)  # Don't average, but report 2d array
+    upload_metric_dict_to_wandb(matrix_dict, group_name=group_name, mean=False)  # Don't average, but report 2d array
 
 
 def postprocess_instance_counts_from_csv_files(eval_cfg, modeluser_streamuser_pairs, pretrain_dataset):
