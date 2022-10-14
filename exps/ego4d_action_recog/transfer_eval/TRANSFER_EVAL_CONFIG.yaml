@@ -1,12 +1,24 @@
 TRANSFER_EVAL:
   WANDB_PROJECT_NAME: "matthiasdelange/ContinualUserAdaptation"
   # Finetune SGD 0.01 plain
-  #  WANDB_GROUP_TO_EVAL: "Finetuning_2022-09-14_19-06-02_UID2c4355e2-c42c-46d9-ba37-8cb8abe8d1d0_MATT"
+#  WANDB_GROUP_TO_EVAL: "Finetuning_2022-09-14_19-06-02_UID2c4355e2-c42c-46d9-ba37-8cb8abe8d1d0_MATT"
   # Final01_01
-  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-07T18_01_53.506-07_00.csv"
-  #  CSV_RANGE: (0,6)
-  #  CSV_RANGE: (6,None)
-  #  OUTPUT_DIR: ""
+#  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-07T18_01_53.506-07_00.csv"
+#  CSV_RANGE: (0,7) # DONE
+#  CSV_RANGE: (7,14)
+#  CSV_RANGE: (14,None)
+  # Final02_01
+  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-09T10_50_16.573-07_00.csv"
+#  CSV_RANGE: (0,4)
+#  CSV_RANGE: (4,8)
+  CSV_RANGE: (8,None)
+  # Final03_01: fixed feats
+#  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-09T11_23_33.094-07_00.csv"
+  # Final07_01: multi iter
+#  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-09T12_10_59.286-07_00.csv"
+#  CSV_RANGE: (0,6)
+#  CSV_RANGE: (6,None)
+
   DIAGONAL_ONLY: True # Cartesian product or only user-model with same user-stream.
   INCLUDE_PRETRAIN_STREAM: False
   INCLUDE_PRETRAIN_MODEL: False # True if calculating OAG/HAG directly
@@ -17,12 +29,12 @@ TRANSFER_EVAL:
   PRETRAIN_TEST_USERS_GROUP_WANDB: "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4"
 
 CHECKPOINT_LOAD_MODEL_HEAD: True
-NUM_USERS_PER_DEVICE: 6 # Model-stream pairs in parallel on 1 device
+NUM_USERS_PER_DEVICE: 5 # Model-stream pairs in parallel on 1 device
 GPU_IDS: None
 NUM_GPUS: 1
 
 PREDICT_PHASE:
-  NUM_WORKERS: 7
+  NUM_WORKERS: 5
   BATCH_SIZE: 10 # 10=5G/user
 
 # Debug/fast run
