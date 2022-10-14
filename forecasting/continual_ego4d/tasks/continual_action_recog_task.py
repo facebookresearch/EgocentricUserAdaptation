@@ -1,43 +1,33 @@
-import copy
 import pprint
 
 import torch
 import wandb
-from fvcore.nn.precise_bn import get_bn_modules
-from collections import Counter
-import pandas as pd
 
 from collections import defaultdict
 import numpy as np
-from itertools import product
 from tqdm import tqdm
 
 from ego4d.evaluation import lta_metrics as metrics
-from ego4d.utils import misc
 from ego4d.models import losses
 from ego4d.optimizers import lr_scheduler
-from ego4d.utils import distributed as du
 from ego4d.models import build_model
 from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader, construct_predictstream_loader
-import os.path as osp
 import random
-from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
 # import wandb
 from pytorch_lightning.loggers import WandbLogger
+from continual_ego4d.metrics.offline_metrics import get_micro_macro_avg_acc, per_sample_metric_to_macro_avg, \
+    loss_CE_to_class_confidence
 
-from continual_ego4d.utils.meters import AverageMeter
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
 from continual_ego4d.metrics.metric import get_metric_tag
 from continual_ego4d.metrics.count_metrics import Metric, \
-    SetCountMetric, TAG_BATCH, WindowedUniqueCountMetric, HistoryCountMetric
+    SetCountMetric, WindowedUniqueCountMetric, HistoryCountMetric
 from continual_ego4d.metrics.metric import TAG_BATCH, TAG_PAST
 from continual_ego4d.metrics.standard_metrics import OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
-    OnlineLossMetric, RunningAvgOnlineLossMetric
+    OnlineLossMetric, RunningAvgOnlineLossMetric, RunningBalancedTopkAccMetric
 from continual_ego4d.metrics.adapt_metrics import OnlineAdaptationGainMetric, RunningAvgOnlineAdaptationGainMetric, \
     CumulativeOnlineAdaptationGainMetric
-from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric, \
-    GeneralizationLossMetric, FWTLossMetric
 from continual_ego4d.metrics.past_metrics import ReexposureForgettingLossMetric, ReexposureForgettingAccMetric
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
 from continual_ego4d.utils.models import UnseenVerbNounMaskerHead
@@ -46,7 +36,7 @@ from continual_ego4d.utils.models import model_trainable_summary
 import matplotlib.pyplot as plt
 
 from pytorch_lightning.core import LightningModule
-from typing import List, Tuple, Union, Any, Optional, Dict, Type
+from typing import List, Tuple, Union, Any, Optional, Type
 from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)
@@ -410,7 +400,9 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 OnlineTopkAccMetric(TAG_BATCH, k=1, mode=mode),
                 RunningAvgOnlineTopkAccMetric(TAG_BATCH, k=1, mode=mode),
                 # OnlineLossMetric -> Standard included for training
+
                 RunningAvgOnlineLossMetric(TAG_BATCH, loss_fun=self.loss_fun_unred, mode=mode),
+                RunningBalancedTopkAccMetric(TAG_BATCH, k=1, action_mode=mode),
             ])
 
             # TOP5-ACC
@@ -998,7 +990,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     def test_epoch_end(self, outputs: list[dict]):
         pred_list: list[tuple[torch.Tensor, torch.Tensor]] = [pred_dict['predictions'] for pred_dict in outputs]
-        label_list: list[torch.Tensor, torch.Tensor] = [pred_dict['labels'] for pred_dict in outputs]
+        label_list: list[tuple[int, int]] = [pred_dict['labels'] for pred_dict in outputs]
 
         result_dict = self.get_test_metrics(pred_list, label_list, self.loss_fun_unred)
 
@@ -1012,25 +1004,52 @@ class ContinualMultiTaskClassificationTask(LightningModule):
 
     @staticmethod
     def get_test_metrics(pred_list: list[tuple[torch.Tensor, torch.Tensor]],
-                         label_list: list[torch.Tensor, torch.Tensor],
+                         action_label_list: list[tuple[int, int]],
                          loss_fun_unred,
                          ) -> dict:
         # Concat preds
         preds_verb = [pred[0] for pred in pred_list]
         preds_noun = [pred[1] for pred in pred_list]
-
         preds_t: tuple[torch.Tensor, torch.Tensor] = (torch.cat(preds_verb), torch.cat(preds_noun))
-        labels_t: torch.Tensor = torch.cat(label_list)
+
+        labels_t: torch.Tensor = torch.tensor(action_label_list)
+        verb_label_list = [a[0] for a in action_label_list]
+        noun_label_list = [a[1] for a in action_label_list]
 
         # Total nb samples:
         total_samples = labels_t.shape[0]
 
-        # Log losses as well
-        loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
-            preds_t, labels_t, loss_fun_unred, mean=True
+        # LOSS (CE)
+        loss_action_unred, loss_verb_unred, loss_noun_unred = OnlineLossMetric.get_losses_from_preds(
+            preds_t, labels_t, loss_fun_unred
         )
 
-        # Accuracies
+        # MICRO-loss
+        loss_action = loss_action_unred.mean()
+        loss_verb = loss_verb_unred.mean()
+        loss_noun = loss_noun_unred.mean()
+
+        # MACRO-loss
+        balanced_loss_action = per_sample_metric_to_macro_avg(loss_action_unred, action_label_list)
+        balanced_loss_verb = per_sample_metric_to_macro_avg(loss_verb_unred, verb_label_list)
+        balanced_loss_noun = per_sample_metric_to_macro_avg(loss_noun_unred, noun_label_list)
+
+        # Likelihood (Confidence percentage of correct class)
+        LL_action_unred: torch.Tensor = loss_CE_to_class_confidence(loss_action_unred)  # convert to likelihood
+        LL_verb_unred: torch.Tensor = loss_CE_to_class_confidence(loss_verb_unred)  # convert to likelihood
+        LL_noun_unred: torch.Tensor = loss_CE_to_class_confidence(loss_noun_unred)  # convert to likelihood
+
+        # MICRO-likelihood
+        LL_action = LL_action_unred.mean()
+        LL_verb = LL_verb_unred.mean()
+        LL_noun = LL_noun_unred.mean()
+
+        # MACRO-likelihood
+        balanced_LL_action = per_sample_metric_to_macro_avg(LL_action_unred, action_label_list)
+        balanced_LL_verb = per_sample_metric_to_macro_avg(LL_verb_unred, verb_label_list)
+        balanced_LL_noun = per_sample_metric_to_macro_avg(LL_noun_unred, noun_label_list)
+
+        # Micro-ACCs
         top1_acc_action: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
             preds_t[0], preds_t[1], labels_t[:, 0], labels_t[:, 1], return_mode='acc'
         )
@@ -1041,10 +1060,15 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             preds_t[1], labels_t[:, 1], (1, 5), return_mode='acc'
         )
 
+        # Macro-ACCs
+        balanced_top1_acc_action = get_micro_macro_avg_acc('action', preds_t, labels_t, k=1, macro_avg=True)
+        balanced_top1_acc_verb = get_micro_macro_avg_acc('verb', preds_t, labels_t, k=1, macro_avg=True)
+        balanced_top1_acc_noun = get_micro_macro_avg_acc('noun', preds_t, labels_t, k=1, macro_avg=True)
+
         result_dict = {
             'num_samples_stream': total_samples,  # Can be used to calculate nb corrects for all acc's
 
-            # Avg Losses
+            # Avg MICRO Losses
             get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='loss'):
                 loss_action.item(),
             get_metric_tag(TAG_BATCH, train_mode='test', action_mode='verb', base_metric_name='loss'):
@@ -1052,7 +1076,31 @@ class ContinualMultiTaskClassificationTask(LightningModule):
             get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='loss'):
                 loss_noun.item(),
 
-            # Avg acc's
+            # Avg MACRO Losses
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='balanced_loss'):
+                balanced_loss_action.item(),
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='verb', base_metric_name='balanced_loss'):
+                balanced_loss_verb.item(),
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='balanced_loss'):
+                balanced_loss_noun.item(),
+
+            # Avg MICRO Likelihoods (confidence)
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='LL'):
+                LL_action.item(),
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='verb', base_metric_name='LL'):
+                LL_verb.item(),
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='LL'):
+                LL_noun.item(),
+
+            # Avg MACRO Likelihoods (confidence)
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='balanced_LL'):
+                balanced_LL_action.item(),
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='verb', base_metric_name='balanced_LL'):
+                balanced_LL_verb.item(),
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='balanced_LL'):
+                balanced_LL_noun.item(),
+
+            # Avg MICRO acc's
             get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='top1_acc'):
                 top1_acc_action.item(),
 
@@ -1065,6 +1113,14 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 top1_acc_noun.item(),
             get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='top5_acc'):
                 top5_acc_noun.item(),
+
+            # Avg MACRO acc's
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='balanced_top1_acc'):
+                balanced_top1_acc_action,
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='verb', base_metric_name='balanced_top1_acc'):
+                balanced_top1_acc_verb,
+            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='balanced_top1_acc'):
+                balanced_top1_acc_noun,
 
             # No AG as can use avg loss of pretrained model directly as baseline.
         }

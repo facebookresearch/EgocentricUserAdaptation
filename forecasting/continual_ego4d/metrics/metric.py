@@ -1,10 +1,7 @@
-import logging
 from abc import ABC, abstractmethod
 import torch
-from typing import Dict, Set, Union, Tuple
-from continual_ego4d.utils.meters import AverageMeter
-from ego4d.evaluation import lta_metrics as metrics
-from collections import defaultdict
+from typing import Dict
+from continual_ego4d.metrics.meters import AverageMeter, ConditionalAverageMeterDict
 
 from typing import TYPE_CHECKING
 
@@ -16,7 +13,7 @@ TAG_FUTURE = 'future'
 TAG_PAST = 'past'
 
 ACTION_MODES = ('action', 'verb', 'noun')
-TRAIN_MODES = ('train','test', 'pred', 'analyze')
+TRAIN_MODES = ('train', 'test', 'pred', 'analyze')
 
 
 def get_metric_tag(main_parent_tag, train_mode='train', action_mode=None, base_metric_name=None):
@@ -143,51 +140,50 @@ class AvgMeterMetric(Metric):
         """Optional: after training stream, a dump of states could be returned."""
         return {f"{self.name}_PER_BATCH": self.iter_to_result}
 
-# class AvgMeterDictMetric(Metric):
-#     reset_before_batch = True
-#     modes = ACTION_MODES
-#
-#     def __init__(self, mode="action"):
-#         self.name = None  # Overwrite
-#         self.avg_meter_dict = defaultdict(AverageMeter)
-#
-#         self.mode = mode
-#         assert self.mode in self.modes
-#         if self.mode == 'verb':
-#             self.label_idx = 0
-#         elif self.mode == 'noun':
-#             self.label_idx = 1
-#         elif self.mode == 'action':
-#             self.label_idx = None  # Not applicable
-#         else:
-#             raise NotImplementedError()
-#
-#     @torch.no_grad()
-#     def update(self, stream_current_batch_idx: int, preds, labels, *args, **kwargs):
-#         """Update metric from predictions and labels."""
-#         raise NotImplementedError()
-#
-#     @torch.no_grad()
-#     def reset(self):
-#         """Reset the metric."""
-#         for meter in self.avg_meter_dict.values():
-#             meter.reset()
-#
-#     @torch.no_grad()
-#     def result(self, stream_current_batch_idx: int, *args, **kwargs) -> Dict:
-#         """Get the metric(s) with name in dict format."""
-#         if len(self.avg_meter_dict) == 0:
-#             return {}
-#         if sum(meter.count for meter in self.avg_meter_dict.values()) == 0:
-#             return {}
-#         assert self.name is not None, "Define name for metric"
-#
-#         balanced_avg = torch.mean(
-#             torch.tensor([meter.avg for meter in self.avg_meter_dict.values()])
-#         ).item()  # List of all avgs, equally weighed
-#         return {self.name: balanced_avg}
-#
-#     @torch.no_grad()
-#     def dump(self) -> Dict:
-#         """Optional: after training stream, a dump of states could be returned."""
-#         raise NotImplementedError()
+
+class AvgMeterDictMetric(Metric):
+    reset_before_batch = True
+    modes = ACTION_MODES
+
+    def __init__(self, action_mode="action"):
+        self.name = None  # Overwrite
+        self.avg_meter_dict = ConditionalAverageMeterDict(action_balanced=True)
+
+        self.action_mode = action_mode
+        assert self.action_mode in self.modes
+        if self.action_mode == 'verb':
+            self.label_idx = 0
+        elif self.action_mode == 'noun':
+            self.label_idx = 1
+        elif self.action_mode == 'action':
+            self.label_idx = None  # Not applicable
+        else:
+            raise NotImplementedError()
+
+    @torch.no_grad()
+    def update(self, stream_current_batch_idx: int, preds, labels, *args, **kwargs):
+        """Update metric from predictions and labels."""
+        raise NotImplementedError()
+
+    @torch.no_grad()
+    def reset(self):
+        """Reset the metric."""
+        self.avg_meter_dict = ConditionalAverageMeterDict()
+
+    @torch.no_grad()
+    def result(self, stream_current_batch_idx: int, *args, **kwargs) -> Dict:
+        """Get the metric(s) with name in dict format."""
+        if len(self.avg_meter_dict) == 0:
+            return {}
+        if sum(meter.count for meter in self.avg_meter_dict.meter_dict.values()) == 0:
+            return {}
+        assert self.name is not None, "Define name for metric"
+
+        balanced_avg = self.avg_meter_dict.result()
+
+        return {self.name: balanced_avg}
+
+    @torch.no_grad()
+    def dump(self) -> Dict:
+        """Optional: after training stream, a dump of states could be returned."""
+        return {}

@@ -1,10 +1,10 @@
 import torch
-from typing import Dict, Set, Union, Tuple
-from continual_ego4d.metrics.metric import AvgMeterMetric, Metric, get_metric_tag, TAG_BATCH
+from typing import Dict, Union
+from continual_ego4d.metrics.metric import Metric, get_metric_tag, TAG_BATCH
 from collections import Counter
 import numpy as np
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
-from continual_ego4d.utils.meters import AverageMeter
+from continual_ego4d.metrics.meters import AverageMeter
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

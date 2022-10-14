@@ -160,8 +160,8 @@ def process_group(eval_cfg, group_name, project_name):
     user_to_checkpoint_path['pretrain'] = train_cfg['CHECKPOINT_FILE_PATH']  # Add pretrain as user
 
     # SET EVAL OUTPUT_DIR
-    main_parent_dirname = 'HAG_transfer_eval' if not eval_cfg.FAST_DEV_RUN else \
-        f"HAG_transfer_eval_DEBUG_CUTOFF_{eval_cfg.FAST_DEV_DATA_CUTOFF}"
+    main_parent_dirname = 'balanced_transfer_eval' if not eval_cfg.FAST_DEV_RUN else \
+        f"balanced_transfer_eval_DEBUG_CUTOFF_{eval_cfg.FAST_DEV_DATA_CUTOFF}"
     main_parent_dir = os.path.join(train_group_outputdir, main_parent_dirname)
     eval_cfg.TRANSFER_EVAL.COMPUTED_POSTPROCESS_RESULTDIR = os.path.join(main_parent_dir, 'postprocess_results')
     eval_cfg.TRANSFER_EVAL.COMPUTED_EVAL_RESULTDIR = os.path.join(main_parent_dir, 'results')
@@ -178,12 +178,14 @@ def process_group(eval_cfg, group_name, project_name):
     # Dataset lists from json / users to process
     if eval_cfg.USER_SELECTION is not None:
         train_cfg.USER_SELECTION = eval_cfg.USER_SELECTION
+
     user_datasets, pretrain_dataset = load_datasets_from_jsons(train_cfg, return_pretrain=True)
     processed_trained_user_ids, all_trained_user_ids = get_user_ids(train_cfg, user_datasets, train_path_handler)
+    user_datasets['pretrain'] = pretrain_dataset  # Add (AFTER CHECKING USER IDS)
+
     assert len(processed_trained_user_ids) == len(all_trained_user_ids) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS, \
         f"Not all users were processed in training: {set(all_trained_user_ids) - set(processed_trained_user_ids)}\n" \
         f"Expected {eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS} users."
-    user_datasets['pretrain'] = pretrain_dataset  # Add (AFTER CHECKING USER IDS)
 
     # CFG overwrites and setup
     overwrite_config_transfer_eval(eval_cfg)
@@ -303,15 +305,39 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
 
     # PRETRAIN METRICS MAPPING: pretrain results are collected during training (online)
     metric_name_to_pretrain_name_mapping = {
+
+        # Micro-avg loss
         'test_action_batch/loss': 'train_action_batch/loss_running_avg',
         'test_verb_batch/loss': 'train_verb_batch/loss_running_avg',
         'test_noun_batch/loss': 'train_noun_batch/loss_running_avg',
 
+        # Macro-avg loss
+        'test_action_batch/balanced_loss': 'adhoc_users_aggregate/train_action_batch/balanced_loss/mean',
+        'test_verb_batch/balanced_loss': 'adhoc_users_aggregate/train_verb_batch/balanced_loss/mean',
+        'test_noun_batch/balanced_loss': 'adhoc_users_aggregate/train_noun_batch/balanced_loss/mean',
+
+        # Micro-avg LL
+        'test_action_batch/LL': 'adhoc_users_aggregate/train_action_batch/LL/mean',
+        'test_verb_batch/LL': 'adhoc_users_aggregate/train_verb_batch/LL/mean',
+        'test_noun_batch/LL': 'adhoc_users_aggregate/train_noun_batch/LL/mean',
+
+        # Macro-avg LL
+        'test_action_batch/balanced_LL': 'adhoc_users_aggregate/train_action_batch/balanced_LL/mean',
+        'test_verb_batch/balanced_LL': 'adhoc_users_aggregate/train_verb_batch/balanced_LL/mean',
+        'test_noun_batch/balanced_LL': 'adhoc_users_aggregate/train_noun_batch/balanced_LL/mean',
+
+        # Micro-avg ACC
         'test_action_batch/top1_acc': 'train_action_batch/top1_acc_running_avg',
         'test_verb_batch/top1_acc': 'train_verb_batch/top1_acc_running_avg',
-        'test_verb_batch/top5_acc': 'train_verb_batch/top5_acc_running_avg',
         'test_noun_batch/top1_acc': 'train_noun_batch/top1_acc_running_avg',
-        'test_noun_batch/top5_acc': 'train_noun_batch/top5_acc_running_avg'
+
+        'test_verb_batch/top5_acc': 'train_verb_batch/top5_acc_running_avg',
+        'test_noun_batch/top5_acc': 'train_noun_batch/top5_acc_running_avg',
+
+        # Macro-avg ACC
+        'test_action_batch/balanced_top1_acc': 'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/mean',
+        'test_verb_batch/balanced_top1_acc': 'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/mean',
+        'test_noun_batch/balanced_top1_acc': 'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/mean',
     }
 
     #####################################
@@ -342,7 +368,7 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         raise ValueError()
 
     pretrain_metric_names = list(metric_name_to_pretrain_name_mapping.values())
-    pretrain_user_ids, pretrain_final_stream_metric_userlists = _collect_wandb_group_user_results_for_metrics(  # TODO
+    pretrain_user_ids, pretrain_final_stream_metric_userlists = _collect_wandb_group_user_results_for_metrics(
         pretrain_group, metric_names=pretrain_metric_names, run_filter=None, user_ids=streamusers)
     assert len(pretrain_user_ids) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS
     assert pretrain_user_ids == streamusers, "Order of users should be same"
@@ -703,20 +729,24 @@ def eval_single_model_single_stream(
 
     # Postprocess predictions/labels and remove columns
     pred_list: list[tuple[torch.Tensor, torch.Tensor]] = df['prediction'].tolist()
-    label_list: list[torch.Tensor, torch.Tensor] = df['label'].tolist()
+    label_list: list[tuple[int, int]] = df['label'].tolist()
 
     """ On fixed final model, collect summary metrics of all samples in stream in hindsight. """
     test_results: dict = task.get_test_metrics(pred_list, label_list, task.loss_fun_unred)
+    logger.info(f"Retrieved stream results: \n{pprint.pformat(test_results)}")
     for result_name, result_val in test_results.items():
         assert result_name not in df.columns.tolist(), f"Overwriting column {result_name} in df not allowed"
         df[result_name] = np.nan  # Empty col in csv
         df.iloc[-1, df.columns.get_loc(result_name)] = result_val  # Assign last row the stream avg
 
-    # Clear csv to drop
-    df.drop('prediction', axis=1, inplace=True)
-    df.drop('label', axis=1, inplace=True)
+    # Save predictions/labels (Backup)
+    prediction_backup_dir = os.path.join(run_result_dir, 'predictions')
+    makedirs(prediction_backup_dir, exist_ok=True)
+    torch.save(df, os.path.join(prediction_backup_dir, f"{run_id}.pth"))
 
-    # Save
+    # Save CSV
+    df.drop('prediction', axis=1, inplace=True)  # Clear csv: Can't save lists/tuples to restore
+    df.drop('label', axis=1, inplace=True)
     df.to_csv(os.path.join(run_result_dir, f"{run_id}.csv"), index=False)
 
     # Cleanup process GPU-MEM allocation (Only process context will remain allocated)
@@ -726,6 +756,7 @@ def eval_single_model_single_stream(
     if mp_queue is not None:
         mp_queue.put(ret)
 
+    logger.info(f"Finished processing: {ret}")
     return ret  # For multiprocessing indicate which resources are free now
 
 

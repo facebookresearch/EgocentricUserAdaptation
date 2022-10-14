@@ -1,44 +1,7 @@
 import pandas as pd
 import wandb
-import pprint
-import os
-import torch
-from collections import defaultdict
-from continual_ego4d.utils.meters import AverageMeter
 
 api = wandb.Api()
-
-
-class ConditionalAverageMeterDict:
-    def __init__(self, action_balanced=True):
-        self.meter_dict = defaultdict(AverageMeter)
-        self.action_balanced = action_balanced  # Or instance-balanced
-
-    def reset(self):
-        self.meter_dict = defaultdict(AverageMeter)
-
-    def update(self, val_list: list, cond_list: list):
-        assert len(val_list) == len(cond_list)
-
-        for val, conditional in zip(val_list, cond_list):
-            self.meter_dict[conditional].update(val, weight=1)
-
-    def result(self):
-        """ Return equally weighed average over conditionals, which are each averaged as well. """
-        meter_total = AverageMeter()
-        for meter_cond in self.meter_dict.values():
-            weight = 1 if self.action_balanced else meter_cond.count  # Weigh equally or weigh by nb of samples
-            meter_total.update(meter_cond.avg, weight=weight)
-        return meter_total.avg
-
-
-def loss_CE_to_likelihood(loss_t: torch.Tensor):
-    """
-
-    :param loss_t: tensor of shape (B,1) with B=batch size.
-    :return:
-    """
-    return loss_t.mul(-1).exp()
 
 
 def get_group_names_from_csv(selected_group_names_csv_path):
@@ -78,7 +41,7 @@ def get_delta_mappings():
 
     loss_mapping = {
         name: loss_sign
-        for name in [
+        for name in sorted(list({
             'train_action_batch/loss_running_avg',
             'train_verb_batch/loss_running_avg',
             'train_noun_batch/loss_running_avg',
@@ -94,12 +57,28 @@ def get_delta_mappings():
             'train_action_batch/balanced_loss'
             'train_verb_batch/balanced_loss',
             'train_noun_batch/balanced_loss',
-        ]
+
+            'test_action_batch/loss',
+            'test_verb_batch/loss',
+            'test_noun_batch/loss',
+
+            'test_action_batch/balanced_loss',
+            'test_verb_batch/balanced_loss',
+            'test_noun_batch/balanced_loss',
+
+            'train_action_batch/loss_running_avg',
+            'train_verb_batch/loss_running_avg',
+            'train_noun_batch/loss_running_avg',
+
+            'adhoc_users_aggregate/train_action_batch/balanced_loss/mean',
+            'adhoc_users_aggregate/train_verb_batch/balanced_loss/mean',
+            'adhoc_users_aggregate/train_noun_batch/balanced_loss/mean',
+        }))
     }
 
     acc_mapping = {
         name: acc_sign
-        for name in [
+        for name in sorted(list({
             'train_action_batch/top1_acc_running_avg',
             'train_verb_batch/top1_acc_running_avg',
             'train_noun_batch/top1_acc_running_avg',
@@ -124,11 +103,41 @@ def get_delta_mappings():
             'train_verb_batch/balanced_LL',
             'train_noun_batch/balanced_LL',
 
+            'test_action_batch/LL',
+            'test_verb_batch/LL',
+            'test_noun_batch/LL',
 
+            'test_action_batch/balanced_LL',
+            'test_verb_batch/balanced_LL',
+            'test_noun_batch/balanced_LL',
 
+            'test_action_batch/top1_acc',
+            'test_verb_batch/top1_acc',
+            'test_noun_batch/top1_acc',
 
+            'test_verb_batch/top5_acc',
+            'test_noun_batch/top5_acc',
 
-        ]
+            'test_action_batch/balanced_top1_acc',
+            'test_verb_batch/balanced_top1_acc',
+            'test_noun_batch/balanced_top1_acc',
+
+            'adhoc_users_aggregate/train_action_batch/LL/mean',
+            'adhoc_users_aggregate/train_verb_batch/LL/mean',
+            'adhoc_users_aggregate/train_noun_batch/LL/mean',
+            'adhoc_users_aggregate/train_action_batch/balanced_LL/mean',
+            'adhoc_users_aggregate/train_verb_batch/balanced_LL/mean',
+            'adhoc_users_aggregate/train_noun_batch/balanced_LL/mean',
+            'train_action_batch/top1_acc_running_avg',
+            'train_verb_batch/top1_acc_running_avg',
+            'train_noun_batch/top1_acc_running_avg',
+            'train_verb_batch/top5_acc_running_avg',
+            'train_noun_batch/top5_acc_running_avg',
+            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/mean',
+            'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/mean',
+            'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/mean',
+
+        }))
     }
 
     delta_sign_map = {

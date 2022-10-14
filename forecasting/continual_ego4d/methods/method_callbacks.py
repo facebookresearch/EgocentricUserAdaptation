@@ -192,7 +192,7 @@ class Method:
             # Keep batch dim consistently (unsqueeze)
             sample_to_pred[stream_sample_idx] = tuple([preds[0][batch_idx].cpu().unsqueeze(0),
                                                        preds[1][batch_idx].cpu().unsqueeze(0)])
-            sample_to_label[stream_sample_idx] = labels[batch_idx].cpu().unsqueeze(0)
+            sample_to_label[stream_sample_idx] = tuple(labels[batch_idx].cpu().tolist())
 
         return sample_to_pred, sample_to_label, sample_to_loss
 
@@ -631,6 +631,7 @@ class LabelWindowPredictor(Method):
         verb_preds = torch.cat(verb_prediction_list)
         noun_preds = torch.cat(noun_prediction_list)
         preds = (verb_preds, noun_preds)
+
 
         return loss, preds, log_results
 

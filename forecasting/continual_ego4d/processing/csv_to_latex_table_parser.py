@@ -1843,6 +1843,52 @@ def parse_final14_01_and_02_replay_classifier_retrain():
     print_end_table()
 
 
+
+
+def parse_final16_01_label_window_predictor():
+    """
+    """
+    csv_filename = "wandb_export_2022-10-12T21_37_29.440-07_00.csv"  # TEST USERS: Full results all
+    caption = "Label window predictor naive baseline."
+    csv_path = os.path.join(csv_dirname, csv_filename)
+    round_digits = 1
+
+    orig_df = pd.read_csv(csv_path)
+
+    # FILTER
+    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
+    # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR','TRAIN.INNER_LOOP_ITERS', ])
+    # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR', 'SOLVER.CLASSIFIER_LR'])
+
+    # Place here in order you want the latex columns to be
+    ordered_cols = [
+
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/mean',
+            'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/SE',
+            latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
+    ]
+
+    latex_df = pd.DataFrame()
+
+    for col in ordered_cols:
+
+        if col.pandas_col_std_name is not None:
+            latex_df[col.latex_col_header_name] = orig_df.loc[:,
+                                                  (col.pandas_col_mean_name, col.pandas_col_std_name)
+                                                  ].apply(col.format_fn, axis=1)
+        else:
+            latex_df[col.latex_col_header_name] = orig_df.loc[:, col.pandas_col_mean_name].apply(col.format_fn)
+
+    print_begin_table(caption)
+    with pd.option_context("max_colwidth", 1000):  # No truncating of strings
+        print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
+    print_end_table()
+
+
 def print_begin_table(caption=""):
     print(r"\begin{table}[]")
     print(rf"\caption{{{caption}}}")
@@ -1857,4 +1903,4 @@ def print_end_table():
 
 
 if __name__ == "__main__":
-    parse_LOSS_vs_ACC_vs_balancedLL_results_sgd_multi_iter()
+    parse_final16_01_label_window_predictor()

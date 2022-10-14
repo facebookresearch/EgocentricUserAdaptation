@@ -1,53 +1,21 @@
-import copy
-import pprint
-
 import torch
-import wandb
-from fvcore.nn.precise_bn import get_bn_modules
-from collections import Counter
 from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask, PretrainState, \
     StreamStateTracker
 
-from collections import defaultdict
-import numpy as np
-from itertools import product
-from tqdm import tqdm
-
-from ego4d.evaluation import lta_metrics as metrics
-from ego4d.utils import misc
 from ego4d.models import losses
 from ego4d.optimizers import lr_scheduler
-from ego4d.utils import distributed as du
 from ego4d.models import build_model
-from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader, construct_predictstream_loader
-import os.path as osp
-import random
-from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
+from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader
 # import wandb
 from pytorch_lightning.loggers import WandbLogger
 
-from continual_ego4d.utils.meters import AverageMeter
-from continual_ego4d.methods.build import build_method
-from continual_ego4d.methods.method_callbacks import Method
 from continual_ego4d.metrics.metric import get_metric_tag
-from continual_ego4d.metrics.count_metrics import Metric, \
-    SetCountMetric, TAG_BATCH, WindowedUniqueCountMetric, HistoryCountMetric
-from continual_ego4d.metrics.metric import TAG_BATCH, TAG_PAST
-from continual_ego4d.metrics.standard_metrics import OnlineTopkAccMetric, RunningAvgOnlineTopkAccMetric, \
-    OnlineLossMetric, RunningAvgOnlineLossMetric
-from continual_ego4d.metrics.adapt_metrics import OnlineAdaptationGainMetric, RunningAvgOnlineAdaptationGainMetric, \
-    CumulativeOnlineAdaptationGainMetric
-from continual_ego4d.metrics.future_metrics import GeneralizationTopkAccMetric, FWTTopkAccMetric, \
-    GeneralizationLossMetric, FWTLossMetric
-from continual_ego4d.metrics.past_metrics import ReexposureForgettingLossMetric, ReexposureForgettingAccMetric
-from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action, verbnoun_format
-from continual_ego4d.utils.models import UnseenVerbNounMaskerHead
-from pytorch_lightning.loggers import TensorBoardLogger
+from continual_ego4d.metrics.metric import TAG_BATCH
+from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
 from continual_ego4d.utils.models import model_trainable_summary
-import matplotlib.pyplot as plt
 
 from pytorch_lightning.core import LightningModule
-from typing import List, Tuple, Union, Any, Optional, Dict, Type
+from typing import Any, Optional
 from ego4d.utils import logging
 
 logger = logging.get_logger(__name__)

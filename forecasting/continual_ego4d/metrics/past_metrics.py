@@ -1,9 +1,7 @@
 import copy
-import logging
-from abc import ABC, abstractmethod
 import torch
-from typing import Dict, Set, Union, Tuple
-from continual_ego4d.utils.meters import AverageMeter
+from typing import Dict, Union
+from continual_ego4d.metrics.meters import AverageMeter
 from ego4d.evaluation import lta_metrics as metrics
 from collections import defaultdict
 from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action

@@ -56,6 +56,10 @@ if TYPE_CHECKING:
 logger = logging.get_logger(__name__)
 
 
+def label_tensor_to_list(label_t: torch.Tensor):
+    return list(map(tuple, label_t.type(torch.IntTensor).tolist()))
+
+
 def verbnoun_to_action(verb: Union[str, int], noun: Union[str, int]) -> tuple[int, int]:
     return tuple((verbnoun_format(verb), verbnoun_format(noun)))
 
