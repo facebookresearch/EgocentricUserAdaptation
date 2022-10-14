@@ -33,6 +33,50 @@ TODO: copy final jsons to another outputdir
 TODO: restore previous layout
 
 
+
+TODOS:
+1. Run pretrain reference runs on train/test
+2. Adapt `run_adhoc_metric_processing_wandb.py` and run for all methods
+3. Adapt `run_transfer_eval.py` to also use the pretrain wandb group results to get delta performance.
+   1. For Forgetting experiment: We already have the accuracies! ReexposureForgettingAccMetric
+   2. For transfer matrix: Just rerun and instead of only loss, also use the accuracy metrics
+   3. Instance counts: 
+
+
+## Results flow
+
+Make sure we first have the per-user performance for a fixed pretrained model, then get reference to these group names.
+- The performance before the stream, and in hindsight is the same for the pretrained model!
+- No need to run `run_transfer_eval.py`.
+
+
+### OAG: Stream generalization
+For OAG, we measure the following during training, giving the final absolute avg-ACC on the end of the stream (calculated online), per user:
+- train_action_batch/top1_acc_running_avg
+- train_verb_batch/top1_acc_running_avg
+- train_noun_batch/top1_acc_running_avg
+- train_verb_batch/top5_acc_running_avg
+- train_noun_batch/top5_acc_running_avg
+
+
+We use adhoc postprocessing to average and SE these metrics over user streams and upload to wandb
+- `run_adhoc_metric_processing_wandb.py`: 
+  - Avg absolute performance
+  - And use pretrain performance Group Names to get AG results.
+
+Then, update tables in WandB reports, download CSV's, and generate latex tables.
+- `csv_to_latex_table_parser.py`
+
+### HAG: Hindsight performance
+To get HAG performance:
+- Run `run_transfer_eval.py` for the wandb CSV groups: To get the absolute performance values. Once again we can use the same pretrain values to compare to.
+- If pretrain run group available, we use this one to process the HAG results (besides the absolute ones). Again per-user delta, then avg + SE over users.
+
+### Training performance
+To show training performance over time, we can still plot the original OAG curves.
+If not available, we can use the training loss curves from the method, and if we want OAG: get pretrain loss curves and use to calculate deltas. 
+
+
 ## Experiment Pipeline
 
 1. continual_ego4d/run_recog_CL.py: Train using multiprocessing over all user streams as a single group. Each independent user-adaptation stream is scheduled as a separate process. Scheduled automatically
@@ -40,6 +84,15 @@ TODO: restore previous layout
 3. continual_ego4d/run_recog_CL.py/run_transfer_eval.py: Run evaluation of final user models with user streams. 
    1. Diagonal only for calculating HAG.
    2. Full transfer matrix for HAG transfer matrix (N user models x N user streams)
+
+
+## Pretraining
+To pretrain we can use the original ego4d repo. 
+However, to enable pretraining from our user-split data you can configure 
+
+    cfg.DATA.PATH_TO_DATA_FILE
+
+
 ## Configs
 
 To determine the dataset (e.g. EGO4d) and which user-split:
@@ -99,6 +152,7 @@ USED
 - Original model checkpoints on our usersplit (incl NaN users), with LR 1e-4, cosine schedule for 66 epochs, without linear warmup:
   - `/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/pretrain_slowfast/logs/2022-09-05_10-34-05_UIDd05ed672-01c5-4c3c-b790-9d0c76548825/checkpoints`  
   - Copied to: `/fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit/pretrain_148usersplit_incl_nan/2022-09-05_10-34-05_UIDd05ed672-01c5-4c3c-b790-9d0c76548825/checkpoints/best_model.ckpt`
+  - This model is: 'epoch=45-step=10901.ckpt'
 - Model provided by ego4d paper, pretrained on kinetics400, then on ego4d.
   - `/fb-agios-acai-efs/mattdl/ego4d_models/ego4d_pretrained_models/pretrained_models/long_term_anticipation/ego4d_slowfast8x8.ckpt`
 
