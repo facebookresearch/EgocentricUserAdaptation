@@ -43,14 +43,17 @@ from continual_ego4d.processing.utils import get_group_names_from_csv, get_group
     get_delta_mappings
 import tqdm
 import torch
-from continual_ego4d.processing.utils import loss_CE_to_likelihood, ConditionalAverageMeterDict
-from ego4d.evaluation.lta_metrics import _get_topk_correct_onehot_matrix
+from continual_ego4d.metrics.offline_metrics import per_sample_metric_to_macro_avg, \
+    loss_CE_to_class_confidence
+from continual_ego4d.metrics.meters import ConditionalAverageMeterDict
+from continual_ego4d.metrics.offline_metrics import get_micro_macro_avg_acc
+from continual_ego4d.datasets.continual_action_recog_dataset import label_tensor_to_list
 
 api = wandb.Api()
 
 MODES = [
     'adhoc_metrics_from_csv_dump_to_wandb',
-    'aggregate_avg_train_results_over_user_streams',
+    'avg_and_delta_avg_results_over_user_streams',
     'aggregate_test_results_over_user_streams',
     'aggregate_OAG_over_user_streams',  # online OAG
 ]
@@ -59,7 +62,7 @@ MODE = MODES[0]
 train = True
 csv_filename = 'wandb_export_2022-10-12T14_35_29.228-07_01.csv'  # TODO copy file here and past name here
 single_group_name = None
-# single_group_name = "FixedNetwork_2022-10-07_21-50-23_UID80e71950-cea4-44ba-ba16-7dddfe95be26"
+single_group_name = "LabelWindowPredictor_2022-10-11_16-15-47_UIDe36637f2-06e9-4e37-92c7-c73dcb823ac5"
 remote = True
 
 if train:
@@ -91,7 +94,7 @@ NEW_METRIC_PREFIX_SE = 'SE'  # Unbiased standard error
 USER_AGGREGATE_COUNT = f"{NEW_METRIC_PREFIX}/user_aggregate_count"  # Over how many users added, also used to check if processed
 
 
-def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True):
+def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, conditional_analysis=False):
     """
     Get valid csv dump dir per user.
     Upload per user-stream in group the csv-dump processed balanced-Likelihood.
@@ -146,13 +149,14 @@ def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True):
                 _save_to_wandb_summary(metric_name, user_val, user_run)
 
                 # Get balanced ACC
-                user_val, metric_name = dump_to_ACC(user_dump_dict, action_mode, balanced=True)
+                user_val, metric_name = dump_to_ACC(user_dump_dict, action_mode, macro_avg=True)
                 _save_to_wandb_summary(metric_name, user_val, user_run)
 
                 # Get conditional analysis
-                metric_dict: dict[str, float] = dump_to_correct_conditional_metrics(user_dump_dict, action_mode)
-                for metric_name, user_val in metric_dict.items():
-                    _save_to_wandb_summary(metric_name, user_val, user_run)
+                if conditional_analysis:
+                    metric_dict: dict[str, float] = dump_to_correct_conditional_metrics(user_dump_dict, action_mode)
+                    for metric_name, user_val in metric_dict.items():
+                        _save_to_wandb_summary(metric_name, user_val, user_run)
 
     print(f"Finished processing")
     metric_names = sorted(list(metric_names))
@@ -165,10 +169,9 @@ def dump_to_LL(user_dump_dict, action_mode, balanced=True, return_per_sample_res
     """Likelihood (LL) or confidence (C) in our paper."""
     balance_name = "balanced_" if balanced else ""
     full_new_metric_name = f"train_{action_mode}_batch/{balance_name}LL"
-    d = ConditionalAverageMeterDict(action_balanced=balanced)
 
     # Get labels
-    action_labels: list[tuple[int, int]] = user_dump_dict['sample_idx_to_action_list']
+    action_labels: list[tuple[int, int]] = list(map(tuple, user_dump_dict['sample_idx_to_action_list']))
     if action_mode == 'action':
         selected_labels = action_labels
         loss_dump_name = 'sample_idx_to_action_loss'
@@ -186,17 +189,17 @@ def dump_to_LL(user_dump_dict, action_mode, balanced=True, return_per_sample_res
 
     sample_idx_to_loss: list[float] = user_dump_dict[loss_dump_name]
     sample_idx_to_loss_t = torch.tensor(sample_idx_to_loss)  # To tensor
-    sample_idx_to_LL_t: torch.Tensor = loss_CE_to_likelihood(sample_idx_to_loss_t).mul(100)  # convert to likelihood
+    sample_idx_to_LL_t: torch.Tensor = loss_CE_to_class_confidence(sample_idx_to_loss_t)  # convert to likelihood
 
     if return_per_sample_result:
         return sample_idx_to_LL_t
 
-    # Now average based on action label
-    # Get AverageMeter per conditional
-    d.update(sample_idx_to_LL_t.tolist(), cond_list=selected_labels)
-    balanced_avg_LL = d.result()  # Get total weighed avg LL
+    if balanced:
+        result = per_sample_metric_to_macro_avg(sample_idx_to_LL_t.tolist(), selected_labels)
+    else:
+        result = sample_idx_to_LL_t.mean().item()
 
-    return balanced_avg_LL, full_new_metric_name
+    return result, full_new_metric_name
 
 
 def dump_to_correct_conditional_metrics(user_dump_dict, action_mode):
@@ -336,10 +339,9 @@ def dump_to_loss(user_dump_dict, action_mode, balanced=True, return_per_sample_r
     """ Loss. """
     balance_name = "balanced_" if balanced else ""
     full_new_metric_name = f"train_{action_mode}_batch/{balance_name}loss"
-    d = ConditionalAverageMeterDict(action_balanced=balanced)
 
     # Get labels
-    action_labels: list[tuple[int, int]] = user_dump_dict['sample_idx_to_action_list']
+    action_labels: list[tuple[int, int]] = list(map(tuple, user_dump_dict['sample_idx_to_action_list']))
     if action_mode == 'action':
         selected_labels = action_labels
         loss_dump_name = 'sample_idx_to_action_loss'
@@ -362,25 +364,24 @@ def dump_to_loss(user_dump_dict, action_mode, balanced=True, return_per_sample_r
         return sample_idx_to_loss_t
 
     # Now average based on action label
-    d.update(sample_idx_to_loss_t.tolist(), cond_list=selected_labels)
-    result = d.result()  # Get total weighed avg LL
+    if balanced:
+        result = per_sample_metric_to_macro_avg(sample_idx_to_loss_t.tolist(), selected_labels)
+    else:
+        result = sample_idx_to_loss_t.mean().item()
 
     return result, full_new_metric_name
 
 
-def dump_to_ACC(user_dump_dict, action_mode, balanced=True, k=1, return_per_sample_result=False):
+def dump_to_ACC(user_dump_dict, action_mode, macro_avg=True, k=1, return_per_sample_result=False):
     """ ACC. """
     assert k == 1
 
-    balance_name = "balanced_" if balanced else ""
+    balance_name = "balanced_" if macro_avg else ""
     full_new_metric_name = f"train_{action_mode}_batch/{balance_name}top1_acc"
-    d = ConditionalAverageMeterDict(action_balanced=balanced)
 
     # Get labels
-    action_labels: list[tuple[int, int]] = user_dump_dict['sample_idx_to_action_list']
+    action_labels: list[tuple[int, int]] = list(map(tuple, user_dump_dict['sample_idx_to_action_list']))
     action_labels_t: torch.Tensor = torch.tensor(action_labels)
-    verb_labels_t = action_labels_t[:, 0]
-    noun_labels_t = action_labels_t[:, 1]
 
     # Get predictions for verbs/nouns
     verb_preds: list[torch.Tensor] = user_dump_dict['sample_idx_to_verb_pred']
@@ -388,37 +389,15 @@ def dump_to_ACC(user_dump_dict, action_mode, balanced=True, k=1, return_per_samp
 
     verb_preds_t = torch.stack(verb_preds)
     noun_preds_t = torch.stack(noun_preds)
+    action_preds = (verb_preds_t, noun_preds_t)
 
-    # (k x batch_size) indicator matrix
-    verb_corrects_t = _get_topk_correct_onehot_matrix(verb_preds_t, verb_labels_t, ks=[k])
-    noun_corrects_t = _get_topk_correct_onehot_matrix(noun_preds_t, noun_labels_t, ks=[k])
-    action_corrects_t = torch.logical_and(verb_corrects_t, noun_corrects_t)  # Take AND operation on indicator matrix
-
-    # Select which corrects-tensor to use
-    if action_mode == 'action':
-        selected_labels = action_labels
-        corrects_t = action_corrects_t
-
-    elif action_mode == 'verb':
-        selected_labels = [x[0] for x in action_labels]
-        corrects_t = verb_corrects_t
-
-    elif action_mode == 'noun':
-        selected_labels = [x[1] for x in action_labels]
-        corrects_t = noun_corrects_t
-
-    else:
-        raise ValueError()
-
-    # Squeeze
-    corrects_t = corrects_t.squeeze()
+    result = get_micro_macro_avg_acc(
+        action_mode, action_preds, action_labels_t,
+        k=k, macro_avg=macro_avg, return_per_sample_result=return_per_sample_result
+    )
 
     if return_per_sample_result:
-        return corrects_t
-
-    # Use corrects-tensor, and label list
-    d.update(corrects_t.tolist(), cond_list=selected_labels)
-    result = d.result() * 100  # Get total weighed avg LL
+        return result
 
     return result, full_new_metric_name
 
