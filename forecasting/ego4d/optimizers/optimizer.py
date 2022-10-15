@@ -44,10 +44,31 @@ def construct_optimizer(model, cfg):
     # drop.
 
     classifier_lr = cfg.SOLVER.CLASSIFIER_LR if cfg.SOLVER.CLASSIFIER_LR is not None else cfg.SOLVER.BASE_LR
+    classifier_momentum = cfg.SOLVER.MOMENTUM if cfg.SOLVER.MOMENTUM_HEAD is None else cfg.SOLVER.MOMENTUM_HEAD
+    feat_momentum = cfg.SOLVER.MOMENTUM if cfg.SOLVER.MOMENTUM_FEAT is None else cfg.SOLVER.MOMENTUM_FEAT
+
     optim_params = [
-        {"params": bn_params, "weight_decay": cfg.BN.WEIGHT_DECAY, "lr": cfg.SOLVER.BASE_LR, },
-        {"params": feat_params_non_bn, "weight_decay": cfg.SOLVER.WEIGHT_DECAY, "lr": cfg.SOLVER.BASE_LR, },
-        {"params": classifier_params, "weight_decay": cfg.SOLVER.WEIGHT_DECAY, "lr": classifier_lr, },
+
+        # FEATS:BN
+        {"params": bn_params,
+         "weight_decay": cfg.BN.WEIGHT_DECAY,
+         "lr": cfg.SOLVER.BASE_LR,
+         "momentum": feat_momentum
+         },
+
+        # FEATS: non-BN
+        {"params": feat_params_non_bn,
+         "weight_decay": cfg.SOLVER.WEIGHT_DECAY,
+         "lr": cfg.SOLVER.BASE_LR,
+         "momentum": feat_momentum,
+         },
+
+        # CLASSIFIER
+        {"params": classifier_params,
+         "weight_decay": cfg.SOLVER.WEIGHT_DECAY,
+         "lr": classifier_lr,
+         "momentum": classifier_momentum
+         },
     ]
     logger.info(f"Classifier LR={classifier_lr}, base LR={cfg.SOLVER.BASE_LR}")
 
@@ -59,7 +80,7 @@ def construct_optimizer(model, cfg):
 
     if cfg.SOLVER.OPTIMIZING_METHOD == "sgd":
         settings_dict = {
-            "momentum": cfg.SOLVER.MOMENTUM,
+            # "momentum": cfg.SOLVER.MOMENTUM,
             "weight_decay": cfg.SOLVER.WEIGHT_DECAY,
             "dampening": cfg.SOLVER.DAMPENING,
             "nesterov": cfg.SOLVER.NESTEROV if cfg.SOLVER.MOMENTUM > 0 else False,

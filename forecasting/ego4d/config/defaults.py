@@ -30,6 +30,9 @@ _C.STREAM_EVAL_ONLY = False
 _C.CONTEXT_ADAPT = CfgNode()
 _C.CONTEXT_ADAPT.MEM_SIZE = 10
 _C.CONTEXT_ADAPT.WRAPS_METHOD = "Finetuning"
+_C.CONTEXT_ADAPT.HEAD_MODULE = 'GRU'  # Or 'attention'
+_C.CONTEXT_ADAPT.GRU_LAYERS = 1
+_C.CONTEXT_ADAPT.GRU_HIDDEN_SIZE = 64
 
 # ---------------------------------------------------------------------------- #
 # TRANSFER EVAL options
@@ -37,7 +40,7 @@ _C.CONTEXT_ADAPT.WRAPS_METHOD = "Finetuning"
 _C.TRANSFER_EVAL = CfgNode()
 _C.TRANSFER_EVAL.WANDB_PROJECT_NAME = ""
 _C.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL = ""
-_C.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB = 'train' # or test
+_C.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB = 'train'  # or test
 _C.TRANSFER_EVAL.PRETRAIN_TRAIN_USERS_GROUP_WANDB = None
 _C.TRANSFER_EVAL.PRETRAIN_TEST_USERS_GROUP_WANDB = None
 _C.TRANSFER_EVAL.DIAGONAL_ONLY = True
@@ -80,6 +83,7 @@ _C.ENABLE_FEW_SHOT = False
 # ---------------------------------------------------------------------------- #
 _C.WANDB = CfgNode()
 _C.WANDB.TAGS = None  # Split based on comma
+_C.WANDB.MODE = "online"  # Split based on comma
 
 # ---------------------------------------------------------------------------- #
 # METHOD options
@@ -591,6 +595,8 @@ _C.SOLVER.MAX_EPOCH = 1
 
 # Momentum.
 _C.SOLVER.MOMENTUM = 0.9
+_C.SOLVER.MOMENTUM_HEAD = None  # If defined, overwrites default momentum
+_C.SOLVER.MOMENTUM_FEAT = None
 
 # Momentum dampening.
 _C.SOLVER.DAMPENING = 0.0
