@@ -46,12 +46,14 @@ class ConditionalAverageMeterDict:
         self.meter_dict = defaultdict(AverageMeter)
 
     def update(self, val_list: list, cond_list: list[Union[int, tuple, str]]):
+        if not isinstance(cond_list, (list, tuple)):  # If single element
+            cond_list = [cond_list]
+        assert isinstance(cond_list[0], (int, tuple, str)), f"Type {type(cond_list[0])} is not hashable!"
+
         if isinstance(val_list, torch.Tensor):
             val_list = val_list.squeeze()
             assert len(val_list.shape) == 1, "Can only use 1-dim tensors"
         assert len(val_list) == len(cond_list)
-        assert isinstance(cond_list, (list, tuple))
-        assert isinstance(cond_list[0], (int, tuple, str)), f"Type {type(cond_list[0])} is not hashable!"
 
         for val, conditional in zip(val_list, cond_list):
             self.meter_dict[conditional].update(val, weight=1)

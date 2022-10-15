@@ -14,7 +14,7 @@ def get_micro_macro_avg_acc(
         action_labels_t: torch.Tensor, k=1,
         macro_avg=True,
         return_per_sample_result=False
-) -> float:
+) -> Union[float, torch.Tensor]:
     assert action_mode in ACTION_MODES
     if action_mode == 'action':
         assert k == 1, "Action only defined for k=1"

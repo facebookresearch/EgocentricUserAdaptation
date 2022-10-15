@@ -632,7 +632,6 @@ class LabelWindowPredictor(Method):
         noun_preds = torch.cat(noun_prediction_list)
         preds = (verb_preds, noun_preds)
 
-
         return loss, preds, log_results
 
     def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
@@ -1078,11 +1077,14 @@ class Replay(Method):
                 self.conditional_memory[action] = []
 
         # Update max mem size and cutoff those exceeding
-        if new_actions_observed >= 0:
-            self.mem_size_per_conditional = self.total_mem_size // len(self.conditional_memory)
 
-            for action, action_mem in self.conditional_memory.items():
-                self.conditional_memory[action] = action_mem[:self.mem_size_per_conditional]
+        # Do reservoir, and when in bin to store, sample one of the seen classes randomly to store it there
+        # Afterwards, subtract 1 from max until satisfying memory size
+
+        # Count number of reservoir hits
+        memory_no_hits = [0] * self.total_mem_size
+        reservoir_hit_list = self.reservoir_sampling(
+            self.conditional_memory[action], current_batch_stream_idxs_subset, self.total_mem_size)
 
         # Add new batch samples
         obs_actions_batch = set()
@@ -1104,9 +1106,30 @@ class Replay(Method):
             ]
 
             self.conditional_memory[action] = self.reservoir_sampling(
-                self.conditional_memory[action], current_batch_stream_idxs_subset, self.mem_size_per_conditional)
+                self.conditional_memory[action], current_batch_stream_idxs_subset, self.total_mem_size)
+
+        # For all conditionals, subtract 1 from the max one
+        if new_actions_observed >= 0:
+
+            for action, action_mem in self.conditional_memory.items():
+                self.conditional_memory[action] = action_mem[:self.mem_size_per_conditional]
+
+        assert self.mem_size_per_conditional > 0
 
     def reservoir_sampling(self, memory: list, new_stream_idxs: list, mem_size_limit: int) -> list:
+        """ Fill buffer if not full yet, otherwise replace with probability mem_size/num_observed_samples. """
+
+        for new_stream_idx in new_stream_idxs:
+            if len(memory) < mem_size_limit:  # Buffer not filled yet
+                memory.append(new_stream_idx)
+            else:  # Replace with probability mem_size/num_observed_samples
+                rnd_idx = random.randint(0, self.num_observed_samples)  # [a,b]
+                if rnd_idx < mem_size_limit:  # Replace if sampled in memory, Prob = M / (b-a)
+                    memory[rnd_idx] = new_stream_idx
+
+        return memory
+
+    def reservoir_sampling_uniform_hit(self, memory: list, new_stream_idxs: list, mem_size_limit: int) -> list:
         """ Fill buffer if not full yet, otherwise replace with probability mem_size/num_observed_samples. """
 
         for new_stream_idx in new_stream_idxs:
@@ -1148,69 +1171,74 @@ class ContextAwareAdaptation(object):
         self.max_mem_size = cfg.CONTEXT_ADAPT.MEM_SIZE
         self.first_idx_to_fill = 0  # Circular buffer
 
-        # Disabel in init prediction
+        # Disable in init prediction
         self.disable_in_prediction = True
-        self.is_disabled = False  # State param
 
-        # Head
-        """
-        See: https://pytorch.org/docs/1.9.1/generated/torch.nn.MultiheadAttention.html?highlight=attention#torch.nn.MultiheadAttention
-        """
-        self.att_embed_dim = 2304
-        self.att_num_heads = 1
-        self.att_head = torch.nn.MultiheadAttention(
-            embed_dim=self.att_embed_dim, num_heads=self.att_num_heads, batch_first=True,
-            dropout=0, bias=True, add_bias_kv=False,  # Defaults
-            vdim=None,  # Keep same output dim
-        )
+        # CHOOSE HEAD
+        # self.context_head = None
+        self.f_in_dim = 2304  # Input feature dim
 
-        # Overwrite fwd fn
+        if cfg.CONTEXT_ADAPT.HEAD_MODULE == 'attention':
+            """
+            See: https://pytorch.org/docs/1.9.1/generated/torch.nn.MultiheadAttention.html?highlight=attention#torch.nn.MultiheadAttention
+            """
+            self.forward_with_context_fn = self._forward_with_context_attention
+
+            self.att_num_heads = 1
+            self.context_head = torch.nn.MultiheadAttention(
+                embed_dim=self.f_in_dim, num_heads=self.att_num_heads, batch_first=True,
+                dropout=0, bias=True, add_bias_kv=False,  # Defaults
+                vdim=None,  # Keep same output dim
+            )
+        elif cfg.CONTEXT_ADAPT.HEAD_MODULE == 'GRU':
+            self.GRU_layers = cfg.CONTEXT_ADAPT.GRU_LAYERS
+            self.GRU_hidden_size = cfg.CONTEXT_ADAPT.GRU_HIDDEN_SIZE
+
+            self.context_head = torch.nn.GRU(
+                num_layers=self.GRU_layers,
+                input_size=self.f_in_dim,
+                hidden_size=self.GRU_hidden_size,
+                bias=True, batch_first=True,  # (B,S,D)
+                dropout=0,  # Only if num_layers > 1
+                bidirectional=False,
+            )
+
+        else:
+            raise ValueError()
+
+        # Overwrite fwd fn of Lightning Module
         self.lightning_module.forward = self.forward_overwrite  # Both during training/prediction
 
-        self.added_att_params = False
+        # State
+        self._is_disabled = False  # e.g. for prediction
+        self._added_context_head_params = False
 
-    def _update_optimizer(self):
+    def _add_head_to_optimizer(self):
         # Add head to optimizer
         opt: torch.optim.Optimizer = self.lightning_module.optimizers()  # Assume single
         opt.add_param_group({
-            "params": list(self.att_head.parameters()),
+            "params": list(self.context_head.parameters()),
             "lr": self.cfg.SOLVER.BASE_LR,
         })
 
     def forward_overwrite(self, x, return_feats=False):
-
-        if self.is_disabled:
+        if self._is_disabled:
             return self.lightning_module.model.forward(x, return_feats=return_feats)
 
-        if not self.added_att_params:
-            self.added_att_params = True
-            self.att_head.to(next(iter(self.lightning_module.model.parameters())).device)
-            self._update_optimizer()
+        if not self._added_context_head_params:
+            self._added_context_head_params = True
+            self.context_head.to(next(iter(self.lightning_module.model.parameters())).device)
+            self._add_head_to_optimizer()
 
         # Q: Use feats as Queries
         direct_preds, in_feats = self.lightning_module.model.forward(x, return_feats=True)  # Always return feats
         squeeze_dims = [idx for idx, shape_dim in enumerate(in_feats.shape) if shape_dim == 1]
         f_in = in_feats.squeeze()  # Get rid of 1 dims
 
-        # K,V: Get feats from memory and add self-feats
-        f_kv_mem = self._get_feats_from_mem()
+        f_mem = self._get_feats_from_mem()  # Get feats from memory
+        self._store_feats_in_mem(f_in)  # Store feats
 
-        logger.debug(f"f_kv_mem={f_kv_mem}, f_in={f_in}")
-        f_kv = torch.cat((f_kv_mem, f_in)) if f_kv_mem is not None else f_in
-        logger.debug(f"f_kv_mem.shape={f_kv_mem.shape}, f_in.shape={f_in.shape}")
-
-        # Store feats
-        self._store_feats_in_mem(f_in)
-
-        # K,V: Add positional encoding (if applicable)
-        # TODO
-
-        # Q,K,V: Forward through head
-        q = f_in.unsqueeze(0)  # With batch_first dim, add batch-dim=1 (process all feats in batch as tokens)
-        k = v = f_kv.unsqueeze(0)
-        att_feats, _ = self.att_head(q, k, v)  # torch.Size([1, 4, 2304])
-        att_feats.squeeze_()  # Get rid of batch dim
-        logger.debug(f"att_feats.shape={att_feats.shape}")
+        f_out = self.forward_with_context_fn(f_in, f_mem)  # Collect out features
 
         # Forward new feats through classifier head
         head_wrap = getattr(self.lightning_module.model, self.lightning_module.model.head_name)
@@ -1221,17 +1249,69 @@ class ContextAwareAdaptation(object):
                 break
         assert multitask_head is not None, "Not found MultiTask head"
 
-        # Return preds (and new feats if return_feats=True)
+        # Add original dims again for SlowFast head
         for squeeze_dim in squeeze_dims:
-            att_feats = att_feats.unsqueeze(squeeze_dim)  # Add dims again for SlowFast head
+            f_out = f_out.unsqueeze(squeeze_dim)
 
-        att_preds = multitask_head.forward_merged_feat(att_feats)
-        logger.debug(f"att_preds.shape={att_preds.shape}")
+        # Return preds (and new feats if return_feats=True)
+        contextualized_preds = multitask_head.forward_merged_feat(f_out)
+        logger.debug(f"att_preds.shape={contextualized_preds.shape}")
 
         if return_feats:
-            return att_preds, att_feats
+            return contextualized_preds, f_out
         else:
-            return att_preds
+            return contextualized_preds
+
+    def _forward_with_context_attention(self, f_orig, f_context):
+        """ Use Attention head"""
+        # add self-feats to context
+        logger.debug(f"f_kv_mem={f_context}, f_in={f_orig}")
+        f_kv = torch.cat((f_context, f_orig)) if f_context is not None else f_orig
+        logger.debug(f"f_kv_mem.shape={f_context.shape}, f_in.shape={f_orig.shape}")
+
+        # K,V: Add positional encoding (if applicable)
+        # TODO
+
+        # Q,K,V: Forward through head
+        q = f_orig.unsqueeze(0)  # With batch_first dim, add batch-dim=1 (process all feats in batch as tokens)
+        k = v = f_kv.unsqueeze(0)
+        att_feats, _ = self.context_head(q, k, v)  # torch.Size([1, 4, 2304])
+        att_feats.squeeze_()  # Get rid of batch dim
+        logger.debug(f"att_feats.shape={att_feats.shape}")
+
+        return att_feats
+
+    # def _forward_with_context_GRU(self, f_orig, f_context):
+    #     """ Use Attention head"""
+    #     batch_size = f_orig.shape[0]
+    #
+    #     # Stack feats
+    #
+    #     # Init hidden state
+    #     hidden = torch.zeros(1, batch_size, self.GRU_hidden_size)
+    #
+    #     # Get final 'batch'size predictions
+    #     _, hidden = self.context_head(,hidden)
+    #     out = hidden.squeeze(0) # (1, B, hidden_size) ==> (B, hidden_size)
+    #
+    #
+    #
+    #     # add self-feats to context
+    #     logger.debug(f"f_kv_mem={f_context}, f_in={f_orig}")
+    #     f_kv = torch.cat((f_context, f_orig)) if f_context is not None else f_orig
+    #     logger.debug(f"f_kv_mem.shape={f_context.shape}, f_in.shape={f_orig.shape}")
+    #
+    #     # K,V: Add positional encoding (if applicable)
+    #     # TODO
+    #
+    #     # Q,K,V: Forward through head
+    #     q = f_orig.unsqueeze(0)  # With batch_first dim, add batch-dim=1 (process all feats in batch as tokens)
+    #     k = v = f_kv.unsqueeze(0)
+    #     att_feats, _ = self.context_head(q, k, v)  # torch.Size([1, 4, 2304])
+    #     att_feats.squeeze_()  # Get rid of batch dim
+    #     logger.debug(f"att_feats.shape={att_feats.shape}")
+    #
+    #     return att_feats
 
     def _get_feats_from_mem(self):
         """ Return entire buffer. """
@@ -1279,9 +1359,9 @@ class ContextAwareAdaptation(object):
 
     def prediction_step(self, *args, **kwargs):
         if self.disable_in_prediction:
-            self.is_disabled = True
+            self._is_disabled = True
 
         ret = self.method_to_wrap.prediction_step(*args, **kwargs)
-        self.is_disabled = False
+        self._is_disabled = False
 
         return ret
