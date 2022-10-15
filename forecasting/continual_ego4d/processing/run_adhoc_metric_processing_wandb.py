@@ -58,11 +58,11 @@ MODES = [
     'aggregate_OAG_over_user_streams',  # online OAG
 ]
 # Adapt settings
-MODE = MODES[0]
+MODE = MODES[2]
 train = True
-csv_filename = 'wandb_export_2022-10-12T14_35_29.228-07_01.csv'  # TODO copy file here and past name here
+csv_filename = 'wandb_export_2022-10-14T15_12_30.299-07_00.csv'  # TODO copy file here and past name here
 single_group_name = None
-single_group_name = "LabelWindowPredictor_2022-10-11_16-15-47_UIDe36637f2-06e9-4e37-92c7-c73dcb823ac5"
+single_group_name = "Finetuning_2022-10-14_17-35-55_UID77ecbf5e-8019-4bbe-aef8-2e9f6599c57e"
 remote = True
 
 if train:
@@ -94,7 +94,8 @@ NEW_METRIC_PREFIX_SE = 'SE'  # Unbiased standard error
 USER_AGGREGATE_COUNT = f"{NEW_METRIC_PREFIX}/user_aggregate_count"  # Over how many users added, also used to check if processed
 
 
-def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, conditional_analysis=False):
+def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, conditional_analysis=False,
+                                         skip_pretrain_delta=False):
     """
     Get valid csv dump dir per user.
     Upload per user-stream in group the csv-dump processed balanced-Likelihood.
@@ -162,7 +163,8 @@ def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, c
     metric_names = sorted(list(metric_names))
 
     print(f"Aggregating over users in separate step: \n{pprint.pformat(metric_names)}")
-    avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=metric_names, skip_pretrain_delta=True)
+    avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=metric_names,
+                                                skip_pretrain_delta=skip_pretrain_delta)
 
 
 def dump_to_LL(user_dump_dict, action_mode, balanced=True, return_per_sample_result=False):
@@ -437,7 +439,8 @@ def avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=No
                 group_name, metric_names=metrics, user_ids=USER_LIST, run_filter=None,
             )
         except Exception as e:
-            print(e)
+            import traceback
+            traceback.print_exc()
             print(f"SKIPPING: contains error: Group ={group_name}")
             continue
 
@@ -608,7 +611,7 @@ def aggregate_test_results_over_user_streams(selected_group_names):
         run_filter = {
             "$and": [
                 {"group": group_name},
-                {"summary_metrics.num_samples_stream": {"$ne": None}}
+                {"summary_metrics.finished_test_run": 1}
             ]
         }
 
@@ -638,12 +641,21 @@ def _collect_user_test_results(group_name, run_filter):
         'test_action_batch/loss': [],
         'test_verb_batch/loss': [],
         'test_noun_batch/loss': [],
+
+        'test_action_batch/balanced_loss': [],
+        'test_verb_batch/balanced_loss': [],
+        'test_noun_batch/balanced_loss': [],
+
         'test_action_batch/top1_acc': [],
         'test_verb_batch/top1_acc': [],
         'test_verb_batch/top5_acc': [],
         'test_noun_batch/top1_acc': [],
         'test_noun_batch/top5_acc': [],
-        # 'num_samples_stream': [], # Can use to re-weight
+
+        'test_action_batch/balanced_top1_acc': [],
+        'test_verb_batch/balanced_top1_acc': [],
+        'test_noun_batch/balanced_top1_acc': [],
+
     }
     user_ids = []  # all processed users
 
