@@ -240,7 +240,9 @@ def online_adaptation_single_user(
             'COMPUTED_USER_DUMP_FILE',
             'COMPUTED_PRETRAIN_ACTION_SETS',
             'COMPUTED_USER_DS_ENTRIES'
-        })  # Load full config to wandb setting
+        }),  # Load full config to wandb setting
+        settings=wandb.Settings(start_method="fork"),
+        mode=cfg.WANDB.MODE,
     )
     wandb_logger.experiment.config.update({"run_started": True}, allow_val_change=False)  # Triggers sync
 
@@ -287,6 +289,7 @@ def online_adaptation_single_user(
     # Freeze model if applicable
     if cfg.MODEL.FREEZE_BACKBONE:
         freeze_backbone_not_head(task.model)
+
     if cfg.MODEL.FREEZE_MODEL:
         freeze_full_model(task.model)
 

@@ -208,6 +208,7 @@ def process_group(eval_cfg, group_name, project_name):
         user_train_stream_cfg.DATA.COMPUTED_USER_ID = stream_userid
         user_train_stream_cfg.DATA.COMPUTED_USER_DS_ENTRIES = user_datasets[stream_userid]
         user_train_stream_cfg.COMPUTED_USER_DUMP_FILE = train_path_handler.get_user_streamdump_file(stream_userid)
+        user_train_stream_cfg.STREAM_EVAL_ONLY = True  # Avoid training based checks
 
         # Debug mode
         user_train_stream_cfg.FAST_DEV_RUN = eval_cfg.FAST_DEV_RUN
@@ -642,9 +643,9 @@ def eval_single_model_single_stream(
         overwrite_logfile=False,
     )
 
-    # Choose task type based on config.
+    # Always load weights in CL-task for eval
     logger.info("Starting init Task")
-    if user_train_cfg.DATA.TASK == "continual_classification":
+    if user_train_cfg.DATA.TASK in ["continual_classification", "iid_classification"]:
         task = ContinualMultiTaskClassificationTask(user_train_cfg)
 
     else:

@@ -279,7 +279,8 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # See: https://pytorch-lightning.readthedocs.io/en/stable/common/optimization.html#automatic-optimization
         self.automatic_optimization = False
 
-        assert cfg.SOLVER.MAX_EPOCH == 1, f"Learning from stream can only for 1 epoch, not {cfg.SOLVER.MAX_EPOCH}"
+        if not cfg.STREAM_EVAL_ONLY:
+            assert cfg.SOLVER.MAX_EPOCH == 1, f"Learning from stream can only for 1 epoch, not {cfg.SOLVER.MAX_EPOCH}"
 
         # Backwards compatibility.
         if isinstance(cfg.MODEL.NUM_CLASSES, int):
@@ -984,14 +985,27 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     # ---------------------
     @torch.no_grad()
     def test_step(self, batch, batch_idx):
-        inputs, labels, _, _ = batch
-        preds = self.forward(inputs, return_feats=False)
-        return {'predictions': preds, 'labels': labels}
+        prediction_dict = self.predict_step(batch, batch_idx)
+        return prediction_dict
 
     def test_epoch_end(self, outputs: list[dict]):
-        pred_list: list[tuple[torch.Tensor, torch.Tensor]] = [pred_dict['predictions'] for pred_dict in outputs]
-        label_list: list[tuple[int, int]] = [pred_dict['labels'] for pred_dict in outputs]
+        """ outputs: list of one dict per iteration with <sample_idx,result_dict> mapping). """
+        sample_idx_to_loss_dict_list = outputs
 
+        # Flatten iteration dimension: Only keep sample idx mapping
+        sample_idx_to_losses_dict: dict[int, dict] = {
+            int(k): v for iter_dict in sample_idx_to_loss_dict_list
+            for k, v in iter_dict.items()
+        }
+
+        # Get ordered sample-idx based lists
+        pred_list = []
+        label_list = []
+        for sample_idx in range(min(sample_idx_to_losses_dict.keys()), max(sample_idx_to_losses_dict.keys())):
+            pred_list.append(sample_idx_to_losses_dict[sample_idx]['prediction'])
+            label_list.append(sample_idx_to_losses_dict[sample_idx]['label'])
+
+        # Get result metrics
         result_dict = self.get_test_metrics(pred_list, label_list, self.loss_fun_unred)
 
         # Log
