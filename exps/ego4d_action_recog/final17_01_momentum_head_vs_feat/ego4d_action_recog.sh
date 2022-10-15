@@ -51,35 +51,26 @@ fi
 #exit
 #-----------------------------------------------------------------------------------------------#
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 10" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS 1 NUM_USERS_PER_DEVICE 1" # 1,3,4,5,6
+#OVERWRITE_CFG_ARGS+=" USER_SELECTION 104,108,324,30" # Subset of users to process
+#OVERWRITE_CFG_ARGS+=" GPU_IDS 1 NUM_USERS_PER_DEVICE 2" # 1,3,4,5,6
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # DEBUG
 #OVERWRITE_CFG_ARGS+=" GPU_IDS '0' FAST_DEV_RUN False FAST_DEV_DATA_CUTOFF 30" # DEBUG
-OVERWRITE_CFG_ARGS+=" STREAM_EVAL_ONLY True PREDICT_PHASE.NUM_WORKERS 6 PREDICT_PHASE.BATCH_SIZE 40"
+#OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 4" # Super-low
 
 # TODO tmp
-#OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 10" # DEBUG
+#OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 10 TRAIN.BATCH_SIZE 1 CONTINUAL_EVAL.BATCH_SIZE 10 CONTINUAL_EVAL.PLOTTING_FREQ 1" # DEBUG
 
-
-# IF RESUME:
-OVERWRITE_CFG_ARGS+=" USER_SELECTION 421 GRID_RESUME_LATEST True" # Subset of users to process
-#OVERWRITE_CFG_ARGS+=" USER_SELECTION 17" # Subset of users to process
-#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/eval00_01_pretrain_stream_performance/logs/2022-10-04_22-14-03_UID061d340e-39f2-4099-8abc-81e2e68da1d3"
+# RESUME
+#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/exp01_01_finetuning/logs/2022-08-20_17-30-48_UID61c906b6-2f71-4d24-9dfa-60efa9b001bb"
 
 # Checkpoint loading
 # Our user-pretrained model:
-#BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit/pretrain_148usersplit_incl_nan/2022-09-05_10-34-05_UIDd05ed672-01c5-4c3c-b790-9d0c76548825/checkpoints/best_model.ckpt" # Use original Ego4d model to start with
-
-# Replay ckpt
-#BACKBONE_WTS="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/final14_01_IID_train_head_only_replay/logs/GRID_SOLVER-BASE_LR=0-01/2022-10-05_05-48-18_UID11ce17bb-0afa-46c7-8934-978c9a45ba6c/checkpoints/user_{}/last.ckpt"
-
-BACKBONE_WTS="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/final14_02_IID_train_head_only_sgd/logs/GRID_SOLVER-BASE_LR=0-01/2022-10-04_22-54-26_UIDd0251d9d-fc9b-4c7a-9a3d-535a02e7f97a/checkpoints/user_{}/last.ckpt"
+BACKBONE_WTS="/fb-agios-acai-efs/mattdl/ego4d_models/continual_ego4d_pretrained_models_usersplit/pretrain_148usersplit_incl_nan/2022-09-05_10-34-05_UIDd05ed672-01c5-4c3c-b790-9d0c76548825/checkpoints/best_model.ckpt" # Use original Ego4d model to start with
 
 #OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
-OVERWRITE_CFG_ARGS+=" CHECKPOINT_PATH_FORMAT_FOR_USER True" # FILL IN USER PER TEST PRETRAIN LOADED MODEL FOR EVAL
-
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True"      # Load population head
-OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE True"          # KEEP FIXED
+OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE False"          # Learn features as well
 
 # Paths
 OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_DIR ${EGO4D_ANNOTS}"
@@ -88,7 +79,7 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="${run_id}_MATT"
-#screen -dmS "${screenname}" \
+screen -dmS "${screenname}" \
 python -m continual_ego4d.run_recog_CL \
   --job_name "$run_id" \
   --working_directory "${OUTPUT_DIR}" \

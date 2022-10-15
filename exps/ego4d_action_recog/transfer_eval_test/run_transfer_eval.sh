@@ -49,8 +49,8 @@ if [[ $# -gt 0 ]]; then
 
 fi
 #-----------------------------------------------------------------------------------------------#
-OVERWRITE_CFG_ARGS+=" GPU_IDS 5,7" #5G per run with BS 10
-OVERWRITE_CFG_ARGS+=" NUM_USERS_PER_DEVICE 8" #5G per run with BS 10
+OVERWRITE_CFG_ARGS+=" GPU_IDS 5" #5G per run with BS 10
+#OVERWRITE_CFG_ARGS+=" NUM_USERS_PER_DEVICE 8" #5G per run with BS 10
 #OVERWRITE_CFG_ARGS+=" TRANSFER_EVAL.CSV_RANGE (4,None)" #5G per run with BS 10
 
 #OVERWRITE_CFG_ARGS+=" GPU_IDS 1 NUM_USERS_PER_DEVICE 1" # DEBUG

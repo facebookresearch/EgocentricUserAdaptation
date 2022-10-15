@@ -1,12 +1,18 @@
 TRANSFER_EVAL:
   WANDB_PROJECT_NAME: "matthiasdelange/ContinualUserAdaptation"
 #  WANDB_GROUP_TO_EVAL: "IIDFinetuning_2022-10-05_10-21-39_UIDd7a7a88d-8017-4086-aacd-1b701aa07ef9"
+# Eval 01_01
+#  WANDB_GROUP_TO_EVAL: "Finetuning_2022-10-04_10-45-52_UID4ab309a3-d7cc-41f5-b763-333224d6bc07"
+# Eval 02_01
+  WANDB_GROUPS_TO_EVAL_CSV_PATH:  "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-14T22_43_50.802-07_00.csv"
+  CSV_RANGE: (0,1)
+#  CSV_RANGE: (1,None)
 
   # Eval 01/02/03
-  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-10T10_09_56.712-07_00.csv"
+#  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-10T10_09_56.712-07_00.csv"
 #  CSV_RANGE: (0,2)
 #  CSV_RANGE: (2,4)
-  CSV_RANGE: (4,None)
+#  CSV_RANGE: (4,None)
   DIAGONAL_ONLY: True # Cartesian product or only user-model with same user-stream.
   INCLUDE_PRETRAIN_STREAM: False
   INCLUDE_PRETRAIN_MODEL: False # True if calculating OAG/HAG directly
@@ -17,12 +23,12 @@ TRANSFER_EVAL:
   PRETRAIN_TEST_USERS_GROUP_WANDB: "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4"
 
 CHECKPOINT_LOAD_MODEL_HEAD: True
-NUM_USERS_PER_DEVICE: 8 # Model-stream pairs in parallel on 1 device
+NUM_USERS_PER_DEVICE: 4 # Model-stream pairs in parallel on 1 device
 GPU_IDS: None
 NUM_GPUS: 1
 
 PREDICT_PHASE:
-  NUM_WORKERS: 6
+  NUM_WORKERS: 4
   BATCH_SIZE: 10 # 10=5G/user
 
 # Debug/fast run

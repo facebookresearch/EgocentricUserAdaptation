@@ -51,7 +51,7 @@ fi
 #exit
 #-----------------------------------------------------------------------------------------------#
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 10" # Workers per dataloader (i.e. per user process)
-OVERWRITE_CFG_ARGS+=" GPU_IDS 2 NUM_USERS_PER_DEVICE 1" # 1,3,4,5,6
+OVERWRITE_CFG_ARGS+=" GPU_IDS 4 NUM_USERS_PER_DEVICE 1" # 1,3,4,5,6
 #OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # DEBUG
 #OVERWRITE_CFG_ARGS+=" GPU_IDS '0' FAST_DEV_RUN False FAST_DEV_DATA_CUTOFF 30" # DEBUG
 OVERWRITE_CFG_ARGS+=" STREAM_EVAL_ONLY True PREDICT_PHASE.NUM_WORKERS 10 PREDICT_PHASE.BATCH_SIZE 40"
@@ -60,8 +60,8 @@ OVERWRITE_CFG_ARGS+=" STREAM_EVAL_ONLY True PREDICT_PHASE.NUM_WORKERS 10 PREDICT
 #OVERWRITE_CFG_ARGS+=" FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 10" # DEBUG
 
 
-OVERWRITE_CFG_ARGS+=" USER_SELECTION 17" # Subset of users to process
-OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/eval00_01_pretrain_stream_performance/logs/2022-10-04_22-14-03_UID061d340e-39f2-4099-8abc-81e2e68da1d3"
+#OVERWRITE_CFG_ARGS+=" USER_SELECTION 17" # Subset of users to process
+#OVERWRITE_CFG_ARGS+=" RESUME_OUTPUT_DIR /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/eval00_01_pretrain_stream_performance/logs/2022-10-04_22-14-03_UID061d340e-39f2-4099-8abc-81e2e68da1d3"
 
 # Checkpoint loading
 # Our user-pretrained model:
