@@ -436,14 +436,15 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
     logger.info(f"Collected DIAGONAL results for users {streamusers}:\n {diagonal_dict}")
     upload_metric_dict_to_wandb(diagonal_dict, group_name=group_name, mean=True)
 
-    # Upload matrix
-    matrix_dict = {
-        **metric_to_avg_abs_matrix,
-        **metric_to_avg_AG_matrix,
-        'TRANSFER_MATRIX/USERS_IN_ORDER': streamusers
-    }
-    logger.info(f"Collected MATRIX results for users {streamusers}:\n {matrix_dict}")
-    upload_metric_dict_to_wandb(matrix_dict, group_name=group_name, mean=False)  # Don't average, but report 2d array
+    # Upload matrix (Based on diagonal mode, for eval is 40x40 users = 1.6k entries)
+    if not eval_cfg.TRANSFER_EVAL.DIAGONAL_ONLY:
+        matrix_dict = {
+            **metric_to_avg_abs_matrix,
+            **metric_to_avg_AG_matrix,
+            'TRANSFER_MATRIX/USERS_IN_ORDER': streamusers
+        }
+        logger.info(f"Collected MATRIX results for users {streamusers}:\n {matrix_dict}")
+        upload_metric_dict_to_wandb(matrix_dict, group_name=group_name, mean=False)  # Don't average, but report 2d array
 
 
 def postprocess_instance_counts_from_csv_files(eval_cfg, modeluser_streamuser_pairs, pretrain_dataset):
