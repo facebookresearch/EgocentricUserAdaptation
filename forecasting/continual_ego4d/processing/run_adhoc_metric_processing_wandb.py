@@ -58,11 +58,11 @@ MODES = [
     'aggregate_OAG_over_user_streams',  # online OAG
 ]
 # Adapt settings
-MODE = MODES[2]
-train = True
-csv_filename = 'wandb_export_2022-10-14T15_12_30.299-07_00.csv'  # TODO copy file here and past name here
+MODE = MODES[0]
+train = False
+csv_filename = 'wandb_export_2022-10-16T14_30_33.086-07_00.csv'  # TODO copy file here and past name here
 single_group_name = None
-single_group_name = "Finetuning_2022-10-14_17-35-55_UID77ecbf5e-8019-4bbe-aef8-2e9f6599c57e"
+single_group_name = "IIDFinetuning_2022-10-05_10-21-39_UIDd7a7a88d-8017-4086-aacd-1b701aa07ef9"
 remote = True
 
 if train:
@@ -115,6 +115,16 @@ def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, c
     for group_name in selected_group_names:
         print(f"\nUpdating group: {group_name}")
         user_to_dump_path = {}
+
+        # Count users and check
+        group_users = []
+        for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=None)):
+            group_users.append(user_run.config['DATA.COMPUTED_USER_ID'])
+
+        if len(group_users) != NB_EXPECTED_USERS:
+            print(f"Users {group_users} (#{len(group_users)}) NOT EQUAL TO expected {NB_EXPECTED_USERS}")
+            print(f"SKIPPING group: {group_name}")
+            continue
 
         # Iterate user-runs in group
         for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=None)):
@@ -404,7 +414,7 @@ def dump_to_ACC(user_dump_dict, action_mode, macro_avg=True, k=1, return_per_sam
     return result, full_new_metric_name
 
 
-def avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=None, skip_pretrain_delta=False):
+def avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=None, skip_pretrain_delta=True):
     """ After training a model, aggregate the avg metrics over the stream such as ACC.
     Aggregate over user stream results. """
 
@@ -418,6 +428,11 @@ def avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=No
         'train_noun_batch/top1_acc_running_avg',
         'train_verb_batch/top5_acc_running_avg',
         'train_noun_batch/top5_acc_running_avg',
+
+        # Only for newer runs: Implemented at training time:
+        # 'train_action_batch/top1_acc_balanced_running_avg',
+        # 'train_verb_batch/top1_acc_balanced_running_avg',
+        # 'train_noun_batch/top1_acc_balanced_running_avg',
     ]
 
     # Default metrics logged at runtime
