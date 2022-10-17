@@ -44,8 +44,8 @@ def construct_optimizer(model, cfg):
     # drop.
 
     classifier_lr = cfg.SOLVER.CLASSIFIER_LR if cfg.SOLVER.CLASSIFIER_LR is not None else cfg.SOLVER.BASE_LR
-    classifier_momentum = cfg.SOLVER.MOMENTUM if cfg.SOLVER.MOMENTUM_HEAD is None else cfg.SOLVER.MOMENTUM_HEAD
-    feat_momentum = cfg.SOLVER.MOMENTUM if cfg.SOLVER.MOMENTUM_FEAT is None else cfg.SOLVER.MOMENTUM_FEAT
+    classifier_momentum = cfg.SOLVER.MOMENTUM if cfg.SOLVER.MOMENTUM_HEAD < 0 else cfg.SOLVER.MOMENTUM_HEAD
+    feat_momentum = cfg.SOLVER.MOMENTUM if cfg.SOLVER.MOMENTUM_FEAT < 0 else cfg.SOLVER.MOMENTUM_FEAT
 
     optim_params = [
 

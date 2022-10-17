@@ -595,8 +595,8 @@ _C.SOLVER.MAX_EPOCH = 1
 
 # Momentum.
 _C.SOLVER.MOMENTUM = 0.9
-_C.SOLVER.MOMENTUM_HEAD = None  # If defined, overwrites default momentum
-_C.SOLVER.MOMENTUM_FEAT = None
+_C.SOLVER.MOMENTUM_HEAD = -1.0  # If defined, overwrites default momentum
+_C.SOLVER.MOMENTUM_FEAT = -1.0
 
 # Momentum dampening.
 _C.SOLVER.DAMPENING = 0.0
