@@ -119,14 +119,15 @@ class SchedulerConfig:
 
         # Receive results for ALL user-processes, also the last ones
         remaining_runs_to_process = len(self.runs_to_process)
-        while len(finished_run_ids) < remaining_runs_to_process:
+        interrupted_runs = []
+        while remaining_runs_to_process > 0:
             # Get first next ready result
             try:
                 interrupted, device_id, finished_run_id = queue.get(block=True, timeout=process_timeout_s)
             except:
                 logger.exception(traceback.format_exc())
                 logger.info(f"Executing on Queue time-out (deadlock?)")
-                exit(1)
+                interrupted = True
             finished_run_ids.append(finished_run_id)
             remaining_runs_to_process -= 1
 
@@ -138,6 +139,7 @@ class SchedulerConfig:
                         f"#remaining runs: {remaining_runs_to_process}")
 
             if interrupted:
+                interrupted_runs.append(finished_run_id)
                 logger.exception(f"Process for RUN {finished_run_id} failed because of Trainer being Interrupted."
                                  f"Not releasing GPU as might give Out-of-Memory exception.")
                 continue
@@ -160,7 +162,7 @@ class SchedulerConfig:
             else:
                 logger.info(f"Not scheduling new user-process as all are finished or running.")
 
-        logger.info(f"Processed all runs")
+        logger.info(f"Processed all runs, {len(interrupted_runs)} interrupted: {interrupted_runs}")
 
     def process_runs_sequentially(self):
         """ Sequentially iterate over users and process on single device.
