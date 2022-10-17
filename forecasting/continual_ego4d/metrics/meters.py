@@ -53,6 +53,9 @@ class ConditionalAverageMeterDict:
         if isinstance(val_list, torch.Tensor):
             val_list = val_list.squeeze()
             assert len(val_list.shape) == 1, "Can only use 1-dim tensors"
+        elif not isinstance(val_list, (list, tuple)):  # If single element
+            val_list = [val_list]
+
         assert len(val_list) == len(cond_list)
 
         for val, conditional in zip(val_list, cond_list):

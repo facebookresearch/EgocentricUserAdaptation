@@ -50,7 +50,7 @@ class RunningBalancedTopkAccMetric(AvgMeterDictMetric):
         else:
             raise ValueError()
 
-        self.avg_meter_dict.update(corrects_t.tolist(), cond_list=conditional_labels)
+        self.avg_meter_dict.update(corrects_t.type(torch.IntTensor).tolist(), cond_list=conditional_labels)
 
     def result(self, stream_current_batch_idx: int, *args, **kwargs) -> dict:
         result_dict = super().result(stream_current_batch_idx, *args, **kwargs)
