@@ -756,7 +756,7 @@ class Replay(Method):
     Pytorch Subset of original stream, with expanding indices.
     """
     run_predict_before_train = True
-    storage_policies = ['window', 'reservoir_stream', 'reservoir_action', 'reservoir_verbnoun']
+    storage_policies = ['window', 'reservoir_stream', 'reservoir_action']
     """
     window: A moving window with the current bath iteration. e.g. for Mem-size M, [t-M,t] indices are considered.
     
@@ -767,14 +767,7 @@ class Replay(Method):
     All bins have same capacity (and may not be entirely filled).
     {action-tuple:[Memory-list]}
     
-    reservoir_verbnoun: Reservoir sampling per verbnoun-bin, with bins defined by separate verbs or nouns. This allows 
-    sharing between actions with an identical verb or noun. All bins have same capacity (and may not be entirely filled).
-    {str: "{verb,noun}_label-int":[Memory-list]}
-    
-    
     """
-
-    # TODO VERBNOUN_BALANCED: A BIN PER SEPARATE VERB N NOUN (be careful not to store samples twice!)
 
     def __init__(self, cfg, lightning_module):
         super().__init__(cfg, lightning_module)
@@ -786,8 +779,12 @@ class Replay(Method):
         self.train_stream_dataset = lightning_module.train_dataloader().dataset
         self.num_workers_replay = 1  # Only a single batch is retrieved
 
-        self.conditional_memory = OrderedDict({})  # Map <Conditional, datastream_idx_list>
+        self.conditional_memory: dict[Any, list] = OrderedDict({})  # Map <Conditional, datastream_idx_list>
         self.memory_dataloader_idxs = []  # Use this to update the memory indices of the stream
+
+        # For class-balanced reservoir sampling (CBRS)
+        self.conditional_num_observed_samples: dict[Any, int] = OrderedDict({})
+        self.conditional_full: dict[Any, bool] = OrderedDict({})
 
         # Retrieval state vars
         self.new_batch_size = None  # How many from stream
@@ -960,7 +957,7 @@ class Replay(Method):
         }
 
         # Store samples
-        self._store_samples_in_replay_memory(labels, current_batch_stream_idxs)
+        self._store_samples_in_replay_memory(labels[:self.new_batch_size], current_batch_stream_idxs)
 
         # Update size
         self.num_samples_memory = sum(len(cond_mem) for cond_mem in self.conditional_memory.values())
@@ -1055,14 +1052,18 @@ class Replay(Method):
             logger.info(f"[INNER-LOOP UPDATE] iter {inner_iter}/{self.lightning_module.inner_loop_iters}: "
                         f"fwd, bwd, step. Action_loss={loss_action.item()}")
 
-    def _store_samples_in_replay_memory(self, labels: torch.LongTensor, current_batch_stream_idxs: list):
+    def _store_samples_in_replay_memory(self, current_batch_labels: torch.LongTensor, current_batch_stream_idxs: list):
 
         if self.storage_policy == 'reservoir_stream':
             self.conditional_memory[None] = self.reservoir_sampling(
-                self.conditional_memory.get(None, []), current_batch_stream_idxs, self.total_mem_size)
+                self.conditional_memory.get(None, []),
+                current_batch_stream_idxs,
+                self.total_mem_size,
+                self.num_observed_samples
+            )
 
         elif self.storage_policy == 'reservoir_action':
-            self.reservoir_action_storage_policy(labels, current_batch_stream_idxs)
+            self.reservoir_action_storage_policy(current_batch_labels, current_batch_stream_idxs)
 
         elif self.storage_policy == 'reservoir_verbnoun':
             raise NotImplementedError()
@@ -1083,79 +1084,111 @@ class Replay(Method):
         Each bin is populated using reservoir sampling when new samples for that bin are encountered.
         """
         label_batch_axis = 0
+        assert labels.shape[0] == len(current_batch_stream_idxs) == self.new_batch_size
+
+        # Init new actions
+        for batch_idx, verbnoun_t in enumerate(torch.unbind(labels, dim=label_batch_axis)):
+            action = verbnoun_to_action(*verbnoun_t.tolist())
+
+            # Init
+            if action not in self.conditional_memory:
+                self.conditional_memory[action] = []
+                self.conditional_full[action] = False
+                self.conditional_num_observed_samples[action] = 0
+
+        # If nb classes is >= nb memory samples, there is no use in the conditional memory (max 1 sample/class)
+        # -> Use reservoir instead
+        if len(self.conditional_memory) >= self.total_mem_size:
+
+            # Convert conditional memory once to single memory
+            if len(self.conditional_memory) != 1 and None not in self.conditional_memory:
+                all_memories_list = []
+                for mem_idxs in self.conditional_memory.values():
+                    all_memories_list.extend(mem_idxs)
+                self.conditional_memory = OrderedDict({None: all_memories_list})
+
+                logger.info(
+                    f"Converted to regular reservoir sampling as more actions than memory samples "
+                    f"({self.total_mem_size}): {self.conditional_memory}")
+
+            # Do reservoir
+            logger.info(
+                f"Using regular reservoir sampling as more actions than memory samples "
+                f"({self.total_mem_size}): {self.conditional_memory}")
+            self.conditional_memory[None] = self.reservoir_sampling(
+                self.conditional_memory.get(None, []),
+                current_batch_stream_idxs,
+                self.total_mem_size, self.num_observed_samples
+            )
+            assert len(self.conditional_memory[None]) <= self.total_mem_size
+            return
+
+        # Checks
+        assert self.num_samples_memory == sum(len(cond_mem) for cond_mem in self.conditional_memory.values())
+        assert len(self.conditional_num_observed_samples) == len(self.conditional_memory) == len(self.conditional_full), \
+            f"Both conditional memories should have exact same size"
 
         # Collect actions (label pairs) and count new ones
         batch_actions = []
-        new_actions_observed = 0
-        for idx, verbnoun_t in enumerate(torch.unbind(labels, dim=label_batch_axis)):
+        for batch_idx, verbnoun_t in enumerate(torch.unbind(labels, dim=label_batch_axis)):
             action = verbnoun_to_action(*verbnoun_t.tolist())
             batch_actions.append(action)
+            current_batch_stream_idx = current_batch_stream_idxs[batch_idx]
 
-            if action not in self.conditional_memory:
-                new_actions_observed += 1
-                self.conditional_memory[action] = []
+            # Add observed samples for specific class
+            self.conditional_num_observed_samples[action] += 1
 
-        # Update max mem size and cutoff those exceeding
+            # If memory not full, add sample
+            if self.num_samples_memory < self.total_mem_size:
+                logger.info(f"Memory not full, adding current sample for action {action}")
+                self.conditional_memory[action].append(current_batch_stream_idx)
+                self.num_samples_memory += 1
 
-        # Do reservoir, and when in bin to store, sample one of the seen classes randomly to store it there
-        # Afterwards, subtract 1 from max until satisfying memory size
+            else:
+                # Find max count class (define as full: cannot grow anymore)
+                max_conditional = max(self.conditional_memory, key=lambda cond: len(self.conditional_memory[cond]))
+                self.conditional_full[max_conditional] = True
 
-        # Count number of reservoir hits
-        memory_no_hits = [0] * self.total_mem_size
-        reservoir_hit_list = self.reservoir_sampling(
-            self.conditional_memory[action], current_batch_stream_idxs_subset, self.total_mem_size)
+                assert len(self.conditional_memory[max_conditional]) > 0, \
+                    f"Empty max conditional '{max_conditional}' in: {self.conditional_memory}"
 
-        # Add new batch samples
-        obs_actions_batch = set()
-        for action in batch_actions:
-            if action in obs_actions_batch:  # Already processed, so skip
-                continue
-            obs_actions_batch.add(action)
+                if not self.conditional_full[action]:  # Select random of max to replace
+                    logger.info(f"action {action} NOT FULL: "
+                                f"Random replacing from max {max_conditional} with new action {action}")
 
-            # Process all samples in batch for this action at once
-            label_mask = torch.cat([
-                torch.BoolTensor([verbnoun_to_action(*verbnoun_t.tolist()) == action])
-                for verbnoun_t in torch.unbind(labels, dim=label_batch_axis)
-            ], dim=label_batch_axis)
+                    # Randomly remove from max
+                    num_in_max_conditional = len(self.conditional_memory[max_conditional])
+                    replace_idx = random.randint(0, num_in_max_conditional)
+                    self.conditional_memory[max_conditional] = self.conditional_memory[max_conditional][:replace_idx] + \
+                                                               self.conditional_memory[max_conditional][
+                                                               replace_idx + 1:]
 
-            selected_inbatch_idxs = torch.nonzero(label_mask)
-            current_batch_stream_idxs_subset = [
-                stream_idx for inbatch_idx, stream_idx in enumerate(current_batch_stream_idxs)
-                if inbatch_idx in selected_inbatch_idxs
-            ]
+                    # Add to new class
+                    self.conditional_memory[action].append(current_batch_stream_idx)
 
-            self.conditional_memory[action] = self.reservoir_sampling(
-                self.conditional_memory[action], current_batch_stream_idxs_subset, self.total_mem_size)
+                else:  # When full class (was max at least once), do reservoir
+                    logger.info(f"action {action} FULL: Reservoir sampling for its memory {self.conditional_memory}")
+                    self.reservoir_sampling(
+                        self.conditional_memory[action],
+                        [current_batch_stream_idx],
+                        mem_size_limit=len(self.conditional_memory[action]),  # Assume full
+                        num_observed_samples=self.conditional_num_observed_samples[action]
+                    )
+        logger.info(f"REPLAY SUMMARY:\n"
+                    f"conditional_memory={self.conditional_memory}\n"
+                    f"conditional_num_observed_samples={self.conditional_num_observed_samples}\n"
+                    f"conditional_full={self.conditional_full}\n"
+                    f"total_mem_size={self.total_mem_size}")
 
-        # For all conditionals, subtract 1 from the max one
-        if new_actions_observed >= 0:
-
-            for action, action_mem in self.conditional_memory.items():
-                self.conditional_memory[action] = action_mem[:self.mem_size_per_conditional]
-
-        assert self.mem_size_per_conditional > 0
-
-    def reservoir_sampling(self, memory: list, new_stream_idxs: list, mem_size_limit: int) -> list:
+    def reservoir_sampling(self, memory: list, new_stream_idxs: list,
+                           mem_size_limit: int, num_observed_samples: int) -> list:
         """ Fill buffer if not full yet, otherwise replace with probability mem_size/num_observed_samples. """
 
         for new_stream_idx in new_stream_idxs:
             if len(memory) < mem_size_limit:  # Buffer not filled yet
                 memory.append(new_stream_idx)
             else:  # Replace with probability mem_size/num_observed_samples
-                rnd_idx = random.randint(0, self.num_observed_samples)  # [a,b]
-                if rnd_idx < mem_size_limit:  # Replace if sampled in memory, Prob = M / (b-a)
-                    memory[rnd_idx] = new_stream_idx
-
-        return memory
-
-    def reservoir_sampling_uniform_hit(self, memory: list, new_stream_idxs: list, mem_size_limit: int) -> list:
-        """ Fill buffer if not full yet, otherwise replace with probability mem_size/num_observed_samples. """
-
-        for new_stream_idx in new_stream_idxs:
-            if len(memory) < mem_size_limit:  # Buffer not filled yet
-                memory.append(new_stream_idx)
-            else:  # Replace with probability mem_size/num_observed_samples
-                rnd_idx = random.randint(0, self.num_observed_samples)  # [a,b]
+                rnd_idx = random.randint(0, num_observed_samples)  # [a,b]
                 if rnd_idx < mem_size_limit:  # Replace if sampled in memory, Prob = M / (b-a)
                     memory[rnd_idx] = new_stream_idx
 
