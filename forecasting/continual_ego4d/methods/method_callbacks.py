@@ -766,7 +766,6 @@ class Replay(Method):
     reservoir_action: Reservoir sampling per action-bin, with bins defined by separate actions (verb,noun) pairs.
     All bins have same capacity (and may not be entirely filled).
     {action-tuple:[Memory-list]}
-    
     """
 
     def __init__(self, cfg, lightning_module):
@@ -802,45 +801,83 @@ class Replay(Method):
     def train_before_update_batch_adapt(self, new_batch: Any, batch_idx: int) -> Any:
         """ Before update, alter the new batch in the stream by adding a batch from Replay buffer of same size. """
         self._current_new_batch = new_batch  # Keep ref
-        return self.new_batch_to_joined_batch(new_batch)
+        return self.new_batch_to_joined_batches(new_batch, n_sample_rounds=1)[0]  # Single batch
 
-    def new_batch_to_joined_batch(self, new_batch):
+    def new_batch_to_joined_batches(self, new_batch, n_sample_rounds=1) -> list[Any]:
+        """ Returns a list of joined batches, with length equal to n_sample_rounds.
+        Each sample round samples randomly from the replay buffer and adds this to the new batch.
+        A joined batch consists of the new batch concatenated with the replay batch, both of same size.
+        """
         _, new_batch_labels, *_ = new_batch
         self.new_batch_size = new_batch_labels.shape[0]
         device = new_batch_labels.device
+        num_samples_retrieve = min(self.new_batch_size, self.num_samples_memory)  # Single batch retrieve
 
         # Retrieve from memory
-        mem_batch = None
-        num_samples_retrieve = min(self.new_batch_size, self.num_samples_memory)
-        if num_samples_retrieve > 0:
-            mem_batch = self.retrieve_rnd_batch_from_mem(
-                mem_batch_size=num_samples_retrieve)
+        if num_samples_retrieve == 0:
+            joined_batches = [new_batch]  # Return new batch only
 
-        # unpack and join mem and new
-        joined_batch = self.concat_batches(new_batch, mem_batch, device) if mem_batch is not None else new_batch
+        else:
+            joined_batches = []
+            all_rounds_stream_idxs: list[list[int]] = []
 
-        return joined_batch
+            # Sample from memory for each round
+            for sample_round in range(n_sample_rounds):
+                round_stream_idxs: list[int] = self.retrieve_rnd_sample_idxs_from_mem(
+                    mem_batch_size=num_samples_retrieve
+                )
+                all_rounds_stream_idxs.append(round_stream_idxs)
 
-    def retrieve_rnd_batch_from_mem(self, mem_batch_size) -> Tensor:
-        """ Sample stream idxs from replay memory. Create loader and load all selected samples at once. """
+            # Make set of all samples to retrieve (flatten, unique, sort)
+            mem_load_idx_to_stream_idx = sorted(
+                list(set([idx for idxlist in all_rounds_stream_idxs for idx in idxlist]))
+            )
+            stream_idx_to_mem_load_idx = {
+                stream_idx: mem_load_ix for mem_load_ix, stream_idx in enumerate(mem_load_idx_to_stream_idx)
+            }
+
+            # Load in memory all at once
+            all_rounds_single_mem_batch = self.load_stream_idxs(mem_load_idx_to_stream_idx)
+
+            for round_stream_idxs in all_rounds_stream_idxs:
+                # Stream idxs to mem_load idxs
+                mem_load_idxs = [stream_idx_to_mem_load_idx[stream_idx] for stream_idx in round_stream_idxs]
+
+                # Subset loaded memory:
+                mem_batch_round = self.slice_batch(all_rounds_single_mem_batch, mem_load_idxs)
+
+                # Add to return list
+                joined_batch = self.concat_batches(new_batch, mem_batch_round, device)
+                joined_batches.append(joined_batch)
+
+        return joined_batches
+
+    def retrieve_rnd_sample_idxs_from_mem(self, mem_batch_size) -> list[int]:
+        """ Sample stream idxs from replay memory. """
         # Sample idxs of our stream_idxs (without resampling)
         # Random sampling, weighed by len per conditional bin
         flat_mem = list(itertools.chain(*self.conditional_memory.values()))
         nb_samples_mem = min(len(flat_mem), mem_batch_size)
         stream_idxs = random.sample(flat_mem, k=nb_samples_mem)
-        logger.debug(f"Retrieving {nb_samples_mem} samples from memory: {stream_idxs}")
+        logger.debug(f"Retrieved {len(stream_idxs)} sample idxs from memory: {stream_idxs}")
+
+        return stream_idxs
+
+    def load_stream_idxs(self, stream_idxs: list[int]) -> Tensor:
+        """ Create loader and load all selected samples in stream at once.  """
+        logger.debug(f"Retrieving {len(stream_idxs)} samples from memory: {stream_idxs}")
 
         # Load the samples from history of stream
         stream_subset = torch.utils.data.Subset(self.train_stream_dataset, stream_idxs)
 
         loader = torch.utils.data.DataLoader(
             stream_subset,
-            batch_size=mem_batch_size,
+            batch_size=len(stream_idxs),
             num_workers=self.num_workers_replay,
             shuffle=False, pin_memory=True, drop_last=False,
         )
         logger.debug(f"Created Replay dataloader. batch_size={loader.batch_size}, "
-                     f"samples={mem_batch_size}, num_batches={len(loader)}")
+                     f"samples={len(stream_idxs)}, num_batches={len(loader)}")
 
         assert len(loader) == 1, f"Dataloader should return all in 1 batch."
         mem_batch = next(iter(loader))
@@ -869,6 +906,22 @@ class Replay(Method):
         joined_batch[2] = batch1[2] + batch2[2]
 
         return joined_batch
+
+    @staticmethod
+    def slice_batch(batch, selected_idxs):
+        inputs, labels, video_names, stream_sample_idxs_t = batch
+
+        inputs_ret: tuple[torch.Tensor, torch.Tensor] = (
+            inputs[0][selected_idxs], inputs[1][selected_idxs]
+        )
+
+        labels_ret: torch.Tensor = labels[selected_idxs]
+
+        video_names_ret: list[str] = [video_name for idx, video_name in enumerate(video_names) if idx in selected_idxs]
+
+        stream_sample_idxs_t_ret: torch.Tensor = stream_sample_idxs_t[selected_idxs]
+
+        return (inputs_ret, labels_ret, video_names_ret, stream_sample_idxs_t_ret)
 
     def training_first_forward(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs) \
             -> Tuple[Tensor, List[Tensor], Dict]:
@@ -1021,6 +1074,11 @@ class Replay(Method):
         """ Given the loss from the first forward, update for inner_loop_iters. """
         opt = self.lightning_module.optimizers()
 
+        # TODO: Efficient loading for multi-iter (dataloading = bottleneck)
+        if self.lightning_module.inner_loop_iters > 1 and self.resample_multi_iter:  # Prefetch data all at once
+            n_sample_rounds = self.lightning_module.inner_loop_iters - 1  # First one already sampled on entering
+            joined_batches = self.new_batch_to_joined_batches(self._current_new_batch, n_sample_rounds=n_sample_rounds)
+
         assert self.lightning_module.inner_loop_iters >= 1
         for inner_iter in range(1, self.lightning_module.inner_loop_iters + 1):
 
@@ -1030,7 +1088,8 @@ class Replay(Method):
             else:
                 # Resample from replay buffer: Reset inputs/labels
                 if self.resample_multi_iter:
-                    joined_batch = self.new_batch_to_joined_batch(self._current_new_batch)
+                    joined_batch_idx = inner_iter - 2  # Skip first and one offset in inner_iter loop
+                    joined_batch = joined_batches[joined_batch_idx]
                     joined_batch_inputs = joined_batch[0]
                     joined_batch_labels = joined_batch[1]
 
