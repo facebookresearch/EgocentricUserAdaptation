@@ -790,7 +790,6 @@ class Replay(Method):
         self.new_batch_size = None  # How many from stream
 
         # storage state vars
-        self.mem_size_per_conditional = self.total_mem_size  # Will be updated
         self.num_observed_samples = 0
         self.num_samples_memory = 0
 
@@ -961,8 +960,7 @@ class Replay(Method):
 
         # Update size
         self.num_samples_memory = sum(len(cond_mem) for cond_mem in self.conditional_memory.values())
-        logger.info(f"[REPLAY] nb samples in memory = {self.num_samples_memory}/{self.total_mem_size},"
-                    f"mem_size_per_conditional={self.mem_size_per_conditional}")
+        logger.info(f"[REPLAY] nb samples in memory = {self.num_samples_memory}/{self.total_mem_size}")
 
         return loss_total_actions_m, preds, log_results
 
@@ -1098,7 +1096,7 @@ class Replay(Method):
 
         # If nb classes is >= nb memory samples, there is no use in the conditional memory (max 1 sample/class)
         # -> Use reservoir instead
-        if len(self.conditional_memory) >= self.total_mem_size:
+        if len(self.conditional_memory) >= self.total_mem_size or None in self.conditional_memory:
 
             # Convert conditional memory once to single memory
             if len(self.conditional_memory) != 1 and None not in self.conditional_memory:
@@ -1116,7 +1114,7 @@ class Replay(Method):
                 f"Using regular reservoir sampling as more actions than memory samples "
                 f"({self.total_mem_size}): {self.conditional_memory}")
             self.conditional_memory[None] = self.reservoir_sampling(
-                self.conditional_memory.get(None, []),
+                self.conditional_memory[None],
                 current_batch_stream_idxs,
                 self.total_mem_size, self.num_observed_samples
             )
@@ -1126,7 +1124,7 @@ class Replay(Method):
         # Checks
         assert self.num_samples_memory == sum(len(cond_mem) for cond_mem in self.conditional_memory.values())
         assert len(self.conditional_num_observed_samples) == len(self.conditional_memory) == len(self.conditional_full), \
-            f"Both conditional memories should have exact same size"
+            f"Both conditional memories should have exact same number of actions"
 
         # Collect actions (label pairs) and count new ones
         batch_actions = []
@@ -1158,13 +1156,17 @@ class Replay(Method):
 
                     # Randomly remove from max
                     num_in_max_conditional = len(self.conditional_memory[max_conditional])
-                    replace_idx = random.randint(0, num_in_max_conditional)
-                    self.conditional_memory[max_conditional] = self.conditional_memory[max_conditional][:replace_idx] + \
-                                                               self.conditional_memory[max_conditional][
-                                                               replace_idx + 1:]
+                    replace_idx = random.randrange(0, num_in_max_conditional)  # [a,b[
+                    self.conditional_memory[max_conditional] = \
+                        self.conditional_memory[max_conditional][:replace_idx] + \
+                        self.conditional_memory[max_conditional][replace_idx + 1:]
 
                     # Add to new class
                     self.conditional_memory[action].append(current_batch_stream_idx)
+
+                    # Checks
+                    assert len(self.conditional_memory[max_conditional]) == num_in_max_conditional - 1, \
+                        f"Didn't remove sample from max action: {max_conditional}"
 
                 else:  # When full class (was max at least once), do reservoir
                     logger.info(f"action {action} FULL: Reservoir sampling for its memory {self.conditional_memory}")
@@ -1188,7 +1190,7 @@ class Replay(Method):
             if len(memory) < mem_size_limit:  # Buffer not filled yet
                 memory.append(new_stream_idx)
             else:  # Replace with probability mem_size/num_observed_samples
-                rnd_idx = random.randint(0, num_observed_samples)  # [a,b]
+                rnd_idx = random.randrange(0, num_observed_samples)  # [a,b[
                 if rnd_idx < mem_size_limit:  # Replace if sampled in memory, Prob = M / (b-a)
                     memory[rnd_idx] = new_stream_idx
 
