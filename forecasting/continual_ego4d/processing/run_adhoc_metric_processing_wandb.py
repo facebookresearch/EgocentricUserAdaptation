@@ -60,9 +60,9 @@ MODES = [
 # Adapt settings
 MODE = MODES[0]
 train = False
-csv_filename = 'wandb_export_2022-10-16T14_30_33.086-07_00.csv'  # TODO copy file here and past name here
+csv_filename = 'wandb_export_2022-10-17T21_12_44.943-07_00.csv'  # TODO copy file here and past name here
 single_group_name = None
-single_group_name = "IIDFinetuning_2022-10-05_10-21-39_UIDd7a7a88d-8017-4086-aacd-1b701aa07ef9"
+# single_group_name = "LabelWindowPredictor_2022-10-13_15-59-56_UIDf78d3933-cd47-468c-83dd-1c34cd1de446"
 remote = True
 
 if train:
@@ -414,7 +414,24 @@ def dump_to_ACC(user_dump_dict, action_mode, macro_avg=True, k=1, return_per_sam
     return result, full_new_metric_name
 
 
-def avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=None, skip_pretrain_delta=True):
+def running_avg_to_avg_and_delta(selected_group_names, metrics=None, skip_pretrain_delta=False):
+    """ Pretrain didn't have running acc yet, this is fix of metric mapping. """
+    metric_to_pretrain_metric_map = {
+        'train_action_batch/top1_acc_balanced_running_avg': 'train_action_batch/balanced_top1_acc',
+        'train_verb_batch/top1_acc_balanced_running_avg': 'train_verb_batch/balanced_top1_acc',
+        'train_noun_batch/top1_acc_balanced_running_avg': 'train_noun_batch/balanced_top1_acc',
+    }
+
+    metrics = list(metric_to_pretrain_metric_map.keys())
+    avg_and_delta_avg_results_over_user_streams(
+        selected_group_names,
+        metrics=metrics,
+        metric_to_pretrain_metric_map=metric_to_pretrain_metric_map
+    )
+
+
+def avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=None, skip_pretrain_delta=False,
+                                                metric_to_pretrain_metric_map=None):
     """ After training a model, aggregate the avg metrics over the stream such as ACC.
     Aggregate over user stream results. """
 
@@ -441,9 +458,30 @@ def avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=No
     else:
         metrics = default_metrics + metrics
 
+    if metric_to_pretrain_metric_map is not None:
+        for metric_name in metric_to_pretrain_metric_map.keys():
+            assert metric_name in metrics, \
+                f"Defined metric mapping to pretrain metric name, but haven't included in metrics to consider: {metric_name}"
+
     # GET PRETRAIN as reference
     if not skip_pretrain_delta:
-        pretrain_user_ids, pretrain_final_stream_metric_userlists = get_pretrain_user_results(metrics)
+        online_to_adhoc_pretrain_map = {} if metric_to_pretrain_metric_map is None else metric_to_pretrain_metric_map
+        adhoc_to_online_pretrain_map = {v: k for k, v in online_to_adhoc_pretrain_map.items()}
+
+        # Map to compatible
+        pretrain_metrics = [
+            online_to_adhoc_pretrain_map[m] if m in online_to_adhoc_pretrain_map else m for m in metrics
+        ]
+        pretrain_user_ids, pretrain_metric_dict_adhoc = get_pretrain_user_results(pretrain_metrics)  # Get adhoc metrics
+
+        # Remap:
+        pretrain_final_stream_metric_userlists = {}
+        for metric_name, val in pretrain_metric_dict_adhoc.items():
+            if metric_name in adhoc_to_online_pretrain_map.keys():
+                remap_metric_name = adhoc_to_online_pretrain_map[metric_name]
+            else:
+                remap_metric_name = metric_name
+            pretrain_final_stream_metric_userlists[remap_metric_name] = val
 
     # Iterate groups (a collective of independent user-runs)
     for group_name in selected_group_names:

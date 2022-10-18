@@ -230,13 +230,17 @@ def parse_final01_01_momentum_table():
     print_end_table()
 
 
-
-def parse_eval01_eval02_eval03_eval13_test_users():
+def parse_eval01_eval02_eval03_eval13_eval15_test_users():
     """
     """
     # csv_filename = "wandb_export_2022-10-16T14_38_30.361-07_00.csv"  # Eval01 (FT)
     # csv_filename = "wandb_export_2022-10-16T14_43_11.032-07_00.csv"  # Eval02 (Replay)
-    csv_filename = "wandb_export_2022-10-16T18_05_00.577-07_00.csv"  # Eval13 (FT-IID 1 epoch)
+    # csv_filename = "wandb_export_2022-10-17T10_22_33.701-07_00.csv"  # Eval03 (FT classifier)
+    # csv_filename = "wandb_export_2022-10-16T18_05_00.577-07_00.csv"  # Eval13 (FT-IID 1 epoch)
+    # csv_filename = "wandb_export_2022-10-17T11_42_01.818-07_00.csv"  # Eval15 ()
+
+    # 10 iters
+    csv_filename = "wandb_export_2022-10-17T21_29_31.574-07_00.csv" # Eval01/03/13 iter10
 
     csv_path = os.path.join(csv_dirname, csv_filename)
     round_digits = 1
@@ -336,6 +340,7 @@ def parse_eval01_eval02_eval03_eval13_test_users():
     print_begin_table()
     print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
     print_end_table()
+
 
 def parse_final03_01_fixed_feats():
     """
@@ -2107,7 +2112,8 @@ def parse_final16_eval16_01_label_window_predictor():
     """
     """
     # csv_filename = "wandb_export_2022-10-16T15_35_41.379-07_00.csv"  # TRAIN USERS: Full results all
-    csv_filename = "wandb_export_2022-10-16T17_28_26.107-07_00.csv"  # TEST USERS
+    csv_filename = "wandb_export_2022-10-17T20_39_59.956-07_00.csv"  # TRAIN USERS: Includes OAG
+    # csv_filename = "wandb_export_2022-10-16T17_28_26.107-07_00.csv"  # TEST USERS
     caption = "Label window predictor naive baseline."
     csv_path = os.path.join(csv_dirname, csv_filename)
     round_digits = 1
@@ -2118,27 +2124,124 @@ def parse_final16_eval16_01_label_window_predictor():
     # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001)]
     # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
     # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR','TRAIN.INNER_LOOP_ITERS', ])
-    # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR', 'SOLVER.CLASSIFIER_LR'])
+    orig_df.sort_values(inplace=True, axis=0, by=["ANALYZE_STREAM.WINDOW_SIZE_SAMPLES"])
 
     # Place here in order you want the latex columns to be
     ordered_cols = [
 
         LatexColumn(
-            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/mean',
-            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/SE',
-            latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
+            'ANALYZE_STREAM.WINDOW_SIZE_SAMPLES',
+            latex_col_header_name=r"window size",
+            format_fn_overwrite=lambda x:x,
+        ),
+
+
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/mean',
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/mean',
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{verb}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/mean',
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{noun}}$",
+        #     round_digits=round_digits,
+        # ),
+
+        # OAG:
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}_{\text{action}}$",
             round_digits=round_digits,
         ),
         LatexColumn(
-            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/mean',
-            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/SE',
-            latex_col_header_name=r"$\text{ACC}_{\text{verb}}$",
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}_{\text{verb}}$",
             round_digits=round_digits,
         ),
         LatexColumn(
-            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/mean',
-            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/SE',
-            latex_col_header_name=r"$\text{ACC}_{\text{noun}}$",
+            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
+
+    ]
+
+    latex_df = pd.DataFrame()
+
+    for col in ordered_cols:
+
+        if col.pandas_col_std_name is not None:
+            latex_df[col.latex_col_header_name] = orig_df.loc[:,
+                                                  (col.pandas_col_mean_name, col.pandas_col_std_name)
+                                                  ].apply(col.format_fn, axis=1)
+        else:
+            latex_df[col.latex_col_header_name] = orig_df.loc[:, col.pandas_col_mean_name].apply(col.format_fn)
+
+    print_begin_table(caption)
+    with pd.option_context("max_colwidth", 1000):  # No truncating of strings
+        print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
+    print_end_table()
+
+
+def parse_final17_01_momentum_feat_head():
+    """
+    """
+    csv_filename = "wandb_export_2022-10-17T10_06_27.828-07_00.csv"  # TEST USERS
+    caption = "Momentum head vs classifier"
+    csv_path = os.path.join(csv_dirname, csv_filename)
+    round_digits = 1
+
+    orig_df = pd.read_csv(csv_path)
+
+    # FILTER
+    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
+    # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR','TRAIN.INNER_LOOP_ITERS', ])
+    orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.MOMENTUM_HEAD', 'SOLVER.MOMENTUM_FEAT'])
+
+    # Place here in order you want the latex columns to be
+    ordered_cols = [
+
+        LatexColumn(
+            'SOLVER.MOMENTUM_HEAD',
+            latex_col_header_name=r"$\rho_{\text{head}}$",
+            format_fn_overwrite=lambda x: x,
+        ),
+
+        LatexColumn(
+            'SOLVER.MOMENTUM_FEAT',
+            latex_col_header_name=r"$\rho_{\text{feat}}$",
+            format_fn_overwrite=lambda x: x,
+        ),
+
+        # ONLINE AG
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/adhoc_AG/SE',
+            latex_col_header_name=r"$\overline{\text{OAG}}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/adhoc_AG/SE',
+            latex_col_header_name=r"$\overline{\text{OAG}}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/adhoc_AG/SE',
+            latex_col_header_name=r"$\overline{\text{OAG}}_{\text{noun}}$",
             round_digits=round_digits,
         ),
     ]
@@ -2174,4 +2277,4 @@ def print_end_table():
 
 
 if __name__ == "__main__":
-    parse_eval01_eval02_eval03_eval13_test_users()
+    parse_eval01_eval02_eval03_eval13_eval15_test_users()

@@ -14,8 +14,15 @@ import json
 import os.path as osp
 import numpy as np
 
-NUM_EXPECTED_USERS = 198  # 148 pretrain (incl non-assigned-user), 40 test, 10 train
-title = f"ego4d_ALL_DATA_pretrain_incl_nanusers_and_segmented_train_test_usersplit_{NUM_EXPECTED_USERS}users"
+# Config
+INCLUDE_TEST_USERS = False
+
+if INCLUDE_TEST_USERS:
+    NUM_EXPECTED_USERS = 198  # 148 pretrain (incl non-assigned-user), 40 test, 10 train
+    title = f"ego4d_ALL_DATA_pretrain_incl_nanusers_and_segmented_train_test_usersplit_{NUM_EXPECTED_USERS}users"
+else:
+    NUM_EXPECTED_USERS = 158  # 148 pretrain (incl non-assigned-user), 40 test, 10 train
+    title = f"ego4d_ALL_DATA_pretrain_incl_nanusers_and_segmented_train_usersplit_{NUM_EXPECTED_USERS}users"
 
 # OUT PATH
 json_filepath_out = f'/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/{title}.json'
@@ -28,7 +35,6 @@ pretrain_unsegmented_json = '/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits
 # test_segmented_ckpt = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/summarize_streams/logs/2022-10-06_16-33-57_UID9a2cc977-ab47-4cda-af0f-2924662bbf06/dataset_entries_test_FEWSHOT=False_ego4d_LTA_test_usersplit_40users.ckpt"
 train_segmented_ckpt = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/summarize_streams/logs/2022-10-07_04-49-02_UIDa5c4c52b-a8d8-4155-b1f4-bed9cd82374e/dataset_entries_train_FEWSHOT=False_ego4d_LTA_train_usersplit_10users.ckpt"
 test_segmented_ckpt = "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/ego4d_action_recog/summarize_streams/logs/2022-10-07_04-33-34_UIDd679068a-dc6e-40ff-b146-70ffe0671a97/dataset_entries_test_FEWSHOT=False_ego4d_LTA_test_usersplit_40users.ckpt"
-
 
 # Segmented checkpoints are pickled
 with open(train_segmented_ckpt, 'rb') as f:
@@ -45,7 +51,11 @@ with open(pretrain_unsegmented_json, 'r') as f:
 final_dict = {}
 
 # First collect in 1 dict make sure no user overlap
-for ds in [train_ds, test_ds, pretrain_ds]:
+datasets = [train_ds, pretrain_ds]
+if INCLUDE_TEST_USERS:
+    datasets.append(test_ds)
+
+for ds in datasets:
     for user, entries in ds.items():
         assert user not in final_dict, f"user {user} is duplicate!"
         final_dict[user] = entries

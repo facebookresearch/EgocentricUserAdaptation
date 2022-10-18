@@ -137,6 +137,10 @@ def get_delta_mappings():
             'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/mean',
             'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/mean',
 
+            'train_action_batch/top1_acc_balanced_running_avg',
+            'train_verb_batch/top1_acc_balanced_running_avg',
+            'train_noun_batch/top1_acc_balanced_running_avg',
+
         }))
     }
 
