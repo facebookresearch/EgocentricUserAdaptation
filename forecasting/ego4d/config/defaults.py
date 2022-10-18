@@ -95,6 +95,8 @@ _C.METHOD.REPLAY = CfgNode()
 _C.METHOD.REPLAY.MEMORY_SIZE_SAMPLES = 1000
 _C.METHOD.REPLAY.STORAGE_POLICY = "reservoir_stream"
 _C.METHOD.REPLAY.ANALYZE_GRADS = False
+_C.METHOD.REPLAY.RESAMPLE_MULTI_ITER = True
+
 # ---------------------------------------------------------------------------- #
 # Batch norm options
 # ---------------------------------------------------------------------------- #

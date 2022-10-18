@@ -80,7 +80,7 @@ def construct_optimizer(model, cfg):
 
     if cfg.SOLVER.OPTIMIZING_METHOD == "sgd":
         settings_dict = {
-            # "momentum": cfg.SOLVER.MOMENTUM,
+            "momentum": cfg.SOLVER.MOMENTUM,  # Keep default
             "weight_decay": cfg.SOLVER.WEIGHT_DECAY,
             "dampening": cfg.SOLVER.DAMPENING,
             "nesterov": cfg.SOLVER.NESTEROV if cfg.SOLVER.MOMENTUM > 0 else False,
