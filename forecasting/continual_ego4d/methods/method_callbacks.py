@@ -210,8 +210,6 @@ class IIDFinetuning(Method):
     def __init__(self, cfg, lightning_module):
         super().__init__(cfg, lightning_module, iid=True)
 
-        # TODO overwrite checks of sample idxs in stream
-
         # Adhoc setting shuffle = True
         assert isinstance(lightning_module.train_loader.sampler, SequentialSampler), \
             f"Regular training should have sequential sampler (no shuffle)"
@@ -772,6 +770,8 @@ class Replay(Method):
     reservoir_verbnoun: Reservoir sampling per verbnoun-bin, with bins defined by separate verbs or nouns. This allows 
     sharing between actions with an identical verb or noun. All bins have same capacity (and may not be entirely filled).
     {str: "{verb,noun}_label-int":[Memory-list]}
+    
+    
     """
 
     # TODO VERBNOUN_BALANCED: A BIN PER SEPARATE VERB N NOUN (be careful not to store samples twice!)
@@ -780,6 +780,7 @@ class Replay(Method):
         super().__init__(cfg, lightning_module)
         self.total_mem_size = int(cfg.METHOD.REPLAY.MEMORY_SIZE_SAMPLES)
         self.storage_policy = cfg.METHOD.REPLAY.STORAGE_POLICY
+        self.resample_multi_iter = cfg.METHOD.REPLAY.RESAMPLE_MULTI_ITER
         assert self.storage_policy in self.storage_policies
 
         self.train_stream_dataset = lightning_module.train_dataloader().dataset
@@ -799,8 +800,15 @@ class Replay(Method):
         # Compare gradient norms and dot-product
         self.compare_gradients = cfg.METHOD.REPLAY.ANALYZE_GRADS
 
+        # Tmp state vars
+        self._current_new_batch = None
+
     def train_before_update_batch_adapt(self, new_batch: Any, batch_idx: int) -> Any:
         """ Before update, alter the new batch in the stream by adding a batch from Replay buffer of same size. """
+        self._current_new_batch = new_batch  # Keep ref
+        return self.new_batch_to_joined_batch(new_batch)
+
+    def new_batch_to_joined_batch(self, new_batch):
         _, new_batch_labels, *_ = new_batch
         self.new_batch_size = new_batch_labels.shape[0]
         device = new_batch_labels.device
@@ -849,13 +857,17 @@ class Replay(Method):
 
         # Input is 2dim-list (verb,noun) of input-tensors
         joined_batch[0] = [
-            torch.cat([batch1[0][idx].to(device), batch2[0][idx].to(device)], dim=0) for idx in range(2)
+            torch.cat([batch1[0][idx].detach().to(device), batch2[0][idx].detach().to(device)], dim=0)
+            for idx in range(2)
         ]
 
         # Tensors concat directly in batch dim
         tensor_idxs = [1, 3]
         for tensor_idx in tensor_idxs:  # Add in batch dim
-            joined_batch[tensor_idx] = torch.cat([batch1[tensor_idx].to(device), batch2[tensor_idx].to(device)], dim=0)
+            joined_batch[tensor_idx] = torch.cat([
+                batch1[tensor_idx].detach().to(device),
+                batch2[tensor_idx].detach().to(device)
+            ], dim=0)
 
         # List
         joined_batch[2] = batch1[2] + batch2[2]
@@ -876,7 +888,8 @@ class Replay(Method):
         log_results = {}
 
         # Forward at once
-        preds, feats = self.lightning_module.forward(inputs, return_feats=True)
+        fwd_inputs = copy.deepcopy(inputs)  # SlowFast in-place alters the inputs
+        preds, feats = self.lightning_module.forward(fwd_inputs, return_feats=True)
 
         # Unreduced losses
         loss_verbs = self.loss_fun_pred(preds[0], labels[:, 0])  # Verbs
@@ -1013,10 +1026,6 @@ class Replay(Method):
         """ Given the loss from the first forward, update for inner_loop_iters. """
         opt = self.lightning_module.optimizers()
 
-        if self.lightning_module.inner_loop_iters > 1:
-            raise NotImplementedError("Replay is only implemented now for 1 update."
-                                      "WIP 2 modes: Resample in inner_loop vs keep original replay batch.")
-
         assert self.lightning_module.inner_loop_iters >= 1
         for inner_iter in range(1, self.lightning_module.inner_loop_iters + 1):
 
@@ -1024,10 +1033,20 @@ class Replay(Method):
                 loss_action = loss_first_fwd
 
             else:
-                fwd_inputs = copy.deepcopy(inputs)  # SlowFast in-place alters the inputs
+                # Resample from replay buffer: Reset inputs/labels
+                if self.resample_multi_iter:
+                    joined_batch = self.new_batch_to_joined_batch(self._current_new_batch)
+                    joined_batch_inputs = joined_batch[0]
+                    joined_batch_labels = joined_batch[1]
+
+                else:
+                    joined_batch_inputs = inputs
+                    joined_batch_labels = labels
+
+                fwd_inputs = copy.deepcopy(joined_batch_inputs)  # SlowFast in-place alters the inputs
                 preds = self.lightning_module.forward(fwd_inputs, return_feats=False)
                 loss_action, loss_verb, loss_noun = OnlineLossMetric.get_losses_from_preds(
-                    preds, labels, self.loss_fun_train, mean=False
+                    preds, joined_batch_labels, self.loss_fun_train, mean=True
                 )
 
             opt.zero_grad()  # Also clean grads for final
