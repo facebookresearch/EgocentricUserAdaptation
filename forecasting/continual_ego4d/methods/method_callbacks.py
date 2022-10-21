@@ -776,7 +776,7 @@ class Replay(Method):
         assert self.storage_policy in self.storage_policies
 
         self.train_stream_dataset = lightning_module.train_dataloader().dataset
-        self.num_workers_replay = 1  # Only a single batch is retrieved
+        self.num_workers_replay = cfg.METHOD.REPLAY.NUM_WORKERS  # Retrieve all batches in parallel
 
         self.conditional_memory: dict[Any, list] = OrderedDict({})  # Map <Conditional, datastream_idx_list>
         self.memory_dataloader_idxs = []  # Use this to update the memory indices of the stream
@@ -815,7 +815,7 @@ class Replay(Method):
 
         # Retrieve from memory
         if num_samples_retrieve == 0:
-            joined_batches = [new_batch]  # Return new batch only
+            joined_batches = [new_batch] * n_sample_rounds  # Return new batch only
 
         else:
             joined_batches = []
@@ -865,26 +865,34 @@ class Replay(Method):
 
     def load_stream_idxs(self, stream_idxs: list[int]) -> Tensor:
         """ Create loader and load all selected samples in stream at once.  """
-        logger.debug(f"Retrieving {len(stream_idxs)} samples from memory: {stream_idxs}")
+        logger.debug(f"LOADING {len(stream_idxs)} memory stream idxs: {stream_idxs}")
 
         # Load the samples from history of stream
         stream_subset = torch.utils.data.Subset(self.train_stream_dataset, stream_idxs)
 
         loader = torch.utils.data.DataLoader(
             stream_subset,
-            batch_size=len(stream_idxs),
+            batch_size=max(1, len(stream_idxs) // self.num_workers_replay),
             num_workers=self.num_workers_replay,
             shuffle=False, pin_memory=True, drop_last=False,
         )
         logger.debug(f"Created Replay dataloader. batch_size={loader.batch_size}, "
                      f"samples={len(stream_idxs)}, num_batches={len(loader)}")
 
-        assert len(loader) == 1, f"Dataloader should return all in 1 batch."
-        mem_batch = next(iter(loader))
-        return mem_batch
+        full_batch = None
+        for new_batch in loader:
+            if full_batch is None:
+                full_batch = new_batch
+            else:
+                full_batch = self.concat_batches(full_batch, new_batch)
+
+        return full_batch
 
     @staticmethod
-    def concat_batches(batch1, batch2, device):
+    def concat_batches(batch1, batch2, device=None):
+        if device is None:  # Pick a default device
+            device = batch1[1].device
+
         # inputs, labels, video_names, stream_sample_idxs = batch
         joined_batch = [None] * 4
 
@@ -914,11 +922,8 @@ class Replay(Method):
         inputs_ret: tuple[torch.Tensor, torch.Tensor] = (
             inputs[0][selected_idxs], inputs[1][selected_idxs]
         )
-
         labels_ret: torch.Tensor = labels[selected_idxs]
-
         video_names_ret: list[str] = [video_name for idx, video_name in enumerate(video_names) if idx in selected_idxs]
-
         stream_sample_idxs_t_ret: torch.Tensor = stream_sample_idxs_t[selected_idxs]
 
         return (inputs_ret, labels_ret, video_names_ret, stream_sample_idxs_t_ret)
@@ -1008,13 +1013,6 @@ class Replay(Method):
             }
         }
 
-        # Store samples
-        self._store_samples_in_replay_memory(labels[:self.new_batch_size], current_batch_stream_idxs)
-
-        # Update size
-        self.num_samples_memory = sum(len(cond_mem) for cond_mem in self.conditional_memory.values())
-        logger.info(f"[REPLAY] nb samples in memory = {self.num_samples_memory}/{self.total_mem_size}")
-
         return loss_total_actions_m, preds, log_results
 
     def log_gradient_analysis_(self, log_results, loss_new_actions_m, loss_mem_actions_m, new_only=False):
@@ -1074,10 +1072,11 @@ class Replay(Method):
         """ Given the loss from the first forward, update for inner_loop_iters. """
         opt = self.lightning_module.optimizers()
 
-        # TODO: Efficient loading for multi-iter (dataloading = bottleneck)
+        # Efficient loading for multi-iter (dataloading = bottleneck)
         if self.lightning_module.inner_loop_iters > 1 and self.resample_multi_iter:  # Prefetch data all at once
             n_sample_rounds = self.lightning_module.inner_loop_iters - 1  # First one already sampled on entering
             joined_batches = self.new_batch_to_joined_batches(self._current_new_batch, n_sample_rounds=n_sample_rounds)
+            assert len(joined_batches) == n_sample_rounds
 
         assert self.lightning_module.inner_loop_iters >= 1
         for inner_iter in range(1, self.lightning_module.inner_loop_iters + 1):
@@ -1087,7 +1086,7 @@ class Replay(Method):
 
             else:
                 # Resample from replay buffer: Reset inputs/labels
-                if self.resample_multi_iter:
+                if self.resample_multi_iter:  # inner iter >=2
                     joined_batch_idx = inner_iter - 2  # Skip first and one offset in inner_iter loop
                     joined_batch = joined_batches[joined_batch_idx]
                     joined_batch_inputs = joined_batch[0]
@@ -1108,6 +1107,14 @@ class Replay(Method):
             opt.step()
             logger.info(f"[INNER-LOOP UPDATE] iter {inner_iter}/{self.lightning_module.inner_loop_iters}: "
                         f"fwd, bwd, step. Action_loss={loss_action.item()}")
+
+        # Store samples after updates
+        self._store_samples_in_replay_memory(labels[:self.new_batch_size], current_batch_stream_idxs)
+
+        # Update size
+        self.num_samples_memory = sum(len(cond_mem) for cond_mem in self.conditional_memory.values())
+        logger.info(f"[REPLAY] nb samples in memory = {self.num_samples_memory}/{self.total_mem_size}")
+        assert self.num_samples_memory <= self.total_mem_size
 
     def _store_samples_in_replay_memory(self, current_batch_labels: torch.LongTensor, current_batch_stream_idxs: list):
 

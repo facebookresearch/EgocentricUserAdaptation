@@ -96,6 +96,7 @@ _C.METHOD.REPLAY.MEMORY_SIZE_SAMPLES = 1000
 _C.METHOD.REPLAY.STORAGE_POLICY = "reservoir_stream"
 _C.METHOD.REPLAY.ANALYZE_GRADS = False
 _C.METHOD.REPLAY.RESAMPLE_MULTI_ITER = True
+_C.METHOD.REPLAY.NUM_WORKERS = 4
 
 # ---------------------------------------------------------------------------- #
 # Batch norm options
