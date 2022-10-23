@@ -30,8 +30,7 @@ from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
 from scripts.slurm import copy_and_run_with_config
 import os
 
-from continual_ego4d.utils.models import freeze_backbone_not_head, model_trainable_summary, freeze_full_model
-
+from continual_ego4d.utils.models import freeze_backbone_not_head, model_trainable_summary, freeze_full_model, freeze_head
 from fvcore.common.config import CfgNode
 
 logger = logging.get_logger(__name__)
@@ -292,6 +291,10 @@ def online_adaptation_single_user(
 
     if cfg.MODEL.FREEZE_MODEL:
         freeze_full_model(task.model)
+
+    if cfg.MODEL.FREEZE_HEAD:
+        freeze_head(task.model)
+
 
     # Print summary
     model_trainable_summary(task.model)
