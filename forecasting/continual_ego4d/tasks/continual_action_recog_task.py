@@ -357,6 +357,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.batch_metric_results = {}  # Stateful share metrics between different phases so can be reused
 
         self.current_batch_metrics = self._get_current_batch_metrics()
+        self.current_batch_after_update_metrics = self._get_current_batch_after_update_metrics()
         self.future_metrics = []  # Empty metric-list skips future eval
         self.past_metrics = self._get_past_metrics()
         self.all_metrics = [*self.current_batch_metrics, *self.future_metrics, *self.past_metrics]
@@ -466,6 +467,46 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                                    pretrain_action_instance_count=pretrain_action_instance_count,
                                    ),
             ])
+
+        return batch_metrics
+
+    def _get_current_batch_after_update_metrics(self, tag="POST_UPDATE_BATCH"):
+        batch_metrics = []
+
+        for mode in ['verb', 'noun', 'action']:
+
+            # Measure OAG online (improvements over pretrain, collected in predict phase)
+            if self.cfg.CONTINUAL_EVAL.ONLINE_OAG:
+                batch_metrics.extend([
+                    # ADAPT METRICS
+                    OnlineAdaptationGainMetric(
+                        tag, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
+                        loss_mode=mode),
+                    RunningAvgOnlineAdaptationGainMetric(
+                        tag, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
+                        loss_mode=mode),
+                    CumulativeOnlineAdaptationGainMetric(
+                        tag, self.loss_fun_unred, self.pretrain_state.sample_idx_to_pretrain_loss,
+                        loss_mode=mode),
+                ])
+
+            # TOP1-ACC
+            batch_metrics.extend([
+                # LOSS/ACC
+                OnlineTopkAccMetric(tag, k=1, mode=mode),
+                RunningAvgOnlineTopkAccMetric(tag, k=1, mode=mode),
+                # OnlineLossMetric -> Standard included for training
+
+                RunningAvgOnlineLossMetric(tag, loss_fun=self.loss_fun_unred, mode=mode),
+                RunningBalancedTopkAccMetric(tag, k=1, action_mode=mode),
+            ])
+
+            # TOP5-ACC
+            if mode in ['verb', 'noun']:
+                batch_metrics.extend([
+                    OnlineTopkAccMetric(tag, k=5, mode=mode),
+                    RunningAvgOnlineTopkAccMetric(tag, k=5, mode=mode)
+                ])
 
         return batch_metrics
 
@@ -712,31 +753,26 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                          for i in range(len(full_slowfast_inputs))]
         stream_labels = full_labels[:self.stream_state.stream_batch_size]
 
+        logger.debug(f"Forwarding POST UPDATE")
         post_update_preds = self.forward(stream_inputs)
 
-        post_loss_action, post_loss_verb, post_loss_noun = OnlineLossMetric.get_losses_from_preds(
-            post_update_preds, stream_labels, self.loss_fun_unred, mean=True
-        )
+        logger.debug(f"Gathering POST UPDATE metrics")
+        assert post_update_preds[0].shape[0] == post_update_preds[1].shape[0], \
+            "Verbs and nouns output dims should be equal"
+        assert post_update_preds[0].shape[0] == stream_labels.shape[0], \
+            "Batch dim for input and label should be equal"
+        assert post_update_preds[0].shape[0] == self.stream_state.stream_batch_size, \
+            "Eval on current batch should only contain new stream samples. Not samples from altered batch"
 
-        # Deltas
-        pre_loss_action = self.batch_metric_results[
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='loss')
-        ]
-        pre_loss_verb = self.batch_metric_results[
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb', base_metric_name='loss')
-        ]
-        pre_loss_noun = self.batch_metric_results[
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun', base_metric_name='loss')
-        ]
+        # Update metrics
+        for metric in self.current_batch_after_update_metrics:
+            metric.update(post_update_preds, stream_labels, self.stream_state.stream_batch_sample_idxs,
+                          stream_state=self.stream_state)
 
-        results = {
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='post-pre_loss'):
-                float(post_loss_action - pre_loss_action),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb', base_metric_name='post-pre_loss'):
-                float(post_loss_verb - pre_loss_verb),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun', base_metric_name='post-pre_loss'):
-                float(post_loss_noun - pre_loss_noun),
-        }
+        # Gather results from metrics
+        results = {}
+        for metric in self.current_batch_after_update_metrics:
+            results = {**results, **metric.result(self.stream_state.batch_idx)}
 
         self.add_to_dict_(step_result, results)
 
