@@ -90,6 +90,8 @@ _C.WANDB.MODE = "online"  # Split based on comma
 # ---------------------------------------------------------------------------- #
 _C.METHOD = CfgNode()
 _C.METHOD.METHOD_NAME = "Finetuning"
+_C.METHOD.ANALYZE_GRADS_WINDOW = False  # Compare current grad with grad in prev
+_C.METHOD.MAX_ANALYZE_GRADS_WINDOW_SIZE = 10  # If ANALYZE_GRADS_WINDOW=True, how many grads to go back to
 
 _C.METHOD.REPLAY = CfgNode()
 _C.METHOD.REPLAY.MEMORY_SIZE_SAMPLES = 1000
@@ -335,8 +337,9 @@ _C.MODEL.HEAD_TTC_ACT = "softplus"
 _C.MODEL.MULTI_INPUT_FEATURES = 2048
 
 # If True, freezes clip feature backbone.
-_C.MODEL.FREEZE_BACKBONE = False
-_C.MODEL.FREEZE_MODEL = False
+_C.MODEL.FREEZE_BACKBONE = False  # Freeze feat extractor
+_C.MODEL.FREEZE_MODEL = False  # Freeze entire model
+_C.MODEL.FREEZE_HEAD = False  # Freeze classifier
 
 # Transformer number of heads.
 _C.MODEL.TRANSFORMER_ENCODER_HEADS = 8
