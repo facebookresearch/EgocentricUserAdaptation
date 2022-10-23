@@ -1,3 +1,4 @@
+ENABLE_FEW_SHOT: False
 FAST_DEV_RUN: False
 OUTPUT_DIR: "" # OVERWRITTEN IN CALLING-SCRIPT
 RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/
@@ -7,14 +8,16 @@ NUM_USERS_PER_DEVICE: 1
 METHOD:
   METHOD_NAME: "Replay"
   REPLAY:
-    MEMORY_SIZE_SAMPLES: 1000000
-    STORAGE_POLICY: "reservoir_stream"
-    NUM_WORKERS: 4
+    STORAGE_POLICY: "reservoir_action"
+    MEMORY_SIZE_SAMPLES: 64
+TEST:
+  ENABLE: False
 CONTINUAL_EVAL:
-  FREQ: 10000 # SKIP
+  FREQ: 1 # Make sure to set to 1!
   BATCH_SIZE: 8 # For speedup with parallel dataloading
   NUM_WORKERS: 8 # Half for not overloading server
-  PAST_SAMPLE_CAPACITY: 64
+  PAST_SAMPLER_MODE: 'full' #'windowed'
+  PAST_SAMPLE_CAPACITY: 1000000 # Not used
 PREDICT_PHASE:
   BATCH_SIZE: 10
   NUM_WORKERS: 8
@@ -59,6 +62,7 @@ SOLVER:
   LR_POLICY: constant
   MAX_EPOCH: 1
   MOMENTUM: 0.0
+  NESTEROV: True # If 0, should set to False
   OPTIMIZING_METHOD: sgd
   WEIGHT_DECAY: 0.0
 MODEL:
@@ -68,7 +72,7 @@ MODEL:
   LOSS_FUNC: cross_entropy
   DROPOUT_RATE: 0.5
 DATA_LOADER:
-  NUM_WORKERS: 8
+  NUM_WORKERS: 2 # Only current-training batch, and due to eval next one will have quite some time
   PIN_MEMORY: True
 NUM_GPUS: 1
 NUM_SHARDS: 1

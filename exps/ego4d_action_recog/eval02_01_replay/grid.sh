@@ -2,17 +2,17 @@
 
 grid_cfg_names="METHOD.REPLAY.MEMORY_SIZE_SAMPLES,METHOD.REPLAY.STORAGE_POLICY" # Split by comma
 
-val_idx=2
+val_idx=1
 gridvals=("reservoir_stream" "reservoir_action" "window")
 grid_arg="METHOD.REPLAY.STORAGE_POLICY ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
-val_idx=1
+val_idx=0
 gridvals=( 64 1000000 )
 grid_arg="METHOD.REPLAY.MEMORY_SIZE_SAMPLES ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
-grid_overwrite_args+=" GPU_IDS 2,3 NUM_USERS_PER_DEVICE 2 GRID_RESUME_LATEST True" # 0,7
+grid_overwrite_args+=" GPU_IDS 0,1,2,3,4,5 NUM_USERS_PER_DEVICE 1 GRID_RESUME_LATEST True" # 0,7
 echo "grid_overwrite_args=$grid_overwrite_args"
 
 # Run script in current dir (same process with source)

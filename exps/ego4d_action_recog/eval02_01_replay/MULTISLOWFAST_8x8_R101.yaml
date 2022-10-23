@@ -9,6 +9,7 @@ METHOD:
   REPLAY:
     MEMORY_SIZE_SAMPLES: 1000000
     STORAGE_POLICY: "reservoir_stream"
+    NUM_WORKERS: 4
 CONTINUAL_EVAL:
   FREQ: -1 # SKIP
   BATCH_SIZE: 8 # For speedup with parallel dataloading

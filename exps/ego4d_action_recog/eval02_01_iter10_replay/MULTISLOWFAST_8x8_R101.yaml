@@ -9,9 +9,8 @@ METHOD:
   REPLAY:
     MEMORY_SIZE_SAMPLES: 1000000
     STORAGE_POLICY: "reservoir_stream"
-    NUM_WORKERS: 4
 CONTINUAL_EVAL:
-  FREQ: 10000 # SKIP
+  FREQ: -1 # SKIP
   BATCH_SIZE: 8 # For speedup with parallel dataloading
   NUM_WORKERS: 8 # Half for not overloading server
   PAST_SAMPLE_CAPACITY: 64
@@ -19,11 +18,12 @@ PREDICT_PHASE:
   BATCH_SIZE: 10
   NUM_WORKERS: 8
 TRAIN:
+  INNER_LOOP_ITERS: 10
   ENABLE: True
   DATASET: Ego4dContinualRecognition
   BATCH_SIZE: 4 # Process 1 new video-subsequence a time (Online)
 DATA:
-  USER_SUBSET: 'train' # train or test usersplit
+  USER_SUBSET: 'test' # train or test usersplit
   TARGET_FPS: 30
   NUM_FRAMES: 32
   SAMPLING_RATE: 2

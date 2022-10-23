@@ -10,8 +10,12 @@ TRANSFER_EVAL:
   # Final02_01
 #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-09T10_50_16.573-07_00.csv"
 #  CSV_RANGE: (0,4)
+# Final02_01: Reservoir-action fix
+#  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-18T13_56_51.654-07_00.csv"
   # Final03_01: fixed feats
 #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-09T11_23_33.094-07_00.csv"
+  # Final03_02: fixed head
+  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-21T21_49_24.845-07_00.csv"
   # Final07_01: multi iter
 #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-09T12_10_59.286-07_00.csv"
 #  CSV_RANGE: (0,None)
@@ -20,7 +24,14 @@ TRANSFER_EVAL:
 # Final14_01: Replay head retrain 0.01
 #  WANDB_GROUP_TO_EVAL: "Finetuning_2022-10-05_05-48-18_UID11ce17bb-0afa-46c7-8934-978c9a45ba6c"
 # Final14_02: SGD head retrain 0.01
-  WANDB_GROUP_TO_EVAL: "Finetuning_2022-10-04_22-54-45_UID3861e638-75a4-4dee-9e89-2b6fb98f971a"
+#  WANDB_GROUP_TO_EVAL: "Finetuning_2022-10-04_22-54-45_UID3861e638-75a4-4dee-9e89-2b6fb98f971a"
+
+# Final11: Feat-classifier LR async SGD
+#  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-20T12_50_20.021-07_00.csv"
+#  CSV_RANGE: (0,4)
+# Final17: Momentum async
+#  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-20T12_41_20.072-07_00.csv"
+
 
   DIAGONAL_ONLY: True # Cartesian product or only user-model with same user-stream.
   INCLUDE_PRETRAIN_STREAM: False
@@ -32,12 +43,12 @@ TRANSFER_EVAL:
   PRETRAIN_TEST_USERS_GROUP_WANDB: "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4"
 
 CHECKPOINT_LOAD_MODEL_HEAD: True
-NUM_USERS_PER_DEVICE: 4 # Model-stream pairs in parallel on 1 device
+NUM_USERS_PER_DEVICE: 2 # Model-stream pairs in parallel on 1 device
 GPU_IDS: None
 NUM_GPUS: 1
 
 PREDICT_PHASE:
-  NUM_WORKERS: 4
+  NUM_WORKERS: 9
   BATCH_SIZE: 10 # 10=5G/user
 
 # Debug/fast run

@@ -5,13 +5,13 @@ grid_cfg_names="SOLVER.BASE_LR,SOLVER.MOMENTUM,SOLVER.NESTEROV,SOLVER.MOMENTUM_F
 grid_overwrite_args=""
 
 # GRID momentum strength FEAT-only
-val_idx=3
+val_idx=0
 gridvals=("0.0" "0.3" "0.6" "0.9")
 grid_arg="SOLVER.MOMENTUM_FEAT ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
 # GRID momentum strength CLASSIFIER-only
-val_idx=0
+val_idx=2
 gridvals=("0.0" "0.3" "0.6" "0.9")
 grid_arg="SOLVER.MOMENTUM_HEAD ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
@@ -29,7 +29,7 @@ grid_arg="SOLVER.NESTEROV ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
 # Grid specific resources
-grid_overwrite_args+=" GPU_IDS 6 NUM_USERS_PER_DEVICE 2 GRID_RESUME_LATEST False DATA_LOADER.NUM_WORKERS 6 WANDB.MODE 'online'" # 0,7
+grid_overwrite_args+=" GPU_IDS 1,2,3,4,5,7 NUM_USERS_PER_DEVICE 1 GRID_RESUME_LATEST True DATA_LOADER.NUM_WORKERS 10 WANDB.MODE 'online'" # 0,7
 
 # Report final
 echo "grid_overwrite_args=$grid_overwrite_args"

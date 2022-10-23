@@ -1,21 +1,32 @@
 #!/usr/bin/env bash
 
 # For sgd
-grid_cfg_names="SOLVER.BASE_LR,TRAIN.INNER_LOOP_ITERS" # Split by comma
+grid_cfg_names="SOLVER.BASE_LR,SOLVER.MOMENTUM,SOLVER.NESTEROV" # Split by comma
 grid_overwrite_args=""
 
-val_idx=1 # TODO RUN
-gridvals=( "1e-1" "1e-2" "1e-3")
+val_idx=0 # TODO RUN
+gridvals=( "1e-2" )
 grid_arg="SOLVER.BASE_LR ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
-val_idx=5
-gridvals=( "2" "3" "5" "10" "15" "20" "30")
+val_idx=0
+gridvals=( "0." )
+grid_arg="SOLVER.MOMENTUM ${gridvals[${val_idx}]}"
+grid_overwrite_args+=" ${grid_arg}"
+
+val_idx=0
+gridvals=( True False )
+grid_arg="SOLVER.NESTEROV ${gridvals[${val_idx}]}"
+grid_overwrite_args+=" ${grid_arg}"
+
+val_idx=0
+gridvals=( "10" )
 grid_arg="TRAIN.INNER_LOOP_ITERS ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
+
 # Grid specific resources
-grid_overwrite_args+=" DATA_LOADER.NUM_WORKERS 12 GPU_IDS 0,3 NUM_USERS_PER_DEVICE 1 GRID_RESUME_LATEST True" # 1,2,3,4,5,7
+grid_overwrite_args+=" GPU_IDS 0,1,2,3 NUM_USERS_PER_DEVICE 2 GRID_RESUME_LATEST True" # 0,7
 
 # Report final
 echo "grid_overwrite_args=$grid_overwrite_args"

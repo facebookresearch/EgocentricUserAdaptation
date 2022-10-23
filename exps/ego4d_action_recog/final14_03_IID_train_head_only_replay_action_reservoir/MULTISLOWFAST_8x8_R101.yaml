@@ -1,3 +1,4 @@
+ENABLE_FEW_SHOT: False
 FAST_DEV_RUN: False
 OUTPUT_DIR: "" # OVERWRITTEN IN CALLING-SCRIPT
 RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/
@@ -5,13 +6,22 @@ CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
 CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
 NUM_USERS_PER_DEVICE: 1
 METHOD:
-  METHOD_NAME: "Replay"
-  REPLAY:
-    MEMORY_SIZE_SAMPLES: 1000000
-    STORAGE_POLICY: "reservoir_stream"
-    NUM_WORKERS: 4
+  METHOD_NAME: "Finetuning"
+DATA:
+  SHUFFLE_DS_ORDER: False # Define this for IIDFinetuning
+  USER_SUBSET: 'train' # train or test usersplit
+  TARGET_FPS: 30
+  NUM_FRAMES: 32
+  SAMPLING_RATE: 2
+  TRAIN_JITTER_SCALES: [ 256, 320 ]
+  TRAIN_CROP_SIZE: 224
+  TEST_CROP_SIZE: 256
+  INPUT_CHANNEL_NUM: [ 3, 3 ]
+  TASK: "iid_classification" # IID classificaiton required for multi-epoch training without tracking performance.
+TEST:
+  ENABLE: False
 CONTINUAL_EVAL:
-  FREQ: 10000 # SKIP
+  FREQ: -1
   BATCH_SIZE: 8 # For speedup with parallel dataloading
   NUM_WORKERS: 8 # Half for not overloading server
   PAST_SAMPLE_CAPACITY: 64
@@ -21,17 +31,8 @@ PREDICT_PHASE:
 TRAIN:
   ENABLE: True
   DATASET: Ego4dContinualRecognition
-  BATCH_SIZE: 4 # Process 1 new video-subsequence a time (Online)
-DATA:
-  USER_SUBSET: 'train' # train or test usersplit
-  TARGET_FPS: 30
-  NUM_FRAMES: 32
-  SAMPLING_RATE: 2
-  TRAIN_JITTER_SCALES: [ 256, 320 ]
-  TRAIN_CROP_SIZE: 224
-  TEST_CROP_SIZE: 256
-  INPUT_CHANNEL_NUM: [ 3, 3 ]
-  TASK: "continual_classification"
+  BATCH_SIZE: 32 # Process 1 new video-subsequence a time (Online)
+
 SLOWFAST:
   ALPHA: 4
   BETA_INV: 8
@@ -57,8 +58,9 @@ BN:
 SOLVER:
   BASE_LR: 1e-2
   LR_POLICY: constant
-  MAX_EPOCH: 1
+  MAX_EPOCH: 10 # Train head for 10 epochs
   MOMENTUM: 0.0
+  NESTEROV: True # If 0, should set to False
   OPTIMIZING_METHOD: sgd
   WEIGHT_DECAY: 0.0
 MODEL:
@@ -68,7 +70,7 @@ MODEL:
   LOSS_FUNC: cross_entropy
   DROPOUT_RATE: 0.5
 DATA_LOADER:
-  NUM_WORKERS: 8
+  NUM_WORKERS: 2 # Only current-training batch, and due to eval next one will have quite some time
   PIN_MEMORY: True
 NUM_GPUS: 1
 NUM_SHARDS: 1
