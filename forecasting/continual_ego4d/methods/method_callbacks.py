@@ -51,6 +51,11 @@ class Method:
         self.loss_fun_train = self.lightning_module.loss_fun_unred
         self.loss_fun_pred = self.lightning_module.loss_fun_unred
 
+        # Compare current gradient with previous steps
+        self.compare_gradients = cfg.METHOD.ANALYZE_GRADS_WINDOW
+        self.max_gradient_window_size = cfg.METHOD.MAX_ANALYZE_GRADS_WINDOW_SIZE
+        self._gradient_window = deque()  # FIFO: From Old to new
+
     def train_before_update_batch_adapt(self, batch: Any, batch_idx: int) -> Any:
         return batch
 
@@ -109,6 +114,7 @@ class Method:
         - we do updates in this method on all N-1 iterations,
         - For final iteration: we return the loss for normal flow in PL.
         """
+        log_results = {}
 
         fwd_inputs = copy.deepcopy(inputs)  # SlowFast in-place alters the inputs
         preds, feats = self.lightning_module.forward(fwd_inputs, return_feats=True)
@@ -132,14 +138,22 @@ class Method:
         loss_verb_m = loss_verb.mean()
         loss_noun_m = loss_noun.mean()
 
+        # import pdb;pdb.set_trace()
+        if self.compare_gradients:
+            self.log_gradient_analysis_(log_results, loss_action_m)
+
         log_results = {
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='loss'):
-                loss_action_m.item(),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb', base_metric_name='loss'):
-                loss_verb_m.item(),
-            get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun', base_metric_name='loss'):
-                loss_noun_m.item(),
+            **log_results,
+            **{
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='action', base_metric_name='loss'):
+                    loss_action_m.item(),
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='verb', base_metric_name='loss'):
+                    loss_verb_m.item(),
+                get_metric_tag(TAG_BATCH, train_mode='train', action_mode='noun', base_metric_name='loss'):
+                    loss_noun_m.item(),
+            }
         }
+
         return loss_action_m, preds, log_results
 
     def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
@@ -195,6 +209,68 @@ class Method:
             sample_to_label[stream_sample_idx] = tuple(labels[batch_idx].cpu().tolist())
 
         return sample_to_pred, sample_to_label, sample_to_loss
+
+    def log_gradient_analysis_(self, log_results, loss_stream_m):
+        logger.debug(f"Comparing current batch gradient with window of previous")
+
+        nb_grads_to_lookback = min(self.max_gradient_window_size, len(self._gradient_window))
+        logger.debug(f"#grads to go back in history: {nb_grads_to_lookback}")
+
+        opt = self.lightning_module.optimizers()
+
+        # NEW batch
+        opt.zero_grad()  # Make sure no grads
+        self.lightning_module.manual_backward(loss_stream_m, retain_graph=True)  # keep intermediate vals
+        current_grad_dict = get_name_to_grad_dict(self.lightning_module.model)
+        opt.zero_grad()  # Clear gradients again for later full backprop
+
+        # Now get for all subsets of grads the norm and cos-sim
+        for nb_steps_lookback in range(1, len(self._gradient_window) + 1):
+            for log_name, grad_name_filters, filter_incl in [
+                ("full", None, True),
+                ("slow", ['pathway0'], True),
+                ("fast", ['pathway1'], True),
+                ("head", ['head'], True),
+                ("feat", ['head'], False),  # all but head
+            ]:
+                grad_mem_idx = len(self._gradient_window) - nb_steps_lookback
+                log_prefix = f"LOOKBACK_STEP_{nb_steps_lookback}/{log_name}"
+
+                # CURRENT results
+                current_grad = grad_dict_to_vector(current_grad_dict, grad_name_filters,
+                                                   include_filter=filter_incl, verbose=nb_grads_to_lookback == 1)
+                current_grad_norm = current_grad.pow(2).sum().sqrt().item()  # Get L2 norm
+
+                # Add results
+                log_results[
+                    get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='action',
+                                   base_metric_name=f"{log_prefix}_current_grad_norm")
+                ] = current_grad_norm
+
+                # grad MEM result
+                mem_grad_dict = self._gradient_window[grad_mem_idx]
+                mem_grad = grad_dict_to_vector(mem_grad_dict, grad_name_filters,
+                                               include_filter=filter_incl, verbose=nb_grads_to_lookback == 1)
+                mem_grad_norm = mem_grad.pow(2).sum().sqrt().item()  # Get L2 norm
+
+                log_results[
+                    get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='action',
+                                   base_metric_name=f"{log_prefix}_mem_grad_norm")
+                ] = mem_grad_norm
+
+                grad_cos_sim = (F.normalize(current_grad, p=2, dim=0) * F.normalize(mem_grad, p=2, dim=0)).sum().item()
+
+                log_results[
+                    get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='action',
+                                   base_metric_name=f"{log_prefix}_grad_cos_sim")
+                ] = grad_cos_sim
+
+        # Update window grad memory
+        self._gradient_window.append(current_grad_dict)  # Add current as newest
+        if len(self._gradient_window) > self.max_gradient_window_size:
+            self._gradient_window.popleft()
+
+        logger.info(f"GRADIENT MEMORY SIZE: {len(self._gradient_window)}/{self.max_gradient_window_size}")
 
 
 @METHOD_REGISTRY.register()
@@ -1054,7 +1130,7 @@ class Replay(Method):
             # MEM results
             if not new_only:
                 mem_grad = grad_dict_to_vector(mem_grad_dict, grad_name_filters, include_filter=filter_incl)
-                mem_grad_norm = new_grad.pow(2).sum().sqrt().item()  # Get L2 norm
+                mem_grad_norm = mem_grad.pow(2).sum().sqrt().item()  # Get L2 norm
 
                 grad_cos_sim = (F.normalize(new_grad, p=2, dim=0) * F.normalize(mem_grad, p=2, dim=0)).sum().item()
 

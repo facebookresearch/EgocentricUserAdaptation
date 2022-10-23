@@ -25,7 +25,7 @@ def get_name_to_grad_dict(model: torch.nn.Module):
     return ret
 
 
-def grad_dict_to_vector(grad_dict: dict[torch.Tensor], name_filters: list[str] = None, include_filter=True):
+def grad_dict_to_vector(grad_dict: dict[torch.Tensor], name_filters: list[str] = None, include_filter=True, verbose=True):
     """
     [x[0] for x in list(model.named_parameters())]
     :param name_filters: list of strings. If not None, only select grads with names containing any of the strings.
@@ -76,8 +76,9 @@ def grad_dict_to_vector(grad_dict: dict[torch.Tensor], name_filters: list[str] =
             flat_grad[offset_idx: offset_idx + param_size].copy_(param_grad.clone().view(-1))
             offset_idx += param_size
 
-            logger.debug(f"GRADIENT SUMMARY: include_filters={include_filter}, name_filters={name_filters}. "
-                         f"grad_name = '{grad_name}' contains {param_size} dim grad.")
+            if verbose:
+                logger.debug(f"GRADIENT SUMMARY: include_filters={include_filter}, name_filters={name_filters}. "
+                             f"grad_name = '{grad_name}' contains {param_size} dim grad.")
 
     return flat_grad
 
@@ -149,6 +150,11 @@ def freeze_backbone_not_head(model):
     # Never freeze head.
     for param in model.head.parameters():
         param.requires_grad = True
+
+def freeze_head(model):
+    """ Freeze all params in head. """
+    for param in model.head.parameters():
+        param.requires_grad = False
 
 
 def model_trainable_summary(model):
