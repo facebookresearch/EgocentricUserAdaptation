@@ -55,14 +55,16 @@ MODES = [
     'adhoc_metrics_from_csv_dump_to_wandb',
     'avg_and_delta_avg_results_over_user_streams',
     'aggregate_test_results_over_user_streams',
-    'aggregate_OAG_over_user_streams',  # online OAG
+    'running_avg_to_avg_and_delta',
+    'running_avg_to_avg',
+    'stream_result_list_to_user_avg_and_aggregated_avg'
 ]
 # Adapt settings
 MODE = MODES[0]
-train = False
-csv_filename = 'wandb_export_2022-10-17T21_12_44.943-07_00.csv'  # TODO copy file here and past name here
+train = True
+csv_filename = 'wandb_export_2022-10-25T10_26_41.488-07_00.csv'  # TODO copy file here and past name here
 single_group_name = None
-# single_group_name = "LabelWindowPredictor_2022-10-13_15-59-56_UIDf78d3933-cd47-468c-83dd-1c34cd1de446"
+single_group_name = "Finetuning_2022-09-14_19-06-02_UID2c4355e2-c42c-46d9-ba37-8cb8abe8d1d0_MATT"
 remote = True
 
 if train:
@@ -94,6 +96,62 @@ NEW_METRIC_PREFIX_SE = 'SE'  # Unbiased standard error
 USER_AGGREGATE_COUNT = f"{NEW_METRIC_PREFIX}/user_aggregate_count"  # Over how many users added, also used to check if processed
 
 
+def stream_result_list_to_user_avg_and_aggregated_avg(selected_group_names, overwrite=True, ):
+    """
+    Average over per-sample stream result during training, and then avg equally-weighted over users.
+    Used for gradient-analysis monitoring with previous grad-steps.
+    """
+    res = {}
+    stream_avg_postfix = "/stream_avg"
+    metric_names = [f"analyze_action_batch/LOOKBACK_STEP_{nb_steps_lookback}/{model_part}_grad_cos_sim"
+                    for model_part in ["full", "slow", "fast", "head", "feat", ]
+                    for nb_steps_lookback in range(1, 11)]
+
+    def _save_to_wandb_summary(metric_name, user_val, user_run):
+        if overwrite or metric_name not in user_run.summary:
+            user_run.summary[metric_name] = user_val
+            print(f"USER[{user_id}] Updated [{metric_name}] = {user_val}")
+
+    # Collect from wandb
+    for group_name in selected_group_names:
+        print(f"\nUpdating group: {group_name}")
+
+        # Count users and check
+        group_users = []
+        for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=None)):
+            group_users.append(user_run.config['DATA.COMPUTED_USER_ID'])
+
+        if len(group_users) != NB_EXPECTED_USERS:
+            print(f"Users {group_users} (#{len(group_users)}) NOT EQUAL TO expected {NB_EXPECTED_USERS}")
+            print(f"SKIPPING group: {group_name}")
+            continue
+
+        # Iterate user-runs in group
+        for idx, user_run in enumerate(get_group_run_iterator(PROJECT_NAME, group_name, run_filter=None)):
+
+            # Get CSV DUMP locally
+            user_id: str = user_run.config['DATA.COMPUTED_USER_ID']
+
+            # Average over stream
+            user_df = user_run.history()  # Dataframe
+            for metric_name in metric_names:
+                metric_stream_avg = user_df[metric_name].mean()
+                metric_stream_avg_name = f"{metric_name}{stream_avg_postfix}"
+                res[metric_stream_avg_name] = metric_stream_avg
+
+                # Upload
+                _save_to_wandb_summary(metric_stream_avg_name, metric_stream_avg, user_run)
+
+    print(f"Finished processing")
+
+    print(f"Aggregating over users in separate step: \n{pprint.pformat(metric_names)}")
+    avg_and_delta_avg_results_over_user_streams(
+        selected_group_names,
+        metrics=metric_names,
+        skip_pretrain_delta=True
+    )
+
+
 def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, conditional_analysis=False,
                                          skip_pretrain_delta=False):
     """
@@ -103,10 +161,14 @@ def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, c
     """
 
     action_modes = ('action', 'verb', 'noun')
-    metric_names = set()
+    metric_names_AG = set()
+    metric_names_nonAG = set()
 
-    def _save_to_wandb_summary(metric_name, user_val, user_run):
-        metric_names.add(metric_name)
+    def _save_to_wandb_summary(metric_name, user_val, user_run, add_to_AG=True):
+        if add_to_AG:
+            metric_names_AG.add(metric_name)
+        else:
+            metric_names_nonAG.add(metric_name)
         if overwrite or metric_name not in user_run.summary:
             user_run.summary[metric_name] = user_val
             print(f"USER[{user_id}] Updated [{metric_name}] = {user_val}")
@@ -163,6 +225,22 @@ def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, c
                 user_val, metric_name = dump_to_ACC(user_dump_dict, action_mode, macro_avg=True)
                 _save_to_wandb_summary(metric_name, user_val, user_run)
 
+                # Get decorrelated ACC and percentage + nb of sample it is measured over
+                AG_metric_dict, non_AG_metric_dict = dump_to_decorrelated_ACC(
+                    user_dump_dict, action_mode, macro_avg=True, correlated=False)
+                for metric_name, user_val in AG_metric_dict.items():
+                    _save_to_wandb_summary(metric_name, user_val, user_run, add_to_AG=True)
+                for metric_name, user_val in non_AG_metric_dict.items():
+                    _save_to_wandb_summary(metric_name, user_val, user_run, add_to_AG=False)
+
+                # Get CORRELATED ACC and percentage + nb of sample it is measured over
+                AG_metric_dict, non_AG_metric_dict = dump_to_decorrelated_ACC(
+                    user_dump_dict, action_mode, macro_avg=True, correlated=True)
+                for metric_name, user_val in AG_metric_dict.items():
+                    _save_to_wandb_summary(metric_name, user_val, user_run, add_to_AG=True)
+                for metric_name, user_val in non_AG_metric_dict.items():
+                    _save_to_wandb_summary(metric_name, user_val, user_run, add_to_AG=False)
+
                 # Get conditional analysis
                 if conditional_analysis:
                     metric_dict: dict[str, float] = dump_to_correct_conditional_metrics(user_dump_dict, action_mode)
@@ -170,11 +248,16 @@ def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, c
                         _save_to_wandb_summary(metric_name, user_val, user_run)
 
     print(f"Finished processing")
-    metric_names = sorted(list(metric_names))
+    metric_names_AG = sorted(list(metric_names_AG))
+    metric_names_nonAG = sorted(list(metric_names_nonAG))
 
-    print(f"Aggregating over users in separate step: \n{pprint.pformat(metric_names)}")
-    avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=metric_names,
-                                                skip_pretrain_delta=skip_pretrain_delta)
+    print(f"AG: Aggregating over users in separate step: \n{pprint.pformat(metric_names_AG)}")
+    avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=metric_names_AG,
+                                                skip_pretrain_delta=False)
+
+    print(f"Non-AG: Aggregating over users in separate step: \n{pprint.pformat(metric_names_nonAG)}")
+    avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=metric_names_nonAG,
+                                                skip_pretrain_delta=True)
 
 
 def dump_to_LL(user_dump_dict, action_mode, balanced=True, return_per_sample_result=False):
@@ -414,6 +497,109 @@ def dump_to_ACC(user_dump_dict, action_mode, macro_avg=True, k=1, return_per_sam
     return result, full_new_metric_name
 
 
+def dump_to_decorrelated_ACC(user_dump_dict, action_mode, macro_avg=True, k=1, return_per_sample_result=False,
+                             decorrelation_window=4, batch_size=4, correlated=False) -> dict[str, float]:
+    """
+
+    :param user_dump_dict:
+    :param action_mode:
+    :param macro_avg:
+    :param k:
+    :param return_per_sample_result:
+    :param decorrelation_window: Size of the window to look back to for samples in current batch of size <batch_size>.
+    :param correlated: Take correlated samples instead
+    :return:
+    """
+    assert k == 1
+
+    balance_name = "balanced_" if macro_avg else ""
+    correlated_name = "decorrelated" if not correlated else "correlated"
+    full_new_metric_name = f"train_{action_mode}_batch/{balance_name}top1_acc/{correlated_name}"
+
+    # Get labels
+    action_labels: list[tuple[int, int]] = list(map(tuple, user_dump_dict['sample_idx_to_action_list']))
+    action_labels_t: torch.Tensor = torch.tensor(action_labels)
+
+    # TODO filter on action-mode, then filter all labels/ preds based on whether they have re-occuring in the
+    if action_mode == 'action':
+        filter_labels_t = action_labels_t
+
+    elif action_mode == 'verb':
+        filter_labels_t = action_labels_t[:, 0]
+
+    elif action_mode == 'noun':
+        filter_labels_t = action_labels_t[:, 1]
+
+    else:
+        raise ValueError()
+
+    # Filter
+    nb_orig_samples_stream = action_labels_t.shape[0]
+    keep_samples_t = torch.ones(nb_orig_samples_stream, device=filter_labels_t.device, dtype=torch.long).bool()
+
+    for sample_idx in range(nb_orig_samples_stream):
+        current_batch_idx = sample_idx // batch_size
+        prev_batch_idx = current_batch_idx - 1
+
+        if prev_batch_idx < 0:
+            continue
+
+        current_batch_start_sample_idx = current_batch_idx * batch_size
+        window_start_idx = current_batch_start_sample_idx - decorrelation_window
+
+        label_window = filter_labels_t[window_start_idx: current_batch_start_sample_idx]
+        assert len(label_window) == decorrelation_window
+
+        current_sample_label = filter_labels_t[sample_idx]
+        if current_sample_label in label_window:
+            keep_samples_t[sample_idx] = False  # Don't keep
+
+    # Inverse if instead do correlated
+    if correlated:
+        keep_samples_t = ~keep_samples_t
+
+    # Summary
+    num_samples_keep = keep_samples_t.sum().item()
+    perc_kept = num_samples_keep / nb_orig_samples_stream
+    print(f"{correlated_name} ACC: {num_samples_keep}/{nb_orig_samples_stream} ({round(perc_kept, 3)}%) samples")
+    assert num_samples_keep <= nb_orig_samples_stream
+
+    # Get predictions for verbs/nouns
+    verb_preds: list[torch.Tensor] = user_dump_dict['sample_idx_to_verb_pred']
+    noun_preds: list[torch.Tensor] = user_dump_dict['sample_idx_to_noun_pred']
+    verb_preds_t = torch.stack(verb_preds)
+    noun_preds_t = torch.stack(noun_preds)
+
+    # Filter
+    keep_sample_idxs = torch.nonzero(keep_samples_t, as_tuple=True)
+    verb_preds_t = verb_preds_t[keep_sample_idxs]
+    noun_preds_t = noun_preds_t[keep_sample_idxs]
+    action_labels_t = action_labels_t[keep_sample_idxs]  # Filter also labels to pass
+    assert verb_preds_t.shape[0] == noun_preds_t.shape[0] == action_labels_t.shape[0] == num_samples_keep
+
+    # Combine to actions
+    action_preds = (verb_preds_t, noun_preds_t)
+
+    result = get_micro_macro_avg_acc(
+        action_mode, action_preds, action_labels_t,
+        k=k, macro_avg=macro_avg, return_per_sample_result=return_per_sample_result
+    )
+
+    if return_per_sample_result:
+        return result
+
+    dict_for_AG = {
+        full_new_metric_name: result,
+    }
+    dict_not_for_AG = {
+        f"{full_new_metric_name}/percentage_kept": perc_kept,
+        f"{full_new_metric_name}/num_samples_keep": num_samples_keep,
+        f"{full_new_metric_name}/num_samples_total": nb_orig_samples_stream,
+    }
+
+    return dict_for_AG, dict_not_for_AG
+
+
 def running_avg_to_avg_and_delta(selected_group_names, metrics=None, skip_pretrain_delta=False):
     """ Pretrain didn't have running acc yet, this is fix of metric mapping. """
     metric_to_pretrain_metric_map = {
@@ -426,7 +612,18 @@ def running_avg_to_avg_and_delta(selected_group_names, metrics=None, skip_pretra
     avg_and_delta_avg_results_over_user_streams(
         selected_group_names,
         metrics=metrics,
-        metric_to_pretrain_metric_map=metric_to_pretrain_metric_map
+        metric_to_pretrain_metric_map=metric_to_pretrain_metric_map,
+    )
+
+
+def running_avg_to_avg(selected_group_names):
+    """ """
+    metrics = ['train_action_POST_UPDATE_BATCH/loss_running_avg',
+               'train_noun_POST_UPDATE_BATCH/top1_acc_balanced_running_avg']
+    avg_and_delta_avg_results_over_user_streams(
+        selected_group_names,
+        metrics=metrics,
+        skip_pretrain_delta=True
     )
 
 
@@ -534,7 +731,8 @@ def get_pretrain_delta_with_user_results(pretrain_user_ids,
                                          user_ids,
                                          final_stream_metric_userlists,
                                          pretrain_final_stream_metric_userlists
-                                         ):
+                                         ) -> dict:
+    """ Given pretrain and user-metrics, return dict that includes the deltas with pretrain performance. """
     AG_dict = {}
     assert pretrain_user_ids == user_ids, \
         "Order of pretrained and user ids should be same, otherwise SE will not be correct for avg the deltas. "
