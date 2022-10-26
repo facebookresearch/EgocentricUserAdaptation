@@ -60,11 +60,11 @@ MODES = [
     'stream_result_list_to_user_avg_and_aggregated_avg'
 ]
 # Adapt settings
-MODE = MODES[0]
+MODE = MODES[3]
 train = True
-csv_filename = 'wandb_export_2022-10-25T10_26_41.488-07_00.csv'  # TODO copy file here and past name here
+csv_filename = 'wandb_export_2022-10-25T22_07_14.673-07_00.csv'  # TODO copy file here and past name here
 single_group_name = None
-single_group_name = "Finetuning_2022-09-14_19-06-02_UID2c4355e2-c42c-46d9-ba37-8cb8abe8d1d0_MATT"
+# single_group_name = "HindsightLabelWindowPredictor_2022-10-25_16-51-38_UID4b8e69a6-b174-4573-b709-067488f12b07"
 remote = True
 
 if train:
@@ -498,9 +498,8 @@ def dump_to_ACC(user_dump_dict, action_mode, macro_avg=True, k=1, return_per_sam
 
 
 def dump_to_decorrelated_ACC(user_dump_dict, action_mode, macro_avg=True, k=1, return_per_sample_result=False,
-                             decorrelation_window=4, batch_size=4, correlated=False) -> dict[str, float]:
+                             decorrelation_window=1, batch_size=4, correlated=False) -> dict[str, float]:
     """
-
     :param user_dump_dict:
     :param action_mode:
     :param macro_avg:
@@ -537,18 +536,11 @@ def dump_to_decorrelated_ACC(user_dump_dict, action_mode, macro_avg=True, k=1, r
     nb_orig_samples_stream = action_labels_t.shape[0]
     keep_samples_t = torch.ones(nb_orig_samples_stream, device=filter_labels_t.device, dtype=torch.long).bool()
 
-    for sample_idx in range(nb_orig_samples_stream):
-        current_batch_idx = sample_idx // batch_size
-        prev_batch_idx = current_batch_idx - 1
+    for sample_idx in range(1, nb_orig_samples_stream):  # First one kept always
+        window_start_idx = max(0, sample_idx - decorrelation_window)
 
-        if prev_batch_idx < 0:
-            continue
-
-        current_batch_start_sample_idx = current_batch_idx * batch_size
-        window_start_idx = current_batch_start_sample_idx - decorrelation_window
-
-        label_window = filter_labels_t[window_start_idx: current_batch_start_sample_idx]
-        assert len(label_window) == decorrelation_window
+        label_window = filter_labels_t[window_start_idx: sample_idx]
+        assert len(label_window) <= decorrelation_window
 
         current_sample_label = filter_labels_t[sample_idx]
         if current_sample_label in label_window:

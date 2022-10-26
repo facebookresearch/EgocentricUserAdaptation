@@ -229,6 +229,172 @@ def parse_final01_01_momentum_table():
     print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
     print_end_table()
 
+    # Get lists for plots
+    for col in ordered_cols:
+        if col.pandas_col_std_name is not None:
+            latex_df[col.latex_col_header_name] = orig_df.loc[:,
+                                                  (col.pandas_col_mean_name, col.pandas_col_std_name)
+                                                  ].apply(col.format_fn, axis=1)
+        else:
+            latex_df[col.latex_col_header_name] = orig_df.loc[:, col.pandas_col_mean_name].apply(col.format_fn)
+
+
+def final01_02_grad_analysis():
+    """
+    'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_1/full_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_1/full_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_2/full_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_2/full_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_3/full_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_3/full_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_4/full_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_4/full_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_5/full_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_5/full_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_6/full_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_6/full_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_7/full_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_7/full_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_8/full_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_8/full_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_9/full_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_9/full_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_10/full_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_10/full_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_1/slow_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_1/slow_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_2/slow_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_2/slow_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_3/slow_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_3/slow_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_4/slow_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_4/slow_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_5/slow_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_5/slow_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_6/slow_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_6/slow_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_7/slow_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_7/slow_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_8/slow_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_8/slow_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_9/slow_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_9/slow_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_10/slow_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_10/slow_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_1/fast_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_1/fast_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_2/fast_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_2/fast_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_3/fast_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_3/fast_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_4/fast_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_4/fast_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_5/fast_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_5/fast_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_6/fast_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_6/fast_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_7/fast_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_7/fast_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_8/fast_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_8/fast_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_9/fast_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_9/fast_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_10/fast_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_10/fast_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_1/head_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_1/head_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_2/head_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_2/head_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_3/head_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_3/head_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_4/head_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_4/head_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_5/head_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_5/head_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_6/head_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_6/head_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_7/head_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_7/head_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_7/feat_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_8/feat_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_8/feat_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_9/feat_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_9/feat_grad_cos_sim/SE',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_10/feat_grad_cos_sim/mean',
+     'adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_10/feat_grad_cos_sim/SE'
+    :return:
+    """
+
+    csv_filename = "wandb_export_2022-10-23T15_13_53.325-07_00.csv"
+
+    csv_path = os.path.join(csv_dirname, csv_filename)
+    round_digits = 3
+    model_parts = ["full", "slow", "fast", "head", "feat", ]
+    # model_parts = ['head']
+
+    orig_df = pd.read_csv(csv_path)
+
+    # FILTER
+    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001) & (orig_df['SOLVER.NESTEROV'] == True)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == False)]  # TODO: Set to False or True to get both parts
+    # orig_df = orig_df.loc[(orig_df['SOLVER.MOMENTUM'] == 0)]  # TODO: Set to False or True to get both parts
+    # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.MOMENTUM', 'SOLVER.BASE_LR'])
+
+    # Place here in order you want the latex columns to be
+
+    # Reformat cols to have per metric, the SE and mean in separate columns, and 1->10 in rows, take 'steps' as another column
+    df_dict_list = []
+    for nb_steps_lookback in range(1, 11):  # 1 row per step
+        single_df_row_dict = {'step': nb_steps_lookback, }
+
+        for model_part in model_parts:
+            mean = orig_df[
+                f"adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_{nb_steps_lookback}/{model_part}_grad_cos_sim/mean"].to_list()[
+                0]
+            SE = orig_df[
+                f"adhoc_users_aggregate/analyze_action_batch/LOOKBACK_STEP_{nb_steps_lookback}/{model_part}_grad_cos_sim/SE"].to_list()[
+                0]
+
+            single_df_row_dict[f"adhoc_users_aggregate/analyze_action_batch/{model_part}_grad_cos_sim/mean"] = mean
+            single_df_row_dict[f"adhoc_users_aggregate/analyze_action_batch/{model_part}_grad_cos_sim/SE"] = SE
+
+        # Update
+        df_dict_list.append(single_df_row_dict)
+
+    transformed_df = pd.DataFrame(df_dict_list)
+
+    # Group in Latex mean \pm SE columns
+    ordered_cols = [
+        LatexColumn(
+            f"step",
+            latex_col_header_name=f"History steps",
+            format_fn_overwrite=lambda x: x,
+        ),
+    ]
+    for model_part in model_parts:
+        ordered_cols.append(
+            LatexColumn(
+                f"adhoc_users_aggregate/analyze_action_batch/{model_part}_grad_cos_sim/mean",
+                f"adhoc_users_aggregate/analyze_action_batch/{model_part}_grad_cos_sim/SE",
+                latex_col_header_name=fr"$||\nabla_\text{{{model_part}}}||$",
+                round_digits=round_digits,
+            ),
+        )
+
+    latex_df = pd.DataFrame()
+    for col in ordered_cols:
+
+        if col.pandas_col_std_name is not None:
+            latex_df[col.latex_col_header_name] = transformed_df.loc[:,
+                                                  (col.pandas_col_mean_name, col.pandas_col_std_name)
+                                                  ].apply(col.format_fn, axis=1)
+        else:
+            latex_df[col.latex_col_header_name] = transformed_df.loc[:, col.pandas_col_mean_name].apply(col.format_fn)
+
+    print_begin_table()
+    print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
+    print_end_table()
+
 
 def parse_eval01_eval02_eval03_eval13_eval15_test_users():
     """
@@ -769,23 +935,84 @@ def parse_final05_01_repaly_with_momentum_table():
 
 def parse_final07_01_sgd_multi_iter():
     """
+     'adhoc_users_aggregate/train_action_POST_UPDATE_BATCH/loss_running_avg/mean',
+     'adhoc_users_aggregate/train_action_POST_UPDATE_BATCH/loss_running_avg/SE',
+
+     'adhoc_users_aggregate/train_noun_POST_UPDATE_BATCH/top1_acc_balanced_running_avg/mean',
+     'adhoc_users_aggregate/train_noun_POST_UPDATE_BATCH/top1_acc_balanced_running_avg/SE'
+
+
+
+
+     # DECORRELATED ACC, window-size 4
+      'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/num_samples_keep/mean',
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/num_samples_keep/SE',
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/num_samples_total/mean',
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/num_samples_total/SE',
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/percentage_kept/mean',
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/percentage_kept/SE',
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/num_samples_keep/mean',
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/num_samples_keep/SE',
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/num_samples_total/mean',
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/num_samples_total/SE',
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/percentage_kept/mean',
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/percentage_kept/SE',
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/num_samples_keep/mean',
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/num_samples_keep/SE',
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/num_samples_total/mean',
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/num_samples_total/SE',
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/percentage_kept/mean',
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/percentage_kept/SE']
+
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/mean',
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/SE',
+
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/mean',
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/SE',
+
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/mean',
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/SE',
+
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/PRETRAIN_abs/mean',
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/PRETRAIN_abs/SE',
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/adhoc_AG/mean',
+     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/adhoc_AG/SE',
+
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/PRETRAIN_abs/mean',
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/PRETRAIN_abs/SE',
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/adhoc_AG/mean',
+     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/adhoc_AG/SE',
+
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/PRETRAIN_abs/mean',
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/PRETRAIN_abs/SE',
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/adhoc_AG/mean',
+     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/adhoc_AG/SE']
 
 
     """
     # csv_filename = "wandb_export_2022-10-14T15_52_32.086-07_00.csv"  # Full results all
     # csv_filename = "wandb_export_2022-10-21T16_40_32.034-07_00.csv"  # Full results all
-    csv_filename = "wandb_export_2022-10-21T16_57_03.896-07_00.csv"  # FIX OAG/HAG results!
+    # csv_filename = "wandb_export_2022-10-21T16_57_03.896-07_00.csv"  # FIX OAG/HAG results!
+
+    # Corr/decorr: in previous batch
+    csv_filename = "wandb_export_2022-10-25T10_31_19.778-07_00.csv"  # INCL corr/decorr results
+    # csv_filename = "wandb_export_2022-10-25T10_58_55.415-07_00.csv" # SGD only
+
+    # Corr/decorr: prev sample only
+    csv_filename = "wandb_export_2022-10-25T16_04_34.888-07_00.csv"  # Only preceding sample
+    csv_filename = "wandb_export_2022-10-25T16_10_07.514-07_00.csv"  # SGD
 
     caption = "SGD grid over multiple iterations and learning rates."
     csv_path = os.path.join(csv_dirname, csv_filename)
-    round_digits = 1
+    round_digits = 2
+    NB_USERS = 10
 
     orig_df = pd.read_csv(csv_path)
 
     # FILTER
-    orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.01)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.01)]
     # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
-    orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR', 'TRAIN.INNER_LOOP_ITERS', ])
+    orig_df.sort_values(inplace=True, axis=0, by=['TRAIN.INNER_LOOP_ITERS', ])
     # orig_df.sort_values(inplace=True, axis=0, by=['TRAIN.INNER_LOOP_ITERS', 'SOLVER.BASE_LR', ])
 
     # Place here in order you want the latex columns to be
@@ -805,18 +1032,18 @@ def parse_final07_01_sgd_multi_iter():
             format_fn_overwrite=lambda x: x,
         ),
 
-        LatexColumn(
-            'SOLVER.BASE_LR',
-            latex_col_header_name=r"$\eta$",
-            format_fn_overwrite=lambda x: "{:.1g}".format(x)
-        ),
+        # LatexColumn(
+        #     'SOLVER.BASE_LR',
+        #     latex_col_header_name=r"$\eta$",
+        #     format_fn_overwrite=lambda x: "{:.1g}".format(x)
+        # ),
 
         # ONLINE AG
         LatexColumn(
             'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/adhoc_AG/mean',
             'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/adhoc_AG/SE',
             latex_col_header_name=r"$\overline{\text{OAG}}_{\text{action}}$",
-            round_digits=round_digits,
+            round_digits=1,
         ),
         # LatexColumn(
         #     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/adhoc_AG/mean',
@@ -836,7 +1063,7 @@ def parse_final07_01_sgd_multi_iter():
             'adhoc_users_aggregate/test_action_batch/balanced_top1_acc/adhoc_hindsight_AG/mean',  # TOP1
             'adhoc_users_aggregate/test_action_batch/balanced_top1_acc/adhoc_hindsight_AG/SE',
             latex_col_header_name=r"$\overline{\text{HAG}}_{\text{action}}$",
-            round_digits=round_digits,
+            round_digits=1,
         ),
         # LatexColumn(
         #     'adhoc_users_aggregate/test_verb_batch/balanced_top1_acc/adhoc_hindsight_AG/mean',
@@ -850,6 +1077,58 @@ def parse_final07_01_sgd_multi_iter():
         #     latex_col_header_name=r"$\overline{\text{HAG}}_{\text{noun}}$",
         #     round_digits=round_digits,
         # ),
+
+        # Training loss
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_POST_UPDATE_BATCH/loss_running_avg/mean',
+        #     'adhoc_users_aggregate/train_action_POST_UPDATE_BATCH/loss_running_avg/SE',
+        #     latex_col_header_name=r"$\mathcal{L}^{post}}_{\text{action}}$",
+        #     round_digits=round_digits,
+        # ),
+
+        # Decorrelated accuracy
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}^\text{decor.}_{\text{action}}$",
+            round_digits=1,
+        ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/mean',
+        #     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/SE',
+        #     latex_col_header_name=r"$\text{ACC}^{decor.}}_{\text{verb}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/mean',
+        #     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/SE',
+        #     latex_col_header_name=r"$\text{ACC}^{decor.}}_{\text{noun}}$",
+        #     round_digits=round_digits,
+        # ),
+
+        # Correlated accuracy
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}^\text{cor.}_{\text{action}}$",
+            round_digits=1,
+        ),
+
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/num_samples_keep/mean',
+            latex_col_header_name=r"nb samples (decorrelated)",
+            format_fn_overwrite=lambda x: x * NB_USERS,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/num_samples_keep/mean',
+            latex_col_header_name=r"nb samples (correlated)",
+            format_fn_overwrite=lambda x: x * NB_USERS,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/num_samples_total/mean',
+            latex_col_header_name=r"nb samples total)",
+            format_fn_overwrite=lambda x: x * NB_USERS,
+        ),
     ]
 
     latex_df = pd.DataFrame()
@@ -1636,7 +1915,6 @@ def parse_final11_01_async_lr():
             format_fn_overwrite=lambda x: "{:.1g}".format(x)
         ),
 
-
         # ONLINE AG
         LatexColumn(
             'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/adhoc_AG/mean',
@@ -2232,11 +2510,117 @@ def parse_final16_eval16_01_label_window_predictor():
     print_end_table()
 
 
+def parse_final16_eval16_02_label_window_predictor_hindsight():
+    """
+    Take running avg mean of HindsightLabelWindowPredictor
+    """
+    csv_filename = "wandb_export_2022-10-25T22_09_45.528-07_00.csv"  # TRAIN USERS
+    # csv_filename = "wandb_export_2022-10-25T21_00_30.781-07_00.csv"  # EVAL USERS
+
+    caption = "Hindsight Label window predictor naive baseline."
+    csv_path = os.path.join(csv_dirname, csv_filename)
+    round_digits = 1
+
+    orig_df = pd.read_csv(csv_path)
+
+    # FILTER
+    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
+    # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR','TRAIN.INNER_LOOP_ITERS', ])
+    orig_df.sort_values(inplace=True, axis=0, by=["ANALYZE_STREAM.WINDOW_SIZE_SAMPLES"])
+
+    # Place here in order you want the latex columns to be
+    ordered_cols = [
+
+        LatexColumn(
+            'ANALYZE_STREAM.WINDOW_SIZE_SAMPLES',
+            latex_col_header_name=r"window size",
+            format_fn_overwrite=lambda x: x,
+        ),
+
+        # BALANCED
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/mean',
+            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/SE',
+            latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/mean',
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/SE',
+            latex_col_header_name=r"$\text{ACC}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/mean',
+            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/SE',
+            latex_col_header_name=r"$\text{ACC}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
+
+        # UNBALANCED
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/mean',
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/mean',
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{verb}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/mean',
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{noun}}$",
+        #     round_digits=round_digits,
+        # ),
+
+        # OAG:
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+        #     latex_col_header_name=r"$\text{OAG}_{\text{action}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+        #     latex_col_header_name=r"$\text{OAG}_{\text{verb}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+        #     latex_col_header_name=r"$\text{OAG}_{\text{noun}}$",
+        #     round_digits=round_digits,
+        # ),
+
+    ]
+
+    latex_df = pd.DataFrame()
+
+    for col in ordered_cols:
+
+        if col.pandas_col_std_name is not None:
+            latex_df[col.latex_col_header_name] = orig_df.loc[:,
+                                                  (col.pandas_col_mean_name, col.pandas_col_std_name)
+                                                  ].apply(col.format_fn, axis=1)
+        else:
+            latex_df[col.latex_col_header_name] = orig_df.loc[:, col.pandas_col_mean_name].apply(col.format_fn)
+
+    print_begin_table(caption)
+    with pd.option_context("max_colwidth", 1000):  # No truncating of strings
+        print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
+    print_end_table()
+
 def parse_final17_01_momentum_feat_head():
     """
     """
     # csv_filename = "wandb_export_2022-10-17T10_06_27.828-07_00.csv"
-    csv_filename = "wandb_export_2022-10-20T16_04_10.497-07_00.csv" # Also HAG
+    csv_filename = "wandb_export_2022-10-20T16_04_10.497-07_00.csv"  # Also HAG
     caption = "Momentum head vs classifier"
     csv_path = os.path.join(csv_dirname, csv_filename)
     round_digits = 1
@@ -2336,4 +2720,4 @@ def print_end_table():
 
 
 if __name__ == "__main__":
-    parse_final03_01_fixed_feats()
+    parse_final16_eval16_02_label_window_predictor_hindsight()

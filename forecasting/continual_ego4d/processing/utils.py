@@ -141,6 +141,14 @@ def get_delta_mappings():
             'train_verb_batch/top1_acc_balanced_running_avg',
             'train_noun_batch/top1_acc_balanced_running_avg',
 
+            'train_action_batch/balanced_top1_acc/decorrelated',
+            'train_verb_batch/balanced_top1_acc/decorrelated',
+            'train_noun_batch/balanced_top1_acc/decorrelated',
+
+            'train_action_batch/balanced_top1_acc/correlated',
+            'train_verb_batch/balanced_top1_acc/correlated',
+            'train_noun_batch/balanced_top1_acc/correlated',
+
         }))
     }
 
