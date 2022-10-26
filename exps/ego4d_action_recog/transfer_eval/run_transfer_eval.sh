@@ -49,7 +49,7 @@ if [[ $# -gt 0 ]]; then
 
 fi
 #-----------------------------------------------------------------------------------------------#
-OVERWRITE_CFG_ARGS+=" GPU_IDS 1,2,3,4,5" #5G per run with BS 10
+OVERWRITE_CFG_ARGS+=" GPU_IDS 5,7" #5G per run with BS 10
 #OVERWRITE_CFG_ARGS+=" GPU_IDS wandb_export_2022-09-21T15_36_21.953-07_00.csv" #5G per run with BS 10
 
 #OVERWRITE_CFG_ARGS+=" TRANSFER_EVAL.NUM_EXPECTED_USERS 10 GPU_IDS 1 FAST_DEV_RUN True FAST_DEV_DATA_CUTOFF 5 PREDICT_PHASE.BATCH_SIZE 2 NUM_USERS_PER_DEVICE 5" # DEBUG

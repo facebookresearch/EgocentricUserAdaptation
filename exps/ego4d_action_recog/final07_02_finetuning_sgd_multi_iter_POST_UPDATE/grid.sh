@@ -15,7 +15,7 @@ grid_arg="TRAIN.INNER_LOOP_ITERS ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
 # Grid specific resources
-grid_overwrite_args+=" DATA_LOADER.NUM_WORKERS 10 GPU_IDS 0 NUM_USERS_PER_DEVICE 2 GRID_RESUME_LATEST False" # 1,2,3,4,5,7
+grid_overwrite_args+=" DATA_LOADER.NUM_WORKERS 12 GPU_IDS 1 NUM_USERS_PER_DEVICE 2 GRID_RESUME_LATEST True" # 1,2,3,4,5,7
 
 # Report final
 echo "grid_overwrite_args=$grid_overwrite_args"

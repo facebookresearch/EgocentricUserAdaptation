@@ -9,13 +9,13 @@ gridvals=( "1e-1" "1e-2" "1e-3")
 grid_arg="SOLVER.BASE_LR ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
-val_idx=5
-gridvals=( "2" "3" "5" "10" "15" "20" "30")
+val_idx=7
+gridvals=( "2" "3" "5" "10" "15" "20" "30" "50")
 grid_arg="TRAIN.INNER_LOOP_ITERS ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
 # Grid specific resources
-grid_overwrite_args+=" DATA_LOADER.NUM_WORKERS 12 GPU_IDS 0,3 NUM_USERS_PER_DEVICE 1 GRID_RESUME_LATEST True" # 1,2,3,4,5,7
+grid_overwrite_args+=" DATA_LOADER.NUM_WORKERS 9 GPU_IDS 3,4 NUM_USERS_PER_DEVICE 4 GRID_RESUME_LATEST False" # 1,2,3,4,5,7
 
 # Report final
 echo "grid_overwrite_args=$grid_overwrite_args"
