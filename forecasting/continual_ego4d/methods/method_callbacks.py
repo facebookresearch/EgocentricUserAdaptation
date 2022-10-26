@@ -718,6 +718,85 @@ class LabelWindowPredictor(Method):
 
 
 @METHOD_REGISTRY.register()
+class HindsightLabelWindowPredictor(Method):
+    """
+    Use last batch-size samples as prediction distribution.
+    """
+    run_predict_before_train = False
+
+    def __init__(self, cfg, lightning_module):
+        super().__init__(cfg, lightning_module)
+
+        # Empty task metrics
+        lightning_module.past_metrics = []
+        lightning_module.future_metrics = []
+        # lightning_module.current_batch_metrics = [] # Get ACC etc for current batch
+        lightning_module.continual_eval_freq = -1
+        lightning_module.plotting_log_freq = -1
+        logger.debug(f"Reset all metrics to empty.")
+
+        # Overwrite dataloaders
+        assert cfg.DATA.RETURN_VIDEO is False, \
+            f"Must set cfg.DATA.RETURN_VIDEO=False for efficient loading of stream labels only"
+        assert lightning_module.train_loader.dataset.return_video is False  # Only return labels
+        lightning_module.predict_loader = None
+
+        # States
+        self.window_size = cfg.ANALYZE_STREAM.WINDOW_SIZE_SAMPLES  # Determines length of window in samples
+        assert self.window_size > 0
+
+        # For pred creation
+        self.verbs_count, self.nouns_count = cfg.MODEL.NUM_CLASSES  # Verbs, nouns
+
+        self._initialized_pred_distr = False
+        self._final_window_verb_pred = None
+        self._final_window_noun_pred = None
+
+    def training_first_forward(self, inputs_t, labels_t, current_batch_stream_idxs: list, *args, **kwargs):
+        """ For each sample, use the WINDOW-SIZE preceding samples for prediction distr.
+        As action is predicted as 2 independent classifiers (verbs,nouns), we should normalize predictions for each
+        distribution. This also means we should count the verbs/nouns separately to form these distributions. """
+        loss = None
+        log_results = {}
+        batch_size = labels_t.shape[0]
+
+        if not self._initialized_pred_distr:
+            self._initialized_pred_distr = True
+
+            # Get prediction tensors based on final sample window
+            pred_verb_t = torch.zeros(self.verbs_count).to(labels_t.device)
+            pred_noun_t = torch.zeros(self.nouns_count).to(labels_t.device)
+
+            final_action_window = self.lightning_module.stream_state.sample_idx_to_action_list[-self.window_size:]
+
+            verbs_in_window = [a[0] for a in final_action_window]
+            nouns_in_window = [a[1] for a in final_action_window]
+
+            for verb_idx, noun_idx in zip(verbs_in_window, nouns_in_window):
+                pred_verb_t[verb_idx] += 1
+                pred_noun_t[noun_idx] += 1
+
+            # Normalize
+            self._final_window_verb_pred = (pred_verb_t / sum(pred_verb_t)).unsqueeze(0)
+            self._final_window_noun_pred = (pred_noun_t / sum(pred_noun_t)).unsqueeze(0)
+
+        # Concat preds
+        verb_preds = self._final_window_verb_pred.expand(batch_size, -1)
+        noun_preds = self._final_window_noun_pred.expand(batch_size, -1)
+        preds = (verb_preds, noun_preds)
+
+        return loss, preds, log_results
+
+    def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
+        """ No updates made. """
+        pass
+
+    def prediction_step(self, inputs, labels, stream_sample_idxs: list, *args, **kwargs) \
+            -> Tuple[Tensor, List[Tensor], Dict]:
+        raise NotImplementedError("Should not call prediction for this method.")
+
+
+@METHOD_REGISTRY.register()
 class FeatShiftMeasure(LabelShiftMeasure):
     run_predict_before_train = False
 
