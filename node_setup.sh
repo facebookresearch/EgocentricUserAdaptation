@@ -17,12 +17,15 @@ conda env export --from-history > environment_from_history.yml # Condensed to th
 # On new environment create exactly same
 #conda create --name matt_ego4d --file spec-file.txt # Doesn't work
 conda env create -f environment.yml
-conda activate matt_ego4d
 conda init bash
+conda activate matt_ego4d
 conda install pytorch==1.9.1 torchvision==0.10.1 cudatoolkit=11.3 -c pytorch -c conda-forge
 
 # Add pip-installed depenedencies from ego4d
 cat pip_requirements.txt | xargs -n 1 -L 1 pip install
+
+# Additionals installed (Can add later to requirements.txt)
+pip install plotly
 
 # Fix known bug with tensorboard
 pip install setuptools==59.5.0
@@ -31,6 +34,11 @@ pip install setuptools==59.5.0
 pip install wandb
 wandb login --relogin --host https://fairwandb.org
 wandb verify
+
+# Latex for matplotlib logging
+sudo apt-get install texlive
+sudo apt-get install texlive-latex-extra texlive-fonts-recommended dvipng cm-super
+
 
 ##################### .BASHRC #####################
 # Change bashrc and make symlink to current project
@@ -64,6 +72,8 @@ ln -s /home/matthiasdelange/data/ego4d/lta_video_clips clips_root_local
 ##################### PERMISSIONS #####################
 # Make all dirs writable for other users (different nodes) if needed:
 # In current dir:
-find . -type d -exec chmod 777 {} \;
+sudo find . -exec chmod 777 {} \;
 sudo find /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/* -type d -exec chmod 777 {} \;
 sudo find /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results/* -exec chmod 777 {} \;
+
+
