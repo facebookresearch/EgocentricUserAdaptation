@@ -39,7 +39,9 @@ def get_pretrain_sets_iterations_vs_epoch_ratio():
     pretrain_json = pretrain_json_incl_nanuser
 
     # For pretrain baseline
-    merged_json = "/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/ego4d_ALL_DATA_pretrain_incl_nanusers_and_segmented_train_test_usersplit_198users.json"
+    merged_json = "/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/ego4d_ALL_DATA_pretrain_incl_nanusers_and_segmented_train_test_usersplit_198users.json" # Train + test + pretrain
+    # merged_json = "/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/ego4d_ALL_DATA_pretrain_incl_nanusers_and_segmented_train_usersplit_158users.json" # Train + pretrain
+    # merged_ds / EGO4d ratio: 0.8125370605675561. EPOCHS: 30 -> 36.92139282735613 = 37 epochs
 
     train_ds = extract_json(train_json)['clips']
     test_ds = extract_json(test_json)['clips']
