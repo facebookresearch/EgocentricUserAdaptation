@@ -10,6 +10,7 @@ doc_html/*
 *.json
 *.pdf
 *.eps
+*.csvZone.Identifier
 
 */tb_data/
 avalanche/benchmarks/datasets/*/data
