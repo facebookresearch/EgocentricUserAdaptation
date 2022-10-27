@@ -995,12 +995,15 @@ def parse_final07_01_sgd_multi_iter():
     # csv_filename = "wandb_export_2022-10-21T16_57_03.896-07_00.csv"  # FIX OAG/HAG results!
 
     # Corr/decorr: in previous batch
-    csv_filename = "wandb_export_2022-10-25T10_31_19.778-07_00.csv"  # INCL corr/decorr results
+    # csv_filename = "wandb_export_2022-10-25T10_31_19.778-07_00.csv"  # INCL corr/decorr results
     # csv_filename = "wandb_export_2022-10-25T10_58_55.415-07_00.csv" # SGD only
 
     # Corr/decorr: prev sample only
-    csv_filename = "wandb_export_2022-10-25T16_04_34.888-07_00.csv"  # Only preceding sample
-    csv_filename = "wandb_export_2022-10-25T16_10_07.514-07_00.csv"  # SGD
+    # csv_filename = "wandb_export_2022-10-25T16_04_34.888-07_00.csv"  # Only preceding sample
+    # csv_filename = "wandb_export_2022-10-25T16_10_07.514-07_00.csv"  # SGD
+
+    # Corr/decorr: ALL
+    csv_filename = "wandb_export_2022-10-26T15_27_02.501-07_00.csv"
 
     caption = "SGD grid over multiple iterations and learning rates."
     csv_path = os.path.join(csv_dirname, csv_filename)
@@ -1114,21 +1117,21 @@ def parse_final07_01_sgd_multi_iter():
             round_digits=1,
         ),
 
-        LatexColumn(
-            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/num_samples_keep/mean',
-            latex_col_header_name=r"nb samples (decorrelated)",
-            format_fn_overwrite=lambda x: x * NB_USERS,
-        ),
-        LatexColumn(
-            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/num_samples_keep/mean',
-            latex_col_header_name=r"nb samples (correlated)",
-            format_fn_overwrite=lambda x: x * NB_USERS,
-        ),
-        LatexColumn(
-            'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/num_samples_total/mean',
-            latex_col_header_name=r"nb samples total)",
-            format_fn_overwrite=lambda x: x * NB_USERS,
-        ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/num_samples_keep/mean',
+        #     latex_col_header_name=r"nb samples (decorrelated)",
+        #     format_fn_overwrite=lambda x: x * NB_USERS,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/num_samples_keep/mean',
+        #     latex_col_header_name=r"nb samples (correlated)",
+        #     format_fn_overwrite=lambda x: x * NB_USERS,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/num_samples_total/mean',
+        #     latex_col_header_name=r"nb samples total)",
+        #     format_fn_overwrite=lambda x: x * NB_USERS,
+        # ),
     ]
 
     latex_df = pd.DataFrame()
@@ -1145,6 +1148,8 @@ def parse_final07_01_sgd_multi_iter():
     print_begin_table(caption)
     print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
     print_end_table()
+
+
 
 
 def parse_LOSS_vs_ACC_vs_balancedLL_results_sgd_multi_iter():
@@ -2452,44 +2457,44 @@ def parse_final16_eval16_01_label_window_predictor():
         # ),
 
         # UNBALANCED
-        LatexColumn(
-            'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/mean',
-            'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/SE',
-            latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
-            round_digits=round_digits,
-        ),
-        LatexColumn(
-            'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/mean',
-            'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/SE',
-            latex_col_header_name=r"$\text{ACC}_{\text{verb}}$",
-            round_digits=round_digits,
-        ),
-        LatexColumn(
-            'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/mean',
-            'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/SE',
-            latex_col_header_name=r"$\text{ACC}_{\text{noun}}$",
-            round_digits=round_digits,
-        ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/mean',
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/mean',
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{verb}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/mean',
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{noun}}$",
+        #     round_digits=round_digits,
+        # ),
 
-        # OAG:
-        # LatexColumn(
-        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
-        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
-        #     latex_col_header_name=r"$\text{OAG}_{\text{action}}$",
-        #     round_digits=round_digits,
-        # ),
-        # LatexColumn(
-        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
-        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
-        #     latex_col_header_name=r"$\text{OAG}_{\text{verb}}$",
-        #     round_digits=round_digits,
-        # ),
-        # LatexColumn(
-        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
-        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
-        #     latex_col_header_name=r"$\text{OAG}_{\text{noun}}$",
-        #     round_digits=round_digits,
-        # ),
+        # Balanced OAG:
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
 
     ]
 
@@ -2519,7 +2524,7 @@ def parse_final16_eval16_02_label_window_predictor_hindsight():
 
     caption = "Hindsight Label window predictor naive baseline."
     csv_path = os.path.join(csv_dirname, csv_filename)
-    round_digits = 1
+    round_digits = 2
 
     orig_df = pd.read_csv(csv_path)
 
@@ -2539,24 +2544,24 @@ def parse_final16_eval16_02_label_window_predictor_hindsight():
         ),
 
         # BALANCED
-        LatexColumn(
-            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/mean',
-            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/SE',
-            latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
-            round_digits=round_digits,
-        ),
-        LatexColumn(
-            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/mean',
-            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/SE',
-            latex_col_header_name=r"$\text{ACC}_{\text{verb}}$",
-            round_digits=round_digits,
-        ),
-        LatexColumn(
-            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/mean',
-            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/SE',
-            latex_col_header_name=r"$\text{ACC}_{\text{noun}}$",
-            round_digits=round_digits,
-        ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/mean',
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/mean',
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{verb}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/mean',
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{noun}}$",
+        #     round_digits=round_digits,
+        # ),
 
         # UNBALANCED
         # LatexColumn(
@@ -2579,12 +2584,116 @@ def parse_final16_eval16_02_label_window_predictor_hindsight():
         # ),
 
         # OAG:
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{HAG}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{HAG}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{HAG}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
+
+    ]
+
+    latex_df = pd.DataFrame()
+
+    for col in ordered_cols:
+
+        if col.pandas_col_std_name is not None:
+            latex_df[col.latex_col_header_name] = orig_df.loc[:,
+                                                  (col.pandas_col_mean_name, col.pandas_col_std_name)
+                                                  ].apply(col.format_fn, axis=1)
+        else:
+            latex_df[col.latex_col_header_name] = orig_df.loc[:, col.pandas_col_mean_name].apply(col.format_fn)
+
+    print_begin_table(caption)
+    with pd.option_context("max_colwidth", 1000):  # No truncating of strings
+        print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
+    print_end_table()
+
+
+def parse_final16_eval16_03_batched_label_window_predictor():
+    """
+    """
+    csv_filename = "wandb_export_2022-10-26T20_07_50.954-07_00.csv"  # TRAIN: Batched
+    caption = "Label window predictor naive baseline."
+    csv_path = os.path.join(csv_dirname, csv_filename)
+    round_digits = 1
+
+    orig_df = pd.read_csv(csv_path)
+
+    # FILTER
+    # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001)]
+    # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
+    # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR','TRAIN.INNER_LOOP_ITERS', ])
+    orig_df.sort_values(inplace=True, axis=0, by=["ANALYZE_STREAM.WINDOW_SIZE_SAMPLES"])
+
+    # Place here in order you want the latex columns to be
+    ordered_cols = [
+
+        LatexColumn(
+            'ANALYZE_STREAM.WINDOW_SIZE_SAMPLES',
+            latex_col_header_name=r"window size",
+            format_fn_overwrite=lambda x: x,
+        ),
+
+        # BALANCED
         # LatexColumn(
-        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
-        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
-        #     latex_col_header_name=r"$\text{OAG}_{\text{action}}$",
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/mean',
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
         #     round_digits=round_digits,
         # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/mean',
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{verb}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/mean',
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{noun}}$",
+        #     round_digits=round_digits,
+        # ),
+
+        # UNBALANCED
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/mean',
+        #     'adhoc_users_aggregate/train_action_batch/top1_acc_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{action}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/mean',
+        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{verb}}$",
+        #     round_digits=round_digits,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/mean',
+        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_running_avg/SE',
+        #     latex_col_header_name=r"$\text{ACC}_{\text{noun}}$",
+        #     round_digits=round_digits,
+        # ),
+
+        # OAG:
+        LatexColumn(
+            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}_{\text{action}}$",
+            round_digits=round_digits,
+        ),
         # LatexColumn(
         #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
         #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
@@ -2615,6 +2724,7 @@ def parse_final16_eval16_02_label_window_predictor_hindsight():
     with pd.option_context("max_colwidth", 1000):  # No truncating of strings
         print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
     print_end_table()
+
 
 def parse_final17_01_momentum_feat_head():
     """

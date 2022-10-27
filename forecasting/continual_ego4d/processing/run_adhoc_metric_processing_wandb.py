@@ -62,9 +62,9 @@ MODES = [
 # Adapt settings
 MODE = MODES[3]
 train = True
-csv_filename = 'wandb_export_2022-10-25T22_07_14.673-07_00.csv'  # TODO copy file here and past name here
+csv_filename = 'wandb_export_2022-10-26T15_24_20.237-07_00.csv'  # TODO copy file here and past name here
 single_group_name = None
-# single_group_name = "HindsightLabelWindowPredictor_2022-10-25_16-51-38_UID4b8e69a6-b174-4573-b709-067488f12b07"
+single_group_name = "BatchedLabelWindowPredictor_2022-10-26_18-48-31_UID8fcb538b-56ab-401b-9b88-431525e2be27"
 remote = True
 
 if train:
