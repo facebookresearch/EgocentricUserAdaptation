@@ -24,7 +24,10 @@ TRANSFER_EVAL:
   # Final07_02: multi iter for 15-30
 #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-24T22_35_02.760-07_00.csv"
   # Final07_02: iter 50
-  WANDB_GROUP_TO_EVAL: "Finetuning_2022-10-26_05-22-31_UID761f3a32-39d2-4c49-a1e8-00446ff48982"
+#  WANDB_GROUP_TO_EVAL: "Finetuning_2022-10-26_05-22-31_UID761f3a32-39d2-4c49-a1e8-00446ff48982" # Iter 50
+#  WANDB_GROUP_TO_EVAL: "Finetuning_2022-10-26_11-07-26_UID1d977d1e-2dfa-4f8b-8a45-da9337e6fc2f" # iter 25
+  WANDB_GROUPS_TO_EVAL_CSV_PATH: "/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results/wandb_export_2022-10-26T14_12_55.940-07_00.csv" # Remaining iters
+
 # Final14_01: Replay head retrain 0.01
 #  WANDB_GROUP_TO_EVAL: "Finetuning_2022-10-05_05-48-18_UID11ce17bb-0afa-46c7-8934-978c9a45ba6c"
 # Final14_02: SGD head retrain 0.01
@@ -47,7 +50,7 @@ TRANSFER_EVAL:
   PRETRAIN_TEST_USERS_GROUP_WANDB: "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4"
 
 CHECKPOINT_LOAD_MODEL_HEAD: True
-NUM_USERS_PER_DEVICE: 5 # Model-stream pairs in parallel on 1 device
+NUM_USERS_PER_DEVICE: 3 # Model-stream pairs in parallel on 1 device
 GPU_IDS: None
 NUM_GPUS: 1
 
