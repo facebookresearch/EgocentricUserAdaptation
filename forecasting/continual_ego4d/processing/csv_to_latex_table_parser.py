@@ -1048,18 +1048,18 @@ def parse_final07_01_sgd_multi_iter():
             latex_col_header_name=r"$\overline{\text{OAG}}_{\text{action}}$",
             round_digits=1,
         ),
-        # LatexColumn(
-        #     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/adhoc_AG/mean',
-        #     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/adhoc_AG/SE',
-        #     latex_col_header_name=r"$\overline{\text{OAG}}_{\text{verb}}$",
-        #     round_digits=round_digits,
-        # ),
-        # LatexColumn(
-        #     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/adhoc_AG/mean',
-        #     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/adhoc_AG/SE',
-        #     latex_col_header_name=r"$\overline{\text{OAG}}_{\text{noun}}$",
-        #     round_digits=round_digits,
-        # ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/adhoc_AG/SE',
+            latex_col_header_name=r"$\overline{\text{OAG}}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/adhoc_AG/SE',
+            latex_col_header_name=r"$\overline{\text{OAG}}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
 
         # HISTORY AG
         LatexColumn(
@@ -1068,18 +1068,18 @@ def parse_final07_01_sgd_multi_iter():
             latex_col_header_name=r"$\overline{\text{HAG}}_{\text{action}}$",
             round_digits=1,
         ),
-        # LatexColumn(
-        #     'adhoc_users_aggregate/test_verb_batch/balanced_top1_acc/adhoc_hindsight_AG/mean',
-        #     'adhoc_users_aggregate/test_verb_batch/balanced_top1_acc/adhoc_hindsight_AG/SE',
-        #     latex_col_header_name=r"$\overline{\text{HAG}}_{\text{verb}}$",
-        #     round_digits=round_digits,
-        # ),
-        # LatexColumn(
-        #     'adhoc_users_aggregate/test_noun_batch/balanced_top1_acc/adhoc_hindsight_AG/mean',
-        #     'adhoc_users_aggregate/test_noun_batch/balanced_top1_acc/adhoc_hindsight_AG/SE',
-        #     latex_col_header_name=r"$\overline{\text{HAG}}_{\text{noun}}$",
-        #     round_digits=round_digits,
-        # ),
+        LatexColumn(
+            'adhoc_users_aggregate/test_verb_batch/balanced_top1_acc/adhoc_hindsight_AG/mean',
+            'adhoc_users_aggregate/test_verb_batch/balanced_top1_acc/adhoc_hindsight_AG/SE',
+            latex_col_header_name=r"$\overline{\text{HAG}}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/test_noun_batch/balanced_top1_acc/adhoc_hindsight_AG/mean',
+            'adhoc_users_aggregate/test_noun_batch/balanced_top1_acc/adhoc_hindsight_AG/SE',
+            latex_col_header_name=r"$\overline{\text{HAG}}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
 
         # Training loss
         # LatexColumn(
@@ -1148,8 +1148,6 @@ def parse_final07_01_sgd_multi_iter():
     print_begin_table(caption)
     print(latex_df.to_latex(escape=False, index=False, na_rep='N/A'), end='')
     print_end_table()
-
-
 
 
 def parse_LOSS_vs_ACC_vs_balancedLL_results_sgd_multi_iter():
@@ -2626,6 +2624,9 @@ def parse_final16_eval16_03_batched_label_window_predictor():
     """
     """
     csv_filename = "wandb_export_2022-10-26T20_07_50.954-07_00.csv"  # TRAIN: Batched
+    # csv_filename = "wandb_export_2022-10-27T10_26_32.956-07_00.csv"  # TRAIN (decor/cor): Batched
+
+    # csv_filename = "wandb_export_2022-10-27T10_11_48.448-07_00.csv"  # TEST: batched
     caption = "Label window predictor naive baseline."
     csv_path = os.path.join(csv_dirname, csv_filename)
     round_digits = 1
@@ -2636,16 +2637,16 @@ def parse_final16_eval16_03_batched_label_window_predictor():
     # orig_df = orig_df.loc[(orig_df['SOLVER.BASE_LR'] == 0.001)]
     # orig_df = orig_df.loc[(orig_df['SOLVER.NESTEROV'] == True)] # TODO: Set to False or True to get both parts
     # orig_df.sort_values(inplace=True, axis=0, by=['SOLVER.BASE_LR','TRAIN.INNER_LOOP_ITERS', ])
-    orig_df.sort_values(inplace=True, axis=0, by=["ANALYZE_STREAM.WINDOW_SIZE_SAMPLES"])
+    # orig_df.sort_values(inplace=True, axis=0, by=["ANALYZE_STREAM.WINDOW_SIZE_SAMPLES"])
 
     # Place here in order you want the latex columns to be
     ordered_cols = [
 
-        LatexColumn(
-            'ANALYZE_STREAM.WINDOW_SIZE_SAMPLES',
-            latex_col_header_name=r"window size",
-            format_fn_overwrite=lambda x: x,
-        ),
+        # LatexColumn(
+        #     'ANALYZE_STREAM.WINDOW_SIZE_SAMPLES',
+        #     latex_col_header_name=r"window size",
+        #     format_fn_overwrite=lambda x: x,
+        # ),
 
         # BALANCED
         # LatexColumn(
@@ -2694,17 +2695,61 @@ def parse_final16_eval16_03_batched_label_window_predictor():
             latex_col_header_name=r"$\text{OAG}_{\text{action}}$",
             round_digits=round_digits,
         ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}_{\text{verb}}$",
+            round_digits=round_digits,
+        ),
+        LatexColumn(
+            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
+            'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
+            latex_col_header_name=r"$\text{OAG}_{\text{noun}}$",
+            round_digits=round_digits,
+        ),
+
+        # Decorrelated accuracy (OAG)
         # LatexColumn(
-        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
-        #     'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
-        #     latex_col_header_name=r"$\text{OAG}_{\text{verb}}$",
+        #     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/adhoc_AG/mean',
+        #     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/adhoc_AG/SE',
+        #     latex_col_header_name=r"$\text{OAG}^\text{decor.}_{\text{action}}$",
+        #     round_digits=1,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/mean',
+        #     'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/decorrelated/SE',
+        #     latex_col_header_name=r"$\text{ACC}^{decor.}}_{\text{verb}}$",
         #     round_digits=round_digits,
         # ),
         # LatexColumn(
-        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/mean',
-        #     'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/adhoc_AG/SE',
-        #     latex_col_header_name=r"$\text{OAG}_{\text{noun}}$",
+        #     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/mean',
+        #     'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/decorrelated/SE',
+        #     latex_col_header_name=r"$\text{ACC}^{decor.}}_{\text{noun}}$",
         #     round_digits=round_digits,
+        # ),
+
+        # Correlated accuracy (OAG)
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/adhoc_AG/mean',
+        #     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/adhoc_AG/SE',
+        #     latex_col_header_name=r"$\text{OAG}^\text{cor.}_{\text{action}}$",
+        #     round_digits=1,
+        # ),
+
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/decorrelated/num_samples_keep/mean',
+        #     latex_col_header_name=r"nb samples (decorrelated)",
+        #     format_fn_overwrite=lambda x: x * NB_USERS,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/num_samples_keep/mean',
+        #     latex_col_header_name=r"nb samples (correlated)",
+        #     format_fn_overwrite=lambda x: x * NB_USERS,
+        # ),
+        # LatexColumn(
+        #     'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/correlated/num_samples_total/mean',
+        #     latex_col_header_name=r"nb samples total)",
+        #     format_fn_overwrite=lambda x: x * NB_USERS,
         # ),
 
     ]
@@ -2830,4 +2875,4 @@ def print_end_table():
 
 
 if __name__ == "__main__":
-    parse_final16_eval16_02_label_window_predictor_hindsight()
+    parse_final07_01_sgd_multi_iter()

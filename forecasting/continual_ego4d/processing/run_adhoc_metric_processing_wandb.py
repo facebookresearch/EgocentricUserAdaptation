@@ -60,11 +60,11 @@ MODES = [
     'stream_result_list_to_user_avg_and_aggregated_avg'
 ]
 # Adapt settings
-MODE = MODES[3]
+MODE = MODES[0]
 train = True
 csv_filename = 'wandb_export_2022-10-26T15_24_20.237-07_00.csv'  # TODO copy file here and past name here
 single_group_name = None
-single_group_name = "BatchedLabelWindowPredictor_2022-10-26_18-48-31_UID8fcb538b-56ab-401b-9b88-431525e2be27"
+# single_group_name = "BatchedLabelWindowPredictor_2022-10-26_20-24-45_UIDb586b449-7300-411b-baf4-9eba4300543f"
 remote = True
 
 if train:
@@ -153,7 +153,7 @@ def stream_result_list_to_user_avg_and_aggregated_avg(selected_group_names, over
 
 
 def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, conditional_analysis=False,
-                                         skip_pretrain_delta=False):
+                                         skip_loss_metrics=True):
     """
     Get valid csv dump dir per user.
     Upload per user-stream in group the csv-dump processed balanced-Likelihood.
@@ -209,17 +209,18 @@ def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, c
                 # LOSS/CONFIDENCE BASED METRICS
                 ####################################
 
-                # Unbalanced LL
-                user_val, metric_name = dump_to_LL(user_dump_dict, action_mode, balanced=False)
-                _save_to_wandb_summary(metric_name, user_val, user_run)
+                if not skip_loss_metrics:
+                    # Unbalanced LL
+                    user_val, metric_name = dump_to_LL(user_dump_dict, action_mode, balanced=False)
+                    _save_to_wandb_summary(metric_name, user_val, user_run)
 
-                # Balanced LL
-                user_val, metric_name = dump_to_LL(user_dump_dict, action_mode, balanced=True)
-                _save_to_wandb_summary(metric_name, user_val, user_run)
+                    # Balanced LL
+                    user_val, metric_name = dump_to_LL(user_dump_dict, action_mode, balanced=True)
+                    _save_to_wandb_summary(metric_name, user_val, user_run)
 
-                # Also get balanced loss
-                user_val, metric_name = dump_to_loss(user_dump_dict, action_mode, balanced=True)
-                _save_to_wandb_summary(metric_name, user_val, user_run)
+                    # Also get balanced loss
+                    user_val, metric_name = dump_to_loss(user_dump_dict, action_mode, balanced=True)
+                    _save_to_wandb_summary(metric_name, user_val, user_run)
 
                 # Get balanced ACC
                 user_val, metric_name = dump_to_ACC(user_dump_dict, action_mode, macro_avg=True)
