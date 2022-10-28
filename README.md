@@ -83,6 +83,17 @@ If getting permission errors of my EC2 result
 directory `/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/results`, this is a symlink to a shared
 EFS directory for the results: `/fb-agios-acai-efs/mattdl/results`.
 
+If you want to reproduce Latex Tables for the paper, there are two options.
+
+1. The CSVs are backed up in [adhoc_results](adhoc_results) and [adhoc_results/backup](adhoc_results/backup).
+   The [forecasting/continual_ego4d/processing/csv_to_latex_table_parser.py](forecasting/continual_ego4d/processing/csv_to_latex_table_parser.py)
+   results still refer to these CSV's used. These **may** contain other metrics you want to plot instead, but is not
+   guaranteed. You can alter the column names (metric tags) in the csv parser script to do this.
+2. Second option is to download CSV from WANDB and select the columns (metric tags) you are interested in, e.g. you can
+   use the example
+   in [forecasting/continual_ego4d/processing/csv_to_latex_table_parser.py](forecasting/continual_ego4d/processing/csv_to_latex_table_parser.py)
+   . Then download the results from the WandB UI table as CSV, and parse these with the parser script to Latex tables.
+
 ## Notebooks
 
 Can be found in [notebooks](notebooks).
