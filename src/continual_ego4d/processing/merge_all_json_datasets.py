@@ -4,7 +4,7 @@ First run 'run_summarize_streams.py' for 'train' and 'test' to get the clip-samp
 Each sample is now a 2s clip.
 
 For pretraining this clip-sampling is not required as normal iid training is performed.
-To get the path for these annotations, run 'run_usersplit_ego4d_LTA.py' and get the path to the pretrain splits.
+To get the path for these annotations, run 'run_split_ego4d_on_users.py' and get the path to the pretrain splits.
 
 We then flatten all the jsons into 1 json that is user-agnostic, with the entire dataset pathlist under the 'clips' key.
 This can be used for pretraining  on exactly the data we see during pretrain AND our train/test user streams.
