@@ -1,7 +1,6 @@
 """
 After training user-streams, evaluate on the final models with the full user-streams.
 
-
 1) From a WandB group you are interested in copy the OUTPUT_DIR as input to this script:
 /home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/exp04_01_momentum_video_reset/../../../results/ego4d_action_recog/exp04_01_momentum_video_reset/logs/GRID_SOLVER-BASE_LR=0-01_SOLVER-MOMENTUM=0-9_SOLVER-NESTEROV=True/2022-09-16_17-34-18_UID8cae3077-fb05-4368-b3d6-95cb2813e823
 
@@ -14,45 +13,37 @@ After training user-streams, evaluate on the final models with the full user-str
 - Run predict-stream
 - Flatten results, make DataFrame and save as csv file
 
-
 4) POSTPROCESSING: When all csv's are collected: Aggregate results into the 2d-Matrix and upload as heatmap to WandB runs in group.
-
 """
-import traceback
-from continual_ego4d.tasks.continual_action_recog_task import PretrainState
-from collections import Counter
-from continual_ego4d.processing.run_adhoc_metric_processing_wandb import upload_metric_dict_to_wandb, \
-    _collect_wandb_group_user_results_for_metrics
-
-from continual_ego4d.utils.misc import makedirs
 import copy
-from itertools import product
-import pandas as pd
-import numpy as np
-from collections import defaultdict
-from continual_ego4d.utils.checkpoint_loading import load_slowfast_model_weights, PathHandler
 import multiprocessing as mp
-from continual_ego4d.run_recog_CL import load_datasets_from_jsons, get_user_ids, get_device_ids
-
+import os
 import pprint
+import traceback
+from collections import Counter
+from collections import defaultdict
+from itertools import product
+
+import numpy as np
+import pandas as pd
 import torch
+from fvcore.common.config import CfgNode
 from pytorch_lightning import Trainer, seed_everything
 
+from continual_ego4d.processing.run_adhoc_metric_processing_wandb import upload_metric_dict_to_wandb, \
+    _collect_wandb_group_user_results_for_metrics
+from continual_ego4d.processing.utils import get_group_run_iterator, get_group_names_from_csv, get_delta, \
+    get_delta_mappings
+from continual_ego4d.run_train_user_streams import load_datasets_from_jsons, get_user_ids, get_device_ids
+from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
+from continual_ego4d.tasks.continual_action_recog_task import PretrainState
+from continual_ego4d.utils.checkpoint_loading import load_slowfast_model_weights, PathHandler
+from continual_ego4d.utils.misc import makedirs
+from continual_ego4d.utils.models import freeze_full_model, model_trainable_summary
+from continual_ego4d.utils.scheduler import SchedulerConfig, RunConfig
 from ego4d.config.defaults import set_cfg_by_name, cfg_add_non_existing_key_vals, convert_flat_dict_to_cfg, get_cfg
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
-from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
-from continual_ego4d.utils.scheduler import SchedulerConfig, RunConfig
-
-import os
-
-from continual_ego4d.utils.models import freeze_full_model, model_trainable_summary
-from continual_ego4d.processing.utils import get_group_run_iterator, get_group_names_from_csv, get_delta, \
-    get_delta_mappings
-
-from fvcore.common.config import CfgNode
-
-import wandb
 
 logger = logging.get_logger(__name__)
 
@@ -444,7 +435,8 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
             'TRANSFER_MATRIX/USERS_IN_ORDER': streamusers
         }
         logger.info(f"Collected MATRIX results for users {streamusers}:\n {matrix_dict}")
-        upload_metric_dict_to_wandb(matrix_dict, group_name=group_name, mean=False)  # Don't average, but report 2d array
+        upload_metric_dict_to_wandb(matrix_dict, group_name=group_name,
+                                    mean=False)  # Don't average, but report 2d array
 
 
 def postprocess_instance_counts_from_csv_files(eval_cfg, modeluser_streamuser_pairs, pretrain_dataset):

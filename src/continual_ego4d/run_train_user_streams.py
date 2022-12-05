@@ -1,37 +1,29 @@
+
 import copy
-import sys
-
-from continual_ego4d.utils.checkpoint_loading import load_slowfast_model_weights, PathHandler
 import multiprocessing as mp
-
+import os
 import pprint
-import concurrent.futures
-from collections import deque
-import torch
-from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, DeviceStatsMonitor, GPUStatsMonitor, Timer
-from pytorch_lightning.plugins import DDPPlugin
-from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
-from continual_ego4d.utils.custom_logger_connector import CustomLoggerConnector
-from pytorch_lightning.loggers import WandbLogger
-import traceback
-import wandb
-from continual_ego4d.utils.scheduler import SchedulerConfig, RunConfig
 
+import torch
+import wandb
+from fvcore.common.config import CfgNode
+from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning.callbacks import ModelCheckpoint, GPUStatsMonitor, Timer
+from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
+from pytorch_lightning.loggers import WandbLogger
+
+from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
+from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
+from continual_ego4d.tasks.iid_action_recog_task import IIDMultiTaskClassificationTask
+from continual_ego4d.utils.checkpoint_loading import load_slowfast_model_weights, PathHandler
+from continual_ego4d.utils.custom_logger_connector import CustomLoggerConnector
+from continual_ego4d.utils.models import freeze_backbone_not_head, model_trainable_summary, freeze_full_model, \
+    freeze_head
+from continual_ego4d.utils.scheduler import SchedulerConfig, RunConfig
 from ego4d.config.defaults import set_cfg_by_name, convert_cfg_to_flat_dict
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
-from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask
-
-from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
-from continual_ego4d.tasks.iid_action_recog_task import IIDMultiTaskClassificationTask
-from continual_ego4d.datasets.continual_action_recog_dataset import extract_json
-
-from scripts.slurm import copy_and_run_with_config
-import os
-
-from continual_ego4d.utils.models import freeze_backbone_not_head, model_trainable_summary, freeze_full_model, freeze_head
-from fvcore.common.config import CfgNode
+from ego4d.utils.slurm import copy_and_run_with_config
 
 logger = logging.get_logger(__name__)
 
@@ -294,7 +286,6 @@ def online_adaptation_single_user(
 
     if cfg.MODEL.FREEZE_HEAD:
         freeze_head(task.model)
-
 
     # Print summary
     model_trainable_summary(task.model)
