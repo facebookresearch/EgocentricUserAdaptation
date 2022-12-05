@@ -1,4 +1,7 @@
-""" Split in train and test sets and generate summary. """
+""" Split the original Ego4d dataset based on user meta-data.
+The original train/val splits are merged, then with the user meta-data new user-based
+train/test/pretrain splits are created by generating JSON files for the new dataset splits.
+"""
 
 import pandas as pd
 import numpy as np
@@ -11,9 +14,38 @@ import datetime
 import os
 from collections import defaultdict
 import sys
-# from continual_ego4d.utils.misc import makedirs
+
+# Define your ego4d download path
+EGO4D_PARENT_DIR = "YOUR/EGO4D/DOWNLOAD/PATH/"
+
+# Original splits in paper
+ORIG_TRAIN_USERS = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
+ORIG_TEST_USERS = [
+    "59", "23", "17", "37", "97", "22", "31", "10", "346", "359", "120", "19", "16", "283", "28", "20", "44", "38",
+    "262", "25", "51", "278", "55", "39", "45", "33", "331", "452", "453", "21", "431", "116", "35", "105", "378",
+    "74", "11", "126", "123", "436"
+]
 
 parser = argparse.ArgumentParser(description="User split for ego4d LTA task.")
+
+parser.add_argument(
+    "--p_ego4d_meta_data_file",
+    help="Original ego4d dataset meta-data JSON.",
+    default=f"{EGO4D_PARENT_DIR}/Ego4D/ego4d_data/ego4d.json",
+    type=str,
+)
+parser.add_argument(
+    "--p_ego4d_annotations_parent_dir",
+    help="Original ego4d dataset annotations parent dir.",
+    default=f"{EGO4D_PARENT_DIR}/Ego4D/ego4d_data/v1/annotations",
+    type=str,
+)
+parser.add_argument(
+    "--p_output_dir",
+    help="Parent dir to output timestamped dir including plots and json splits.",
+    default="./usersplit_data",
+    type=str,
+)
 parser.add_argument(
     "--nb_users_thresh",
     help="Number users to keep as subset",
@@ -27,31 +59,11 @@ parser.add_argument(
     default=10,
     type=int,
 )
-
 parser.add_argument(
     "--usersplit_criterion",
     help="Criterion to split the users on",
-    default='random',
-    choices=['random', 'time_weighed'],
-    type=str,
-)
-
-parser.add_argument(
-    "--user_videotime_min_thresh",
-    help="Number of videominutes users need to remain in the subset",
-    default=None,
-    type=int,
-)
-parser.add_argument(
-    "--sort_by_col",
-    help="Column in dataframe to sort on. (Default: total sum of user clip-video length)",
-    default="sum_clip_duration_min",
-    type=str,
-)
-parser.add_argument(
-    "--p_output_dir",
-    help="Parent dir to output timestamped dir including plots and json splits.",
-    default="./usersplit_data",
+    default='paper',
+    choices=['paper', 'random'],
     type=str,
 )
 parser.add_argument(
@@ -62,8 +74,9 @@ parser.add_argument(
 )
 
 
-# Write both to file and stdout
 class Logger(object):
+    """ Write both to file and stdout"""
+
     def __init__(self, filename="Default.log"):
         self.terminal = sys.stdout
         self.log = open(filename, "a")
@@ -76,28 +89,24 @@ class Logger(object):
         self.log.flush()
 
 
-def generate_usersplit_from_trainval(
-        meta_data_file_path: str,
-        train_annotation_file: str,
-        val_annotation_file: str,
-        user_id_col="fb_participant_id"):
+def generate_usersplit_from_trainval(user_id_col="fb_participant_id"):
     """ Get mini-train, test, and pretrain data splits."""
-
     args = parser.parse_args()
-    nb_users_test = args.nb_users_thresh - args.nb_users_train
-    train_ratio = args.nb_users_train / args.nb_users_thresh
     np.random.seed(args.seed)
 
+    # DATA PATHS
+    meta_data_file_path = args.p_ego4d_meta_data_file  # META DATA
+    annotation_file_dir = args.p_ego4d_annotations_parent_dir  # ANNOTATION DATA LTA
+    annotation_file_names = {'train': "fho_lta_train.json", 'val': 'fho_lta_val.json',
+                             'test': 'fho_lta_test_unannotated.json'}
+    train_annotation_file = osp.join(annotation_file_dir, annotation_file_names['train'])
+    val_annotation_file = osp.join(annotation_file_dir, annotation_file_names['val'])
+
     # Paths and logger
-    # Check outdir path
     now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     output_dir = osp.join(args.p_output_dir, f"{now}_ego4d_LTA_usersplit")
     os.makedirs(output_dir, exist_ok=True, mode=0o777)
     sys.stdout = Logger(osp.join(output_dir, "logger_dump.txt"))
-
-    # check args
-    assert args.nb_users_thresh is None or args.user_videotime_min_thresh is None, \
-        "Can only define one thresholding method!"
 
     # Open meta data object
     with open(meta_data_file_path, 'r') as meta_data_file:
@@ -155,13 +164,6 @@ def generate_usersplit_from_trainval(
         pretrain_user_ids.append(None)
         pretrain_sort_values.extend(nan_user_df[args.sort_by_col].tolist())
 
-    elif args.user_videotime_min_thresh is not None:
-        raise NotImplementedError("Not supporting this split")
-        print(f"Thresholding on user_videotime_min_thresh")
-        user_subset_df = trainval_user_df.loc[trainval_user_df[args.sort_by_col] >= args.user_videotime_min_thresh]
-        sorted_user_ids = user_subset_df[user_id_col].tolist()
-        user_sort_values = user_subset_df[args.sort_by_col].tolist()
-
     else:  # No cutoff
         print(f"No thresholding = no pretrain data")
         sorted_user_ids = trainval_user_df[user_id_col].tolist()
@@ -172,8 +174,8 @@ def generate_usersplit_from_trainval(
         shuffled_idxs = np.random.permutation(np.arange(len(sorted_user_ids)))
         train_idxs, test_idxs = shuffled_idxs[:args.nb_users_train], shuffled_idxs[args.nb_users_train:]
 
-    elif args.usersplit_criterion == 'time_weighed':
-        raise NotImplementedError()
+    elif args.usersplit_criterion == 'paper':
+        train_idxs, test_idxs = ORIG_TRAIN_USERS, ORIG_TEST_USERS
     else:
         raise ValueError()
 
@@ -258,23 +260,17 @@ def generate_usersplit_from_trainval(
     save_json(trainval_joined_df, user_id_col, pretrain_user_ids, json_col_names, json_pretrain_filepath, split,
               flatten=True, include_nan_user=True)
 
-    # JSON WITH ALL DATA: For pretrain comparison baseline TODO: Have to use train/test summary data as they filter in streams
-    # split = 'all_data_test_train_pretrain_incl_nanusers'
-    # json_all_data_filepath = osp.join(output_dir, json_filename.format(split, nb_total_users))
-    # all_user_ids = list(train_user_ids) + list(test_user_ids) + list(pretrain_user_ids)  # Train/test/pretrain (incl NaN user)
-    # assert len(all_user_ids) == nb_total_users
-    # save_json(trainval_joined_df, user_id_col, all_user_ids, json_col_names, json_all_data_filepath, split,
-    #           flatten=True, include_nan_user=True)
-
 
 def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_filepath, split_name,
               flatten=False, include_nan_user=False,
               include_action_sets=True):
-    """Filter json dataframe, parse to json-compatible object. Dump to json file.
+    """
+    Filter json dataframe, parse to json-compatible object. Dump to json file.
 
-    flatten: Add a separate 'clips'-key that contains all entries over all users in a single list for direct Ego4d usage.
-    include_nan_user: Include the NaN user as well (unassigned entries)
-    include_action_sets: If specified, include the set of all actions/verbs/nouns in the json.
+    :param: flatten: Add a separate 'clips'-key that contains all entries over all users in a single list
+    for direct usage in original Ego4d codebase.
+    :param: include_nan_user: Include the NaN user (unassigned entries)
+    :param: include_action_sets: If True, include the sets of all actions/verbs/nouns in the json.
     """
     print(f"Saving json with user_ids={user_ids}, including nan user={include_nan_user}")
     pre_train_df = trainval_joined_df.loc[trainval_joined_df[user_id_col].isin(user_ids)]  # Get train datatframe
@@ -453,17 +449,7 @@ def plot_barchart(x_axis: list[list], y_vals: list[list], title, ylabel, xlabel,
         plt.legend()
 
     if x_minor_ticks is not None:
-        #         ax.set_xticks(major_ticks)
         ax.set_xticks(x_minor_ticks, minor=True)
-    #         ax.set_yticks(major_ticks)
-    #         ax.set_yticks(minor_ticks, minor=True)
-
-    # And a corresponding grid
-    #         ax.grid(which='both')
-
-    #         # Or if you want different settings for the grids:
-    #         ax.grid(which='minor', alpha=0.2)
-    #         ax.grid(which='major', alpha=0.5)
 
     if x_labels:
         plt.xticks(x_axis, x_labels, rotation='vertical')
@@ -486,12 +472,14 @@ def plot_barchart(x_axis: list[list], y_vals: list[list], title, ylabel, xlabel,
     plt.clf()
 
 
-def df_to_per_user_formatted_json(df, user_id_list, split, user_id_col_name):
-    """Convert to a json with at
-    L1: users, split
-    L2: per user parse the annotation entries.
+def df_to_per_user_formatted_json(df, user_id_list: list, split: str, user_id_col_name: str):
+    """Convert the dataframe with per-user information to a dictionary for the final JSON.
+    On first level, contains keys 'users' (mapping to specific user keys),
+    and 'split' (mapping to all entries, user-agnostic).
 
-    if user_id_list contains None, we translate it too look for NaN values.
+    :param: user_id_list: Contains a list of all users to include in the json.
+    If 'user_id_list' contains None, the NaN user is included.
+    :param: split: the name of the split (e.g. test, train)
     """
     result = {'users': defaultdict(list), 'split': split}
 
@@ -516,18 +504,4 @@ def df_to_per_user_formatted_json(df, user_id_list, split, user_id_col_name):
 
 
 if __name__ == "__main__":
-    # META DATA
-    meta_data_file_path = "/fb-agios-acai-efs/Ego4D/ego4d_data/ego4d.json"
-
-    # ANNOTATION DATA LTA
-    annotation_file_dir = "/fb-agios-acai-efs/Ego4D/ego4d_data/v1/annotations"
-    annotation_file_names = {'train': "fho_lta_train.json", 'val': 'fho_lta_val.json',
-                             'test': 'fho_lta_test_unannotated.json'}
-    train_annotation_file = osp.join(annotation_file_dir, annotation_file_names['train'])
-    val_annotation_file = osp.join(annotation_file_dir, annotation_file_names['val'])
-
-    generate_usersplit_from_trainval(
-        meta_data_file_path,
-        train_annotation_file,
-        val_annotation_file,
-    )
+    generate_usersplit_from_trainval()
