@@ -3,17 +3,18 @@ The original train/val splits are merged, then with the user meta-data new user-
 train/test/pretrain splits are created by generating JSON files for the new dataset splits.
 """
 
-import pandas as pd
-import numpy as np
-from collections import Counter
-import os.path as osp
-import json
-import matplotlib.pyplot as plt
 import argparse
 import datetime
+import json
 import os
-from collections import defaultdict
+import os.path as osp
 import sys
+from collections import Counter
+from collections import defaultdict
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 # Define your ego4d download path
 EGO4D_PARENT_DIR = "YOUR/EGO4D/DOWNLOAD/PATH/"
