@@ -4,6 +4,7 @@
 import os
 import pathlib
 import shutil
+
 import submitit
 
 
@@ -27,7 +28,7 @@ def copy_and_run_with_config(run_fn, run_config, directory, **cluster_config):
         "val.csv",
         "train.csv",
     ]
-    shutil.copytree(".", working_directory, ignore=lambda x, y: copy_blacklist)
+    shutil.copytree("../scripts", working_directory, ignore=lambda x, y: copy_blacklist)
     os.chdir(working_directory)
     print(f"Running at {working_directory}")
 

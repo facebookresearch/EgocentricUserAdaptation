@@ -1,82 +1,22 @@
-"""
-
-Flow
----------------------------------------------
-run_lta.py: trainer.fit(task: LongTermAnticipationTask)
--> Select task (LTA/short-term recognition/...), initialize it with the config, restore checkpoint,
--> and launch pytorch ligthning trainer to fit the Task.
-
-\ego4d\tasks\long_term_anticipation.py: class LongTermAnticipationTask(VideoTask):
--> Define {train/val/test}_{step/epoch_end}
-
-\ego4d\tasks\video_task.py: class VideoTask(LightningModule)
--> The cfg is used all the way: cfg.MODEL.NUM_CLASSES
--> Build model/optimizer/dataloaders for the task/additional hooks (e.g. on_backwards)
-
-
-"""
-
-import os
+import os.path as osp
 import pickle
 import pprint
-import os.path as osp
 
-import sys
-
-from ego4d.utils import logging
 import numpy as np
-import pytorch_lightning
 import torch
-from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask, LongTermAnticipationTask
-from ego4d.utils.c2_model_loading import get_name_convert_func
-from ego4d.utils.misc import gpu_mem_usage
-from ego4d.utils.parser import load_config, parse_args
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, GPUStatsMonitor
+from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger, WandbLogger
 from pytorch_lightning.plugins import DDPPlugin
+
 from ego4d.config.defaults import convert_cfg_to_flat_dict
-import copy
+from ego4d.tasks.long_term_anticipation import MultiTaskClassificationTask, LongTermAnticipationTask
+from ego4d.utils import logging
+from ego4d.utils.c2_model_loading import get_name_convert_func
+from ego4d.utils.parser import load_config, parse_args
+from ego4d.utils.slurm import copy_and_run_with_config
 
 logger = logging.get_logger(__name__)
-
-import os
-import pathlib
-import shutil
-import submitit
-from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger, WandbLogger
-
-
-# Not sure why I can't import scripts.slurm?
-# from scripts.slurm import copy_and_run_with_config
-def init_and_run(run_fn, run_config):
-    os.environ["RANK"] = os.environ["SLURM_LOCALID"]
-    os.environ["LOCAL_RANK"] = os.environ["SLURM_LOCALID"]
-    os.environ["NODE_RANK"] = os.environ["SLURM_LOCALID"]
-    os.environ["WORLD_SIZE"] = os.environ["SLURM_NTASKS"]
-    run_fn(run_config)
-
-
-def copy_and_run_with_config(run_fn, run_config, directory, **cluster_config):
-    working_directory = pathlib.Path(directory) / cluster_config["job_name"]
-    copy_blacklist = [
-        "data",
-        "lightning_logs",
-        "slurm",
-        "logs",
-        "pretrained_models",
-        "checkpoints",
-        "experimental",
-        ".git",
-        "output",
-    ]
-    shutil.copytree(".", working_directory, ignore=lambda x, y: copy_blacklist)
-    os.chdir(working_directory)
-    print(f"Running at {working_directory}")
-
-    executor = submitit.SlurmExecutor(folder=working_directory)
-    executor.update_parameters(**cluster_config)
-    job = executor.submit(init_and_run, run_fn, run_config)
-    print(f"job_id: {job}")
 
 
 def main(cfg):
@@ -143,10 +83,8 @@ def main(cfg):
         )
         wandb_logger = WandbLogger(
             project="ContinualUserAdaptation_Pretrain",
-            # save_dir=osp.join(cfg.OUTPUT_DIR, 'wandb'),
             save_dir=cfg.OUTPUT_DIR,
             name=f"pretrain_e={cfg.SOLVER.MAX_EPOCH}_lr={cfg.SOLVER.BASE_LR}_sched={cfg.SOLVER.LR_POLICY}",
-            # group=None,
             tags=cfg.WANDB.TAGS if cfg.WANDB.TAGS is not None else None,
             config=convert_cfg_to_flat_dict(cfg),  # Load full config to wandb setting
             resume=is_resuming_run,
