@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-echo "PWD="$(pwd)
 
 #-----------------------------------------------------------------------------------------------#
 # Add ego4d code modules to pythonpath
@@ -7,8 +6,6 @@ run_script_dirpath=$(pwd) # Change location to current script
 root_path=${run_script_dirpath}/../../..
 ego4d_code_root="$root_path/src"
 export PYTHONPATH=$PYTHONPATH:$ego4d_code_root
-echo "run_script_dirpath=${run_script_dirpath}"
-echo "ego4d_code_root=${ego4d_code_root}"
 
 # Unique run id
 timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
