@@ -61,17 +61,15 @@ To reproduce results from the paper, run the scripts in [reproduce](reproduce), 
 - [reproduce/test_user_results](reproduce/test_user_results): Final test user-split results
 - [reproduce/hindsight_performance](reproduce/hindsight_performance): Get hindsight results (HAG) after learning user-streams
 
-All results are saved in the WandB run entries. 
-Group the runs on the group identifier
 
-and select per-user stream CSV's
+### (postprocess) Parsing final WandB results
+All results are saved in the WandB run entries and in local CSV dumps with per-update predictions. 
+To get the results in WandB, group runs (1 run is 1 user-stream) on *Group*.
+Then, filter on *Group* and select the desired metrics in the Tables.
 
-### (postprocess) From WandB to Latex
+Additionally, to see which metrics are used in the paper, you can check out [the table parser script](src/continual_ego4d/processing/csv_to_latex_table_parser.py) for examples.
+The script parses downloaded (grouped) runs from WandB that are exported to a CSV, and parses the CSV to Latex-formatted tables.
 
-In WandB select your desired runs in a table, and download CSV!
-These can then be converted to Latex tables
-in [forecasting/continual_ego4d/processing/csv_to_latex_table_parser.py](src/continual_ego4d/processing/csv_to_latex_table_parser.py)
-.
 
 ## Notebooks
 
