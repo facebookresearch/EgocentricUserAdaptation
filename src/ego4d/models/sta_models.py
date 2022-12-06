@@ -6,7 +6,6 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from detectron2.layers import ROIAlign
 
 from .build import MODEL_REGISTRY
 from .video_model_builder import ResNet, SlowFast, _POOL1
@@ -65,6 +64,8 @@ class ResNetSTARoIHead(nn.Module):
             correct neighbors; It makes negligible differences to the model's
             performance if ROIAlign is used together with conv layers.
         """
+        from detectron2.layers import ROIAlign
+
         super(ResNetSTARoIHead, self).__init__()
         assert (
             len({len(pool_size), len(dim_in)}) == 1
