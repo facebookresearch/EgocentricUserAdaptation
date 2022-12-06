@@ -11,12 +11,12 @@ grid_cfg_names="METHOD.REPLAY.MEMORY_SIZE_SAMPLES,METHOD.REPLAY.STORAGE_POLICY" 
 grid_overwrite_args+=" GRID_NODES ${grid_cfg_names}"
 
 val_idx=0
-gridvals=("reservoir_stream" "reservoir_action" "window")
+gridvals=("FIFO" "reservoir" "hybrid_CBRS")
 grid_arg="METHOD.REPLAY.STORAGE_POLICY ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
 val_idx=0
-gridvals=( 8 64 128 1000000 )
+gridvals=( 8 64 128 1000000 ) # Select last for Full-replay, with any storage policy
 grid_arg="METHOD.REPLAY.MEMORY_SIZE_SAMPLES ${gridvals[${val_idx}]}"
 grid_overwrite_args+=" ${grid_arg}"
 
@@ -31,4 +31,4 @@ echo "grid_overwrite_args=$grid_overwrite_args"
 
 # Run script in current dir (same process with source)
 __dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${__dir}/../../main_script.sh" "${grid_overwrite_args}"
+"${__dir}/../../call_train_user_streams.sh" "${grid_overwrite_args}"

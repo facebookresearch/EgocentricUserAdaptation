@@ -1,0 +1,41 @@
+TRANSFER_EVAL:
+  WANDB_PROJECT_NAME: "YOUR_USER_NAME/EgoAdapt"
+
+  # You can select a single group to perform hindsight evaluation on:
+  WANDB_GROUP_TO_EVAL: "SGD_2022-09-14_19-06-02_UID2c4355e2-c42c-46d9-ba37-8cb8abe8d1d0" # TODO Give group name
+
+  # Or you can select a csv containing multiple groups that are processed sequentially:
+#  WANDB_GROUPS_TO_EVAL_CSV_PATH: "local_path_to/wandb_export_2022-09-21T15_36_21.953-07_00.csv" # TODO Give csv name
+#  CSV_RANGE: (0,4) # Select a range of groups in the CSV file
+
+  DIAGONAL_ONLY: False # False: Get the full matrix, True: Only get the per-user results (matching stream and model)
+  INCLUDE_PRETRAIN_STREAM: False
+  INCLUDE_PRETRAIN_MODEL: False
+
+  # Assumes the pretrained model has already ran for performance metrics, this is to calculate relative metrics
+  # Pass the WandB group-name for this pretraining group
+
+  # Train-users pretraining group
+  NUM_EXPECTED_USERS: 10 # 10 users expected for training, 40 for testing
+  PRETRAIN_REFERENCE_GROUP_WANDB: 'train' # or test
+  PRETRAIN_TRAIN_USERS_GROUP_WANDB: "FixedNetwork_2022-10-07_21-50-23_UID80e71950-cea4-44ba-ba16-7dddfe95be26" # TODO Give group name
+
+  # Test-users pretraining group
+#  NUM_EXPECTED_USERS: 40 # 10 users expected for training, 40 for testing
+#  PRETRAIN_REFERENCE_GROUP_WANDB: 'test'
+#  PRETRAIN_TEST_USERS_GROUP_WANDB: "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4" # TODO Give group name
+
+CHECKPOINT_LOAD_MODEL_HEAD: True
+PREDICT_PHASE:
+  NUM_WORKERS: 10
+  BATCH_SIZE: 10 # 10=5G/user
+
+# Resources
+NUM_USERS_PER_DEVICE: 5 # Model-stream pairs in parallel on 1 device
+GPU_IDS: None
+NUM_GPUS: 1
+
+# Debug/fast run
+FAST_DEV_RUN: False
+FAST_DEV_DATA_CUTOFF: None
+USER_SELECTION: None

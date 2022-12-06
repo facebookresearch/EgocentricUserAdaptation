@@ -31,4 +31,4 @@ echo "grid_overwrite_args=$grid_overwrite_args"
 
 # Run script in current dir (same process with source)
 __dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${__dir}/../../main_script.sh" "${grid_overwrite_args}"
+"${__dir}/../../call_train_user_streams.sh" "${grid_overwrite_args}"

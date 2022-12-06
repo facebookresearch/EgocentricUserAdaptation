@@ -10,8 +10,8 @@ export PYTHONPATH=$PYTHONPATH:$ego4d_code_root
 # Unique run id
 timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
 uuid=$(uuidgen)
-run_id="${timestamp}_UID${uuid}"
-echo "RUN-ID=${run_id}"
+RUN_ID="${timestamp}_UID${uuid}"
+echo "RUN-ID=${RUN_ID}"
 
 #-----------------------------------------------------------------------------------------------#
 # PATHS
@@ -19,7 +19,7 @@ echo "RUN-ID=${run_id}"
 # Logging (stdout/tensorboard) output path
 p_dirname="$(basename "${run_script_dirpath}")"
 pp_dirname="$(basename "$(dirname -- "${run_script_dirpath}")")"
-OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${run_id}"
+OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${RUN_ID}"
 
 # Data paths
 EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations_local/
@@ -47,10 +47,7 @@ OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_DIR ${EGO4D_ANNOTS}"
 OVERWRITE_CFG_ARGS+=" DATA.PATH_PREFIX ${EGO4D_VIDEOS}"
 OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
-# Start in screen detached mode (-dm), and give indicative name via (-S)
-#screenname="${run_id}"
-#screen -dmS "${screenname}" \
-python -m continual_ego4d.run_train_user_streams \
-  --job_name "$run_id" \
-  --working_directory "${OUTPUT_DIR}" \
-  ${OVERWRITE_CFG_ARGS}
+
+export OVERWRITE_CFG_ARGS
+export RUN_ID
+export OUTPUT_DIR
