@@ -1,36 +1,27 @@
 import copy
-from abc import ABC, abstractmethod
-from continual_ego4d.methods.build import build_method, METHOD_REGISTRY
-from typing import Dict, Tuple, List, Any, Union
-from torch import Tensor
-from pytorch_lightning.core import LightningModule
-import torch
-from collections import defaultdict
-from continual_ego4d.metrics.metric import get_metric_tag
-from continual_ego4d.metrics.count_metrics import TAG_BATCH
-from collections import OrderedDict
-import random
 import itertools
-from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
-from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
-from ego4d.utils import logging
 import pprint
-from continual_ego4d.utils.models import reset_optimizer_stats_
-from collections import Counter
+import random
+from collections import OrderedDict
+from collections import deque
+from typing import Dict, Tuple, List, Any
+from typing import TYPE_CHECKING
+
+import torch
 import torch.nn.functional as F
-import os
-from continual_ego4d.utils.models import get_flat_gradient_vector, get_name_to_grad_dict, grad_dict_to_vector
-from ego4d.models.head_helper import MultiTaskHead
-import numpy as np
+from torch import Tensor
 from torch.utils.data.sampler import RandomSampler, SequentialSampler
 
-from typing import TYPE_CHECKING
-from collections import deque
+from continual_ego4d.datasets.continual_action_recog_dataset import verbnoun_to_action
+from continual_ego4d.methods.build import METHOD_REGISTRY
+from continual_ego4d.metrics.count_metrics import TAG_BATCH
+from continual_ego4d.metrics.metric import get_metric_tag
+from continual_ego4d.metrics.standard_metrics import OnlineLossMetric
+from continual_ego4d.utils.models import get_name_to_grad_dict, grad_dict_to_vector
+from ego4d.utils import logging
 
 if TYPE_CHECKING:
     from continual_ego4d.tasks.continual_action_recog_task import ContinualMultiTaskClassificationTask
-    from continual_ego4d.datasets.continual_action_recog_dataset import Ego4dContinualRecognition
-    from pytorch_lightning import Trainer
 
 logger = logging.get_logger(__name__)
 
@@ -310,6 +301,7 @@ class Finetuning(Method):
 
 @METHOD_REGISTRY.register()
 class FixedNetwork(Method):
+    """ Network that is not updated. Can be used to obtain running performance over stream for fixed model."""
     run_predict_before_train = False
 
     def __init__(self, cfg, lightning_module):
@@ -320,306 +312,6 @@ class FixedNetwork(Method):
 
     def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
         logger.info("Skipping update as no params to train")
-
-
-@METHOD_REGISTRY.register()
-class FinetuningMomentumReset(Method):
-    run_predict_before_train = True
-
-    def __init__(self, cfg, lightning_module):
-        super().__init__(cfg, lightning_module)
-
-    def training_first_forward(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
-        if self.lightning_module.stream_state.is_clip_5min_transition:
-            assert len(self.lightning_module.trainer.optimizers) == 1
-            optimizer = self.lightning_module.trainer.optimizers[0]
-            reset_optimizer_stats_(optimizer)
-
-        return super().training_first_forward(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
-
-
-@METHOD_REGISTRY.register()
-class LabelShiftMeasure(Method):
-    run_predict_before_train = False
-
-    intra_distance_modes = ['entropy']
-    inter_distance_modes = ['KL_cur_first', 'KL_cur_last', 'JS', 'IOU', 'IOU_inverse']
-    """
-    All distance modes give a measure of distance, higher values indicate higher distance,
-    indicating higher non-stationarity. IOU is a similarity metric, therefore consider inverse as well.
-    """
-
-    def __init__(self, cfg, lightning_module):
-        super().__init__(cfg, lightning_module)
-
-        # Empty task metrics
-        lightning_module.past_metrics = []
-        lightning_module.future_metrics = []
-        lightning_module.current_batch_metrics = []
-        lightning_module.continual_eval_freq = -1
-        lightning_module.plotting_log_freq = -1
-        logger.debug(f"Reset all metrics to empty.")
-
-        # Overwrite dataloaders
-        assert cfg.DATA.RETURN_VIDEO is False, \
-            f"Must set cfg.DATA.RETURN_VIDEO=False for efficient loading of stream labels only"
-        assert lightning_module.train_loader.dataset.return_video is False  # Only return labels
-        # lightning_module.train_loader.batch_size = 1 # Observe sample at a time -> But per-batch allows comparing with our AG runs of users
-        lightning_module.predict_loader = None
-
-        # States
-        self.lookback_stride = cfg.ANALYZE_STREAM.LOOKBACK_STRIDE_ITER  # How many iters to look back, take into account batch-size! (Because we have 1 window per iter)
-        self.window_size = cfg.ANALYZE_STREAM.WINDOW_SIZE_SAMPLES  # Determines length of window in samples
-        assert self.window_size <= self.lookback_stride * lightning_module.train_loader.batch_size, \
-            f"Window of size {self.window_size} should not overlap with previous window at" \
-            f"{self.lookback_stride * lightning_module.train_loader.batch_size} samples back"
-
-        # Memory history
-        self.window_history: deque[list[tuple]] = deque()  # Each window is a list of action-tuples
-
-        self.smoothing_distr = "uniform"
-        self.smoothing_strength = 0.01  # Convex smooth: strength * smoothing_strength + (1-strength) * smoothing_distr
-        assert self.smoothing_strength < 1
-
-    def _get_window_idxs(self, current_batch_stream_idxs):
-        # Current history window + current
-        window_t = set(current_batch_stream_idxs)
-
-        capacity_left = self.window_size - len(window_t)
-        assert capacity_left >= 0, "Batch size is larger than window!"
-
-        first_batch_idx = min(current_batch_stream_idxs)
-        first_past_idx = first_batch_idx - capacity_left
-
-        if first_past_idx < 0:
-            logger.debug(f"Window of size {self.window_size} not yet filled at "
-                         f"batch {self.lightning_module.stream_state.batch_idx} with "
-                         f"first sample idx {first_batch_idx}, last {max(current_batch_stream_idxs)}")
-            return None, False
-        window_past_idxs = list(range(first_past_idx, first_batch_idx))
-
-        return window_past_idxs + current_batch_stream_idxs, True
-
-    def _check_can_compare_windows(self):
-        """ Do we have enough windows in history to satisfy stride? """
-        if len(self.window_history) < self.lookback_stride + 1:  # Include current batch
-            logger.debug(f"batch {self.lightning_module.stream_state.batch_idx}:"
-                         f"Stride not yet met in history window len(Q)={len(self.window_history)}. "
-                         f"Lookback stride is {self.lookback_stride}.")
-            return False
-        return True
-
-    def training_first_forward(self, inputs_t, labels_t, current_batch_stream_idxs: list, *args, **kwargs):
-        assert len(self.window_history) <= self.lookback_stride
-        loss = None
-        preds = None
-        log_results = {}
-
-        all_idxs, valid_idxs = self._get_window_idxs(current_batch_stream_idxs)
-
-        if not valid_idxs:
-            return loss, preds, log_results
-
-        # Collect all labels
-        window_labels = [self.lightning_module.stream_state.sample_idx_to_action_list[label_idx]
-                         for label_idx in all_idxs]
-        self.window_history.append(window_labels)
-
-        # Single-window measures
-        for intra_distance_mode in self.intra_distance_modes:
-            action_dist, verb_dist, noun_dist = self._get_intra_window_distances_action_verb_noun(
-                intra_distance_mode, window_labels)
-
-            log_results[
-                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='action',
-                               base_metric_name=intra_distance_mode)
-            ] = action_dist
-
-            log_results[
-                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='verb',
-                               base_metric_name=intra_distance_mode)
-            ] = verb_dist
-
-            log_results[
-                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='noun',
-                               base_metric_name=intra_distance_mode)
-            ] = noun_dist
-
-        # Proceed to multi-window comparing
-        if not self._check_can_compare_windows():
-            return loss, preds, log_results
-
-        # If enough windows so we can compare newest with latest:
-        ref_window = self.window_history.popleft()
-        cur_window = window_labels
-
-        # Log all our proposed metrics
-        for distance_mode in self.inter_distance_modes:
-            action_dist, verb_dist, noun_dist = self._get_inter_window_distances_action_verb_noun(
-                distance_mode, cur_window, ref_window)
-
-            log_results[
-                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='action', base_metric_name=distance_mode)
-            ] = action_dist
-
-            log_results[
-                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='verb', base_metric_name=distance_mode)
-            ] = verb_dist
-
-            log_results[
-                get_metric_tag(TAG_BATCH, train_mode='analyze', action_mode='noun', base_metric_name=distance_mode)
-            ] = noun_dist
-
-        return loss, preds, log_results
-
-    # INTRA: Within window
-    def _get_intra_window_distances_action_verb_noun(self, distance_mode: str, cur_action_window: list[tuple]):
-        """ Get the window distance metric within the window for action/verb/noun. """
-        action_dist = self._get_intra_window_distance(distance_mode, cur_action_window)
-
-        cur_verb_window = [a[0] for a in cur_action_window]
-        verb_dist = self._get_intra_window_distance(distance_mode, cur_verb_window)
-
-        cur_noun_window = [a[1] for a in cur_action_window]
-        noun_dist = self._get_intra_window_distance(distance_mode, cur_noun_window)
-
-        return action_dist, verb_dist, noun_dist
-
-    def _get_intra_window_distance(self, distance_mode, cur_window):
-        cur_action_to_prob = self.occurrence_list_to_distr(cur_window)
-
-        p = torch.tensor(list(cur_action_to_prob.values()))  # Order doesn't matter
-        # No smoothing required, all probs are non-zero
-
-        if distance_mode == 'entropy':
-            dist = self.entropy(p)
-
-        else:
-            return NotImplementedError()
-
-        return dist
-
-    # INTER: Between 2 windows
-    def _get_inter_window_distances_action_verb_noun(self, distance_mode: str, cur_action_window: list[tuple],
-                                                     ref_action_window: list[tuple]):
-        """ Get the window distances between two windwos for action/verb/noun. """
-        action_dist = self._get_inter_window_distance(distance_mode, cur_action_window, ref_action_window)
-
-        cur_verb_window = [a[0] for a in cur_action_window]
-        ref_verb_window = [a[0] for a in ref_action_window]
-        verb_dist = self._get_inter_window_distance(distance_mode, cur_verb_window, ref_verb_window)
-
-        cur_noun_window = [a[1] for a in cur_action_window]
-        ref_noun_window = [a[1] for a in ref_action_window]
-        noun_dist = self._get_inter_window_distance(distance_mode, cur_noun_window, ref_noun_window)
-
-        return action_dist, verb_dist, noun_dist
-
-    def _get_inter_window_distance(self, distance_mode: str, cur_window: list, ref_window: list):
-        """
-        :param cur_window: List of instances in the window, could be verbs,nouns (ints) or actions (tuples).
-        :param ref_window: Same.
-        :return: Distance metric between two count-based windows.
-        """
-
-        cur_action_to_prob = self.occurrence_list_to_distr(cur_window)
-        ref_action_to_prob = self.occurrence_list_to_distr(ref_window)
-
-        # Make probability tensors, use first one as ref
-        # Second adds its probavility for the action in order of ref
-        # For any actions not in ref, add to tail, and add zero to ref
-
-        # Create two tensors with len based on union of the actions
-        all_actions = set(cur_action_to_prob.keys()).union(set(ref_action_to_prob.keys()))
-
-        # Tensors
-        cur_distr_t = torch.zeros(len(all_actions))
-        ref_distr_t = torch.zeros(len(all_actions))
-
-        # Fill in same spot for same action
-        for idx, action in enumerate(all_actions):
-            if action in cur_action_to_prob:
-                cur_distr_t[idx] = cur_action_to_prob[action]
-            if action in ref_action_to_prob:
-                ref_distr_t[idx] = ref_action_to_prob[action]
-
-        # Calc distance
-        if 'IOU' in distance_mode:
-            intersect = set(cur_action_to_prob.keys()).intersection(set(ref_action_to_prob.keys()))
-            IOU = float(len(intersect) / len(all_actions))
-
-            if distance_mode == 'IOU':
-                dist = IOU
-
-            elif distance_mode == 'IOU_inverse':
-                dist = float(1 - IOU)
-
-            else:
-                raise ValueError()
-
-        else:
-            # Smooth distributions
-            cur_distr_ts = self.smooth_distr(cur_distr_t)
-            ref_distr_ts = self.smooth_distr(ref_distr_t)
-
-            if distance_mode == 'KL_cur_first':
-                dist = self.kl_div(p=cur_distr_ts, q=ref_distr_ts)
-
-            elif distance_mode == 'KL_cur_last':
-                dist = self.kl_div(p=ref_distr_ts, q=cur_distr_ts)
-
-            elif distance_mode == 'JS':
-                dist = self.js_div(p=ref_distr_ts, q=cur_distr_ts)
-            else:
-                return NotImplementedError()
-
-        return dist
-
-    # First count recurrences, then normalize over window to get distr
-    @staticmethod
-    def occurrence_list_to_distr(occ_list):
-        """
-        :param occ_list: List of actions/verbs/nouns in the window. May contain duplicates.
-        """
-        action_to_cnt = Counter(occ_list)
-        total_occurrences = len(occ_list)
-
-        action_to_prob = {a: float(cnt / total_occurrences) for a, cnt in action_to_cnt.items()}
-
-        return action_to_prob
-
-    def smooth_distr(self, distr_t: torch.Tensor):
-        if self.smoothing_distr == "uniform":
-            assert len(distr_t.shape) == 1
-            uniform = torch.ones_like(distr_t).div(distr_t.shape[0])
-
-            return (1 - self.smoothing_strength) * distr_t + self.smoothing_strength * uniform
-        else:
-            return ValueError()
-
-    @staticmethod
-    def entropy(p: torch.Tensor) -> torch.Tensor:
-        """ Uses natural log. KL(P || Q)"""
-        return (p.log() * p).sum()
-
-    @staticmethod
-    def kl_div(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
-        """ Uses natural log. KL(P || Q)"""
-        return ((p / q).log() * p).sum()
-
-    @staticmethod
-    def js_div(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
-        """ Jensen–Shannon divergence: Symmetric KL-div. JSD(P || Q)"""
-        m = 0.5 * (p + q)
-        return 0.5 * LabelShiftMeasure.kl_div(p, m) + 0.5 * LabelShiftMeasure.kl_div(q, m)
-
-    def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
-        """ No updates made. """
-        pass
-
-    def prediction_step(self, inputs, labels, stream_sample_idxs: list, *args, **kwargs) \
-            -> Tuple[Tensor, List[Tensor], Dict]:
-        raise NotImplementedError("Should not call prediction for this method.")
 
 
 @METHOD_REGISTRY.register()
@@ -908,128 +600,16 @@ class HindsightLabelWindowPredictor(Method):
 
 
 @METHOD_REGISTRY.register()
-class FeatShiftMeasure(LabelShiftMeasure):
-    run_predict_before_train = False
-
-    inter_distance_modes = [
-        'win_avg_cos',  # Avg feats per window, calc cos-distance between avgs.
-    ]
-
-    def __init__(self, cfg, lightning_module):
-        super().__init__(cfg, lightning_module)
-
-        path = os.path.join(cfg.ANALYZE_STREAM.PARENT_DIR_FEAT_DUMP,
-                            'user_logs', f'user_{cfg.DATA.COMPUTED_USER_ID}', 'stream_info_dump.pth')
-        dump = torch.load(path)
-        self.sample_idx_to_feat = dump['sample_idx_to_feat']
-
-        # Empty task metrics
-        self.window_history: deque[torch.Tensor] = deque()  # Each window is a list of action-tuples
-
-    def training_first_forward(self, inputs_t, labels_t, current_batch_stream_idxs: list, *args, **kwargs):
-        assert len(self.window_history) <= self.lookback_stride
-        loss = None
-        preds = None
-        log_results = {}
-
-        all_window_idxs, is_valid_idxs = self._get_window_idxs(current_batch_stream_idxs)
-
-        if not is_valid_idxs:
-            return loss, preds, {}
-
-        # Collect all feats
-        window_feats_t = torch.stack([self.sample_idx_to_feat[label_idx] for label_idx in all_window_idxs])
-        self.window_history.append(window_feats_t)
-
-        # Report current window metrics
-        # Log all our proposed metrics
-        _, cur_window_avg_var = self.get_window_feat_mean_and_var(window_feats_t)
-
-        log_results[
-            get_metric_tag(TAG_BATCH, train_mode='analyze', base_metric_name='cur_window_avg_var')
-        ] = cur_window_avg_var.item()
-
-        # Progress with comparing windows
-        if not self._check_can_compare_windows():
-            return loss, preds, {}
-
-        # If enough windows so we can compare newest with latest:
-        ref_window = self.window_history.popleft()
-        cur_window = window_feats_t
-
-        # Log all our proposed metrics
-        feat_distance, cur_window_avg_var, ref_window_avg_var = self.get_inter_batch_feat_distance(
-            cur_window, ref_window
-        )
-
-        log_results[
-            get_metric_tag(TAG_BATCH, train_mode='analyze', base_metric_name=self.inter_distance_modes[0])
-        ] = feat_distance.item()
-
-        log_results[
-            get_metric_tag(TAG_BATCH, train_mode='analyze', base_metric_name='ref_window_avg_var')
-        ] = ref_window_avg_var.item()
-
-        return loss, preds, log_results
-
-    def training_update_loop(self, loss_first_fwd, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
-        pass
-
-    def get_inter_batch_feat_distance(self, cur_window: torch.Tensor, ref_window: torch.Tensor) \
-            -> (torch.Tensor, torch.Tensor, torch.Tensor):
-        """
-        Per window: Normalize feats, avg, re-normalize. Get avg variance.
-
-        Two-windows: Get dot-product of batch avgs.
-
-        :param cur_window: torch.Size([20, 1, 1, 1, 2304]) from SlowFast
-        :param ref_window: torch.Size([20, 1, 1, 1, 2304]) from SlowFast
-        :return:
-        """
-        cur_window_nmn, cur_window_avg_var = self.get_window_feat_mean_and_var(cur_window)
-        ref_window_nmn, ref_window_avg_var = self.get_window_feat_mean_and_var(ref_window)
-
-        # Calc dot-product = cos-similarity with normalized feats
-        dp = (cur_window_nmn * ref_window_nmn).sum()
-
-        return dp, cur_window_avg_var, ref_window_avg_var
-
-    def get_window_feat_mean_and_var(self, window: torch.Tensor):
-        """Normalize feats, average, re-normalize.
-        Return normalized average and mean variance over normalized features. """
-        window = window.squeeze()  # torch.Size([20, 1, 1, 1, 2304]) -> torch.Size([20, 2304])
-
-        assert len(window.shape) == 2, f"Not flattened features, shape={window.shape}"
-
-        # Normalize, avg, renormalize feats
-        window_n = F.normalize(window, p=2, dim=1)  # Normalize non-batch dim
-
-        # Avg
-        window_nm = window_n.mean(dim=0)  # Avg batch dim: torch.Size([2304])
-
-        # Report in-batch avg of variance diagonal of feats
-        cur_window_avg_var = window_n.var(dim=0).mean()  # Avg batch dim: torch.Size([2304]) -> torch.Size([1])
-
-        # Re-normalize
-        cur_window_nmn = F.normalize(window_nm, p=2, dim=0)  # torch.Size([2304])
-
-        return cur_window_nmn, cur_window_avg_var
-
-
-@METHOD_REGISTRY.register()
 class Replay(Method):
-    """
-    Pytorch Subset of original stream, with expanding indices.
-    """
     run_predict_before_train = True
-    storage_policies = ['window', 'reservoir_stream', 'reservoir_action']
+    storage_policies = ['FIFO', 'reservoir', 'hybrid_CBRS']
     """
-    window: A moving window with the current bath iteration. e.g. for Mem-size M, [t-M,t] indices are considered.
+    FIFO: A moving window with the current bath iteration. e.g. for Mem-size M, [t-M,t] indices are considered.
     
-    reservoir_stream: Reservoir sampling agnostic of any conditionals.
+    reservoir: Reservoir sampling agnostic of any conditionals.
     {None:[Memory-list]}
     
-    reservoir_action: Reservoir sampling per action-bin, with bins defined by separate actions (verb,noun) pairs.
+    hybrid_CBRS: Reservoir sampling per action-bin, with bins defined by separate actions (verb,noun) pairs.
     All bins have same capacity (and may not be entirely filled).
     {action-tuple:[Memory-list]}
     """
@@ -1071,8 +651,8 @@ class Replay(Method):
 
     def new_batch_to_joined_batches(self, new_batch, n_sample_rounds=1) -> list[Any]:
         """ Returns a list of joined batches, with length equal to n_sample_rounds.
-        Each sample round samples randomly from the replay buffer and adds this to the new batch.
-        A joined batch consists of the new batch concatenated with the replay batch, both of same size.
+        Each sample round samples randomly from the replay_strategies buffer and adds this to the new batch.
+        A joined batch consists of the new batch concatenated with the replay_strategies batch, both of same size.
         """
         _, new_batch_labels, *_ = new_batch
         self.new_batch_size = new_batch_labels.shape[0]
@@ -1119,7 +699,7 @@ class Replay(Method):
         return joined_batches
 
     def retrieve_rnd_sample_idxs_from_mem(self, mem_batch_size) -> list[int]:
-        """ Sample stream idxs from replay memory. """
+        """ Sample stream idxs from replay_strategies memory. """
         # Sample idxs of our stream_idxs (without resampling)
         # Random sampling, weighed by len per conditional bin
         flat_mem = list(itertools.chain(*self.conditional_memory.values()))
@@ -1351,7 +931,7 @@ class Replay(Method):
                 loss_action = loss_first_fwd
 
             else:
-                # Resample from replay buffer: Reset inputs/labels
+                # Resample from replay_strategies buffer: Reset inputs/labels
                 if self.resample_multi_iter:  # inner iter >=2
                     joined_batch_idx = inner_iter - 2  # Skip first and one offset in inner_iter loop
                     joined_batch = joined_batches[joined_batch_idx]
@@ -1384,7 +964,7 @@ class Replay(Method):
 
     def _store_samples_in_replay_memory(self, current_batch_labels: torch.LongTensor, current_batch_stream_idxs: list):
 
-        if self.storage_policy == 'reservoir_stream':
+        if self.storage_policy == 'reservoir':
             self.conditional_memory[None] = self.reservoir_sampling(
                 self.conditional_memory.get(None, []),
                 current_batch_stream_idxs,
@@ -1392,13 +972,10 @@ class Replay(Method):
                 self.num_observed_samples
             )
 
-        elif self.storage_policy == 'reservoir_action':
+        elif self.storage_policy == 'hybrid_CBRS':
             self.reservoir_action_storage_policy(current_batch_labels, current_batch_stream_idxs)
 
-        elif self.storage_policy == 'reservoir_verbnoun':
-            raise NotImplementedError()
-
-        elif self.storage_policy == 'window':
+        elif self.storage_policy == 'FIFO':
             min_current_batch_idx = min(current_batch_stream_idxs)
             self.conditional_memory[None] = list(range(
                 max(0, min_current_batch_idx - self.total_mem_size),
@@ -1527,227 +1104,3 @@ class Replay(Method):
                     memory[rnd_idx] = new_stream_idx
 
         return memory
-
-
-@METHOD_REGISTRY.register()
-class ContextAwareAdaptation(object):
-    """ Make sure not inherits from Method, as wrapper should call error if method/property not properly wrapped. """
-
-    def __init__(self, cfg, lightning_module):
-        # ORIGINAL METHOD TO WRAP
-        self.method_to_wrap: Method = build_method(cfg, lightning_module, name=cfg.CONTEXT_ADAPT.WRAPS_METHOD)
-        self.method_to_wrap.__init__(cfg, lightning_module)
-
-        self.lightning_module = self.method_to_wrap.lightning_module
-        self.cfg = cfg
-
-        # Assert wrapped_method names (not starting with _) are wrapped here
-        for attr_name in dir(Method):
-            if not callable(getattr(Method, attr_name)):
-                continue
-
-            if attr_name.startswith("__") or attr_name.startswith("_"):
-                logger.debug(f"Skipping wrapping method {attr_name}")
-            else:
-                assert callable(getattr(self, attr_name)), f"Wrapper has not implemented method: {attr_name}"
-
-        # Memory
-        self.feat_mem = None
-        self.n_samples_in_mem = 0
-        self.max_mem_size = cfg.CONTEXT_ADAPT.MEM_SIZE
-        self.first_idx_to_fill = 0  # Circular buffer
-
-        # Disable in init prediction
-        self.disable_in_prediction = True
-
-        # CHOOSE HEAD
-        # self.context_head = None
-        self.f_in_dim = 2304  # Input feature dim
-
-        if cfg.CONTEXT_ADAPT.HEAD_MODULE == 'attention':
-            """
-            See: https://pytorch.org/docs/1.9.1/generated/torch.nn.MultiheadAttention.html?highlight=attention#torch.nn.MultiheadAttention
-            """
-            self.forward_with_context_fn = self._forward_with_context_attention
-
-            self.att_num_heads = 1
-            self.context_head = torch.nn.MultiheadAttention(
-                embed_dim=self.f_in_dim, num_heads=self.att_num_heads, batch_first=True,
-                dropout=0, bias=True, add_bias_kv=False,  # Defaults
-                vdim=None,  # Keep same output dim
-            )
-        elif cfg.CONTEXT_ADAPT.HEAD_MODULE == 'GRU':
-            self.GRU_layers = cfg.CONTEXT_ADAPT.GRU_LAYERS
-            self.GRU_hidden_size = cfg.CONTEXT_ADAPT.GRU_HIDDEN_SIZE
-
-            self.context_head = torch.nn.GRU(
-                num_layers=self.GRU_layers,
-                input_size=self.f_in_dim,
-                hidden_size=self.GRU_hidden_size,
-                bias=True, batch_first=True,  # (B,S,D)
-                dropout=0,  # Only if num_layers > 1
-                bidirectional=False,
-            )
-
-        else:
-            raise ValueError()
-
-        # Overwrite fwd fn of Lightning Module
-        self.lightning_module.forward = self.forward_overwrite  # Both during training/prediction
-
-        # State
-        self._is_disabled = False  # e.g. for prediction
-        self._added_context_head_params = False
-
-    def _add_head_to_optimizer(self):
-        # Add head to optimizer
-        opt: torch.optim.Optimizer = self.lightning_module.optimizers()  # Assume single
-        opt.add_param_group({
-            "params": list(self.context_head.parameters()),
-            "lr": self.cfg.SOLVER.BASE_LR,
-        })
-
-    def forward_overwrite(self, x, return_feats=False):
-        if self._is_disabled:
-            return self.lightning_module.model.forward(x, return_feats=return_feats)
-
-        if not self._added_context_head_params:
-            self._added_context_head_params = True
-            self.context_head.to(next(iter(self.lightning_module.model.parameters())).device)
-            self._add_head_to_optimizer()
-
-        # Q: Use feats as Queries
-        direct_preds, in_feats = self.lightning_module.model.forward(x, return_feats=True)  # Always return feats
-        squeeze_dims = [idx for idx, shape_dim in enumerate(in_feats.shape) if shape_dim == 1]
-        f_in = in_feats.squeeze()  # Get rid of 1 dims
-
-        f_mem = self._get_feats_from_mem()  # Get feats from memory
-        self._store_feats_in_mem(f_in)  # Store feats
-
-        f_out = self.forward_with_context_fn(f_in, f_mem)  # Collect out features
-
-        # Forward new feats through classifier head
-        head_wrap = getattr(self.lightning_module.model, self.lightning_module.model.head_name)
-        multitask_head = None
-        for module in head_wrap.children():  # If Sequential wrapper around head
-            if isinstance(module, MultiTaskHead):
-                multitask_head = module
-                break
-        assert multitask_head is not None, "Not found MultiTask head"
-
-        # Add original dims again for SlowFast head
-        for squeeze_dim in squeeze_dims:
-            f_out = f_out.unsqueeze(squeeze_dim)
-
-        # Return preds (and new feats if return_feats=True)
-        contextualized_preds = multitask_head.forward_merged_feat(f_out)
-        logger.debug(f"att_preds.shape={contextualized_preds.shape}")
-
-        if return_feats:
-            return contextualized_preds, f_out
-        else:
-            return contextualized_preds
-
-    def _forward_with_context_attention(self, f_orig, f_context):
-        """ Use Attention head"""
-        # add self-feats to context
-        logger.debug(f"f_kv_mem={f_context}, f_in={f_orig}")
-        f_kv = torch.cat((f_context, f_orig)) if f_context is not None else f_orig
-        logger.debug(f"f_kv_mem.shape={f_context.shape}, f_in.shape={f_orig.shape}")
-
-        # K,V: Add positional encoding (if applicable)
-        # TODO
-
-        # Q,K,V: Forward through head
-        q = f_orig.unsqueeze(0)  # With batch_first dim, add batch-dim=1 (process all feats in batch as tokens)
-        k = v = f_kv.unsqueeze(0)
-        att_feats, _ = self.context_head(q, k, v)  # torch.Size([1, 4, 2304])
-        att_feats.squeeze_()  # Get rid of batch dim
-        logger.debug(f"att_feats.shape={att_feats.shape}")
-
-        return att_feats
-
-    # def _forward_with_context_GRU(self, f_orig, f_context):
-    #     """ Use Attention head"""
-    #     batch_size = f_orig.shape[0]
-    #
-    #     # Stack feats
-    #
-    #     # Init hidden state
-    #     hidden = torch.zeros(1, batch_size, self.GRU_hidden_size)
-    #
-    #     # Get final 'batch'size predictions
-    #     _, hidden = self.context_head(,hidden)
-    #     out = hidden.squeeze(0) # (1, B, hidden_size) ==> (B, hidden_size)
-    #
-    #
-    #
-    #     # add self-feats to context
-    #     logger.debug(f"f_kv_mem={f_context}, f_in={f_orig}")
-    #     f_kv = torch.cat((f_context, f_orig)) if f_context is not None else f_orig
-    #     logger.debug(f"f_kv_mem.shape={f_context.shape}, f_in.shape={f_orig.shape}")
-    #
-    #     # K,V: Add positional encoding (if applicable)
-    #     # TODO
-    #
-    #     # Q,K,V: Forward through head
-    #     q = f_orig.unsqueeze(0)  # With batch_first dim, add batch-dim=1 (process all feats in batch as tokens)
-    #     k = v = f_kv.unsqueeze(0)
-    #     att_feats, _ = self.context_head(q, k, v)  # torch.Size([1, 4, 2304])
-    #     att_feats.squeeze_()  # Get rid of batch dim
-    #     logger.debug(f"att_feats.shape={att_feats.shape}")
-    #
-    #     return att_feats
-
-    def _get_feats_from_mem(self):
-        """ Return entire buffer. """
-        if self.feat_mem is None:
-            return None
-        return self.feat_mem[:self.n_samples_in_mem]  # Just return all
-
-    def _store_feats_in_mem(self, feats):
-        """ Store current feats in the memory. """
-
-        if self.feat_mem is None:
-            self.feat_mem = torch.Tensor(self.max_mem_size, feats.shape[-1]).to(feats.device)
-
-        # FIFO
-        bs = feats.shape[0]
-        idxs_to_fill = [idx % self.max_mem_size for idx in range(self.first_idx_to_fill, self.first_idx_to_fill + bs)]
-
-        self.feat_mem[idxs_to_fill] = feats.detach()
-        self.first_idx_to_fill = (idxs_to_fill[-1] + 1) % self.max_mem_size
-
-        if self.n_samples_in_mem < self.max_mem_size:
-            self.n_samples_in_mem = min(self.n_samples_in_mem + bs, self.max_mem_size)
-
-    def training_first_forward(self, inputs, labels, current_batch_stream_idxs: list, *args, **kwargs):
-        ret = self.method_to_wrap.training_first_forward(inputs, labels, current_batch_stream_idxs, *args, **kwargs)
-
-        current_feats = []
-        for current_batch_stream_idx in current_batch_stream_idxs:
-            feat = self.lightning_module.stream_state.sample_idx_to_feat[current_batch_stream_idx]
-            assert feat is not None, ""
-            current_feats.append(feat)
-
-        return ret
-
-    # Make sure to wrap all methods
-    @property
-    def run_predict_before_train(self):
-        return self.method_to_wrap.run_predict_before_train
-
-    def train_before_update_batch_adapt(self, *args, **kwargs) -> Any:
-        return self.method_to_wrap.train_before_update_batch_adapt(*args, **kwargs)
-
-    def training_update_loop(self, *args, **kwargs):
-        return self.method_to_wrap.training_update_loop(*args, **kwargs)
-
-    def prediction_step(self, *args, **kwargs):
-        if self.disable_in_prediction:
-            self._is_disabled = True
-
-        ret = self.method_to_wrap.prediction_step(*args, **kwargs)
-        self._is_disabled = False
-
-        return ret
