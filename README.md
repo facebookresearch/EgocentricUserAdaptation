@@ -17,6 +17,23 @@ Final checks
 
 ## Installation
 The repository is based on the original Ego4d codebase (see [original README](src/ego4d/README.md)).
+First request access to Ego4d through [this form](), which will send an email with AWS credentials within 48 hours.
+To configure your download run:
+
+    sudo apt install awscli    # AWS command-line
+    aws configure              # Config AWS
+      AWS Access Key ID [None]: <ID FROM EMAIL>
+      AWS Secret Access Key [None]: <KEY FROM EMAIL>
+      Default region name [None]: us-east-2 # Or leave blank
+      Default output format [None]:         # Leave blank
+
+Then, continue with the actual download, this command downloads the ego4d fho (forecasting) subset in the output directory:
+    
+    pip install ego4d
+    ego4d --output_directory='/media/mattdl/backup prim/datasets' \
+    --datasets annotations clips lta_models \
+    --benchmarks FHO
+
 Follow the steps in [install.sh](install.sh) for installation of the requirements in an Anaconda environment.
 This code was tested with Python=3.9 (requires python verison >=3.7) and Pytorch=1.9.1.
 The workflow relies on the [WandB](https://wandb.ai/site) logging platform to manage all runs.
