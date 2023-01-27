@@ -1,4 +1,4 @@
-name: matt_ego4d
+name: EgoAdapt
 channels:
   - anaconda
   - conda-forge
@@ -278,4 +278,3 @@ dependencies:
     - werkzeug==2.1.2
     - yacs==0.1.8
     - yarl==1.7.2
-prefix: /home/matthiasdelange/.conda/envs/matt_ego4d

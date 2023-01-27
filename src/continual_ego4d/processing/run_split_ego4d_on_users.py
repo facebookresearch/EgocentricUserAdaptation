@@ -44,7 +44,7 @@ parser.add_argument(
 parser.add_argument(
     "--p_output_dir",
     help="Parent dir to output timestamped dir including plots and json splits.",
-    default="./usersplit_data",
+    default="../../../data/EgoAdapt/usersplits",
     type=str,
 )
 parser.add_argument(
@@ -104,8 +104,7 @@ def generate_usersplit_from_trainval(user_id_col="fb_participant_id"):
     val_annotation_file = osp.join(annotation_file_dir, annotation_file_names['val'])
 
     # Paths and logger
-    now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    output_dir = osp.join(args.p_output_dir, f"{now}_ego4d_LTA_usersplit")
+    output_dir = osp.join(args.p_output_dir)
     os.makedirs(output_dir, exist_ok=True, mode=0o777)
     sys.stdout = Logger(osp.join(output_dir, "logger_dump.txt"))
 

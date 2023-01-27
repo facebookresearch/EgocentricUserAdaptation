@@ -53,7 +53,7 @@ OVERWRITE_CFG_ARGS+=" CHECKPOINT_LOAD_MODEL_HEAD True"
 OVERWRITE_CFG_ARGS+=" MODEL.FREEZE_BACKBONE True"
 
 # Data paths
-#EGO4D_ANNOTS="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_18-05-01_ego4d_LTA_usersplit/ego4d_LTA_pretrain_usersplit_147users.json"
+#EGO4D_ANNOTS="/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/src/continual_ego4d/usersplit_data/2022-07-27_18-05-01_ego4d_LTA_usersplit/ego4d_LTA_pretrain_usersplit_147users.json"
 EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root_local/clips
 #OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_FILE.TRAIN ${EGO4D_ANNOTS}"
 OVERWRITE_CFG_ARGS+=" DATA.PATH_PREFIX ${EGO4D_VIDEOS}"
@@ -64,7 +64,7 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 # To detach again: ctrl+a, followed by ctrl+d
 screenname="${run_id}_MATT"
 screen -dmS "${screenname}" \
-python -m scripts.run_lta \
+python -m ego4d.run_lta \
   --job_name "$screenname" \
   --working_directory "${OUTPUT_DIR}" \
   --cfg "${CONFIG}" \

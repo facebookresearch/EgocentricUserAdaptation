@@ -127,7 +127,7 @@ class StreamStateTracker:
             setattr(self, name, val)
         """Add all pretraining states as attributes of the stream to save for dump."""
 
-        # TODO for replay also track losses for new/mem?
+        # TODO for replay_strategies also track losses for new/mem?
 
     def init_transient_attrs(self):
         # Transient (not included in dump)
@@ -138,7 +138,7 @@ class StreamStateTracker:
         self.eval_this_step: bool = False
         self.plot_this_step: bool = False
         self.stream_batch_sample_idxs: list = []
-        self.stream_batch_size: int = 0  # Size of the new data batch sampled from the stream (exclusive replay samples)
+        self.stream_batch_size: int = 0  # Size of the new data batch sampled from the stream (exclusive replay_strategies samples)
         self.stream_batch_labels: torch.Tensor = None  # Ref for Re-exposure based forgetting
         self.batch_action_freq_dict: dict = {}
         self.batch_verb_freq_dict: dict = {}
@@ -228,7 +228,7 @@ class StreamStateTracker:
         self.add_counter_dicts_(self.stream_seen_verb_freq_dict, self.batch_verb_freq_dict)
         self.add_counter_dicts_(self.stream_seen_noun_freq_dict, self.batch_noun_freq_dict)
 
-        # Only iterate stream batch (not replay samples)
+        # Only iterate stream batch (not replay_strategies samples)
         for ((verb, noun), sample_idx) in zip(labels.tolist(), self.stream_batch_sample_idxs):
             action = verbnoun_to_action(verb, noun)
             self.sample_to_batch_idx[sample_idx] = batch_idx  # Possibly add multiple time batch_idx
@@ -738,7 +738,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
     def eval_current_stream_batch_postupdate_(self, step_result, current_batch):
         """
         Measure difference of pre-update results of current batch (e.g. forward second time)
-        Again we only measure on stream data, not potential replay data.
+        Again we only measure on stream data, not potential replay_strategies data.
         """
         if len(self.current_batch_metrics) == 0:
             logger.debug(f"Skipping post-update eval current batch.")
@@ -748,7 +748,7 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         assert isinstance(full_slowfast_inputs, list) and len(full_slowfast_inputs) == 2, \
             "Only implemented for slowfast model"
 
-        # Make sure no replay data is considered
+        # Make sure no replay_strategies data is considered
         stream_inputs = [full_slowfast_inputs[i][:self.stream_state.stream_batch_size]
                          for i in range(len(full_slowfast_inputs))]
         stream_labels = full_labels[:self.stream_state.stream_batch_size]

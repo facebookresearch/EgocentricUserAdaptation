@@ -494,9 +494,9 @@ _C.DATA.SHUFFLE_DS_ORDER = False
 # User data splits
 _C.DATA.USER_SUBSET = 'train'  # train or test split for users.
 _C.DATA.PATH_TO_DATA_SPLIT_JSON = CfgNode()
-_C.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT = '/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/2022-09-08_17-17-16_ego4d_LTA_usersplit/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
-_C.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT = '/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/2022-09-08_17-17-16_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'
-_C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = '/fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits/2022-09-08_17-17-16_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'
+_C.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT = '../../data/EgoAdapt/usersplits/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
+_C.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT = '../../data/EgoAdapt/usersplits/ego4d_LTA_train_usersplit_10users.json'
+_C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = '../../data/EgoAdapt/usersplits/ego4d_LTA_test_usersplit_40users.json'
 
 # CL: Stride for next observed frame in sequential data stream (in a single sequential clip-video)
 #  If batch size > STRIDE, then next step will contain seen samples (Although shifted)

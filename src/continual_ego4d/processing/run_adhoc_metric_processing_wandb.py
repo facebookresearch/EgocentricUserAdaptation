@@ -620,26 +620,30 @@ def running_avg_to_avg(selected_group_names):
     )
 
 
-def avg_and_delta_avg_results_over_user_streams(selected_group_names, metrics=None, skip_pretrain_delta=False,
-                                                metric_to_pretrain_metric_map=None):
+def avg_and_delta_avg_results_over_user_streams(
+        selected_group_names,
+        metrics=None,
+        skip_pretrain_delta=False,
+        metric_to_pretrain_metric_map=None
+):
     """ After training a model, aggregate the avg metrics over the stream such as ACC.
     Aggregate over user stream results. """
 
     default_metrics = [
-        'train_action_batch/loss_running_avg',
-        'train_verb_batch/loss_running_avg',
-        'train_noun_batch/loss_running_avg',
-
-        'train_action_batch/top1_acc_running_avg',
-        'train_verb_batch/top1_acc_running_avg',
-        'train_noun_batch/top1_acc_running_avg',
-        'train_verb_batch/top5_acc_running_avg',
-        'train_noun_batch/top5_acc_running_avg',
+        # 'train_action_batch/loss_running_avg',
+        # 'train_verb_batch/loss_running_avg',
+        # 'train_noun_batch/loss_running_avg',
+        #
+        # 'train_action_batch/top1_acc_running_avg',
+        # 'train_verb_batch/top1_acc_running_avg',
+        # 'train_noun_batch/top1_acc_running_avg',
+        # 'train_verb_batch/top5_acc_running_avg',
+        # 'train_noun_batch/top5_acc_running_avg',
 
         # Only for newer runs: Implemented at training time:
-        # 'train_action_batch/top1_acc_balanced_running_avg',
-        # 'train_verb_batch/top1_acc_balanced_running_avg',
-        # 'train_noun_batch/top1_acc_balanced_running_avg',
+        'train_action_batch/top1_acc_balanced_running_avg',
+        'train_verb_batch/top1_acc_balanced_running_avg',
+        'train_noun_batch/top1_acc_balanced_running_avg',
     ]
 
     # Default metrics logged at runtime

@@ -269,8 +269,7 @@ class IIDFinetuning(Method):
     """
     Overwrite lightning_module dataloaders to do IID finetuning.
     This still enables learning from the stream, but an IID shuffled stream, while tracking online metrics such as OAG.
-    For multi-epoch training, define a IID-task instead, where we only use the same dataloader, but don't care to
-    track metrics.
+    For multi-epoch training, define a IID-task instead, where we only use the same dataloader, but don't track metrics.
     """
     run_predict_before_train = True
 

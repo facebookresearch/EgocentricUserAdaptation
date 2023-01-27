@@ -76,7 +76,7 @@ class ConditionalOnlineForgettingMetric(Metric):
 
         Special cases:
         - For actions that are both in Bc and Bn, we report a delta of zero, as it concerns the same model for the same action.
-        - For Replay: We only consider re-occurrence of the new stream batch, not replay samples.
+        - For Replay: We only consider re-occurrence of the new stream batch, not replay_strategies samples.
 
         Notes:
         The metric stores the accuracies for previous actions on save_result_to_history.

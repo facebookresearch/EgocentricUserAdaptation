@@ -132,11 +132,11 @@ The main python script incorporates the node-names in the final cfg.OUTPUT_DIR t
 TODO: Add GRID_NODES in config instead: So can easily derive
 
 ## Pretraining on usersplit Ego4d
-See [Ego4d LTA README](forecasting/LONG_TERM_ANTICIPATION.md) for a guide on how to use pretraining in general.
+See [Ego4d LTA README](src/ego4d/LONG_TERM_ANTICIPATION.md) for a guide on how to use pretraining in general.
 
     python run_usersplit_ego4d_LTA.py --p_output_dir /fb-agios-acai-efs/mattdl/data/ego4d_lta_usersplits
 
-1. Make a usersplit with the script [run_usersplit_ego4d_LTA.py](forecasting/continual_ego4d/run_usersplit_ego4d_LTA.py). 
+1. Make a usersplit with the script [run_usersplit_ego4d_LTA.py](src/continual_ego4d/run_usersplit_ego4d_LTA.py). 
 This will generate a json split for pretraining. Use this json as input path for the config file when using pretraining for action recognition.
 2. Execute the ego4d script
 ```
@@ -187,7 +187,7 @@ Tree of keys in the json structure:
 - clips: Flattened user-agnostic list of dict-entries. Each clip is an annotation entry.
 
 ## Ego4d codebase
-See [forecasting](forecasting) for our experimental codebase.
+See [forecasting](src) for our experimental codebase.
 
 ### Bugs
 - UntrimmedClipSampler is replaced with EnhancedUntrimmedClipSampler for major bugfix. The UntrimmedClipSampler assumes the clip-end of previous o

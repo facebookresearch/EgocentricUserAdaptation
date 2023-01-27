@@ -42,8 +42,8 @@ OVERWRITE_CFG_ARGS+=" DATA_LOADER.NUM_WORKERS 8" # Workers per dataloader (i.e. 
 
 # TODO: Define your paths here to summarize
 #OVERWRITE_CFG_ARGS+=" DATA.USER_SUBSET 'train'" # Check train or test set
-#OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'"
-#OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/forecasting/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'"
+#OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/src/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_train_usersplit_10users.json'"
+#OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/src/continual_ego4d/usersplit_data/2022-07-27_21-05-14_ego4d_LTA_usersplit/ego4d_LTA_test_usersplit_40users.json'"
 
 #OVERWRITE_CFG_ARGS+=" DATA.CHECKPOINT_MODULE_FILE_PATH ${BACKBONE_WTS}" # Start from Kinetics model
 OVERWRITE_CFG_ARGS+=" CHECKPOINT_FILE_PATH ''"         # Start from Kinetics model

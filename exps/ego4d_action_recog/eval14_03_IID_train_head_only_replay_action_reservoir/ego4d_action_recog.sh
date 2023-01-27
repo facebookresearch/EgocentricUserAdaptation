@@ -89,7 +89,7 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 screenname="${run_id}_MATT"
 screen -dmS "${screenname}" \
-python -m continual_ego4d.run_recog_CL \
+python -m continual_ego4d.run_train_user_streams.py \
   --job_name "$run_id" \
   --working_directory "${OUTPUT_DIR}" \
   --cfg "${CONFIG}" \

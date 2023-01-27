@@ -81,7 +81,7 @@ OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 screenname="${run_id}_MATT"
 screen -dmS "${screenname}" \
 python \
--m continual_ego4d.run_recog_CL \
+-m continual_ego4d.run_train_user_streams.py \
   --job_name "$screenname" \
   --working_directory "${OUTPUT_DIR}" \
   --cfg "${CONFIG}" \
