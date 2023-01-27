@@ -4,7 +4,7 @@
 
 - <del> Instructions for requirements.
 - <del> Data preprocessing: Take same users as we used
-- Path-linking jsons
+- Path-linking jsons (set PATH_TO_DATA_FILE in json with the generated ones, TODO check if works in run flow)
 - Design exps dir: which ones certainly keep? -> Gather configs in parent figure/exp dir, with per-method subdirs, have general script.
   - Put configs with comments on which ones to replace
 - Step 2.2, check automatically if all users are processed, and do post-processing after.
@@ -35,7 +35,7 @@ Then, continue with the actual download, this command downloads the ego4d fho (f
     --benchmarks FHO
 
 Follow the steps in [install.sh](install.sh) for installation of the requirements in an Anaconda environment.
-This code was tested with Python=3.9 (requires python verison >=3.7) and Pytorch=1.9.1.
+This code was tested with Python=3.9 (requires python version >=3.7) and Pytorch=1.9.1.
 The workflow relies on the [WandB](https://wandb.ai/site) logging platform to manage all runs.
 
 ## Results workflow
@@ -49,7 +49,7 @@ Additionally we introduce a third phase (3) that aggregates all user results int
 - First [download the Ego4d dataset](https://ego4d-data.org/#download). We will use the train and validation annotation JSONS to create the user splits for
   train/test/pretrain. In the forecasting LTA benchmark, download the meta-data, annotations, videos, and the SlowFast Resnet101 model pretrained on Kinetics-400.
 - Run script [run_split_ego4d_on_users.py](src/continual_ego4d/processing/run_split_ego4d_on_users.py) to generate JSON files
-  for our user splits. The [default config](src/ego4d/config/defaults.py) refers to the generated json paths by setting *PATH_TO_DATA_FILE.{TRAIN,VAL,TEST}*.
+  for our user splits. Link in the [default config](src/ego4d/config/defaults.py) to the generated json paths by setting properties *PATH_TO_DATA_SPLIT_JSON.{TRAIN,VAL,TEST}*.
 
 ### (1) Pretraining a population model
 To obtain a pretrained population model. 
@@ -60,7 +60,7 @@ Make sure to adapt the *PATH_TO_DATA_FILE.{TRAIN,VAL}* in the [cfg.yaml](reprodu
 with TRAIN being our pretraining JSON user-split and VAL our train JSON user-split.
   - **Config:** Once you obtained the pretrained model, use it by setting the *CHECKPOINT_FILE_PATH* in the config files.
 - Then, run evaluation of the pretrain model in [reproduce/pretrain/eval_user_stream_performance](reproduce/pretrain/eval_user_stream_performance), 
-both for the train and test users. This allows later metrics to be calculated as improvement over the pretrain model. 
+both for the train and test users. This allows later metrics to be calculated as relative improvement over the pretrain model. 
 
 ### (2) Reproduce Online User-adaptation
 
@@ -80,11 +80,10 @@ To reproduce results from the paper, run the scripts in [reproduce](reproduce), 
 
 
 ### (postprocess) Parsing final WandB results
-All results are saved in the WandB run entries and in local CSV dumps with per-update predictions. 
-To get the results in WandB, group runs (1 run is 1 user-stream) on *Group*.
-Then, filter on *Group* and select the desired metrics in the Tables.
+**In WandB**: All results are saved in the WandB run entries and in local CSV dumps with per-update predictions. 
+To get the results in WandB, group runs (1 run is 1 user-stream) on the *Group* property, and select the relevant metrics.
 
-Additionally, to see which metrics are used in the paper, you can check out [the table parser script](src/continual_ego4d/processing/csv_to_latex_table_parser.py) for examples.
+**Parse to Latex**: Additionally, to see which metrics are used in the paper, you can check out [the table parser script](src/continual_ego4d/processing/csv_to_latex_table_parser.py) for examples.
 The script parses downloaded (grouped) runs from WandB that are exported to a CSV, and parses the CSV to Latex-formatted tables.
 
 
