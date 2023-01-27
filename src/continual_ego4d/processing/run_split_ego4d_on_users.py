@@ -1,10 +1,10 @@
-""" Split the original Ego4d dataset based on user meta-data.
+"""
+Split the original Ego4d dataset based on user meta-data in user-specific streams.
 The original train/val splits are merged, then with the user meta-data new user-based
 train/test/pretrain splits are created by generating JSON files for the new dataset splits.
 """
 
 import argparse
-import datetime
 import json
 import os
 import os.path as osp
@@ -16,29 +16,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# Define your ego4d download path
-EGO4D_PARENT_DIR = "YOUR/EGO4D/DOWNLOAD/PATH/"
-
 # Original splits in paper
-ORIG_TRAIN_USERS = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
-ORIG_TEST_USERS = [
-    "59", "23", "17", "37", "97", "22", "31", "10", "346", "359", "120", "19", "16", "283", "28", "20", "44", "38",
-    "262", "25", "51", "278", "55", "39", "45", "33", "331", "452", "453", "21", "431", "116", "35", "105", "378",
-    "74", "11", "126", "123", "436"
-]
+ORIG_TRAIN_USERS = [68, 265, 324, 30, 24, 421, 104, 108, 27, 29]
+ORIG_TEST_USERS = [59, 23, 17, 37, 97, 22, 31, 10, 346, 359,
+                   120, 19, 16, 283, 28, 20, 44, 38, 262, 25, 51,
+                   278, 55, 39, 45, 33, 331, 452, 453, 21, 431,
+                   116, 35, 105, 378, 74, 11, 126, 123, 436]
 
 parser = argparse.ArgumentParser(description="User split for ego4d LTA task.")
 
 parser.add_argument(
-    "--p_ego4d_meta_data_file",
-    help="Original ego4d dataset meta-data JSON.",
-    default=f"{EGO4D_PARENT_DIR}/Ego4D/ego4d_data/ego4d.json",
-    type=str,
-)
-parser.add_argument(
-    "--p_ego4d_annotations_parent_dir",
-    help="Original ego4d dataset annotations parent dir.",
-    default=f"{EGO4D_PARENT_DIR}/Ego4D/ego4d_data/v1/annotations",
+    "--p_ego4d",
+    help="Original ego4d dataset path (on download contains 'v1' subdir and 'ego4d.json').",
+    default=f"/media/mattdl/backup prim/datasets/Ego4D",  # TODO tmp path
     type=str,
 )
 parser.add_argument(
@@ -68,6 +58,12 @@ parser.add_argument(
     type=str,
 )
 parser.add_argument(
+    "--sort_by_col",
+    help="Column in dataframe to sort users on. (Default: total sum of user clip-video length)",
+    default="sum_clip_duration_min",
+    type=str,
+)
+parser.add_argument(
     "--seed",
     help="Seed numpy for deterministic splits",
     default=0,
@@ -91,13 +87,13 @@ class Logger(object):
 
 
 def generate_usersplit_from_trainval(user_id_col="fb_participant_id"):
-    """ Get mini-train, test, and pretrain data splits."""
+    """ Generate and save train, test, and pretrain user data splits. """
     args = parser.parse_args()
     np.random.seed(args.seed)
 
     # DATA PATHS
-    meta_data_file_path = args.p_ego4d_meta_data_file  # META DATA
-    annotation_file_dir = args.p_ego4d_annotations_parent_dir  # ANNOTATION DATA LTA
+    meta_data_file_path = osp.join(args.p_ego4d, 'ego4d.json')  # META DATA
+    annotation_file_dir = osp.join(args.p_ego4d, 'v1', 'annotations')  # ANNOTATION DATA LTA
     annotation_file_names = {'train': "fho_lta_train.json", 'val': 'fho_lta_val.json',
                              'test': 'fho_lta_test_unannotated.json'}
     train_annotation_file = osp.join(annotation_file_dir, annotation_file_names['train'])
@@ -170,17 +166,30 @@ def generate_usersplit_from_trainval(user_id_col="fb_participant_id"):
         user_sort_values = trainval_user_df[args.sort_by_col].tolist()
 
     # Get train/test splits from train/val datasets
-    if args.usersplit_criterion == 'random':
+    sorted_user_ids, user_sort_values = np.array(sorted_user_ids), np.array(user_sort_values)
+
+    if args.usersplit_criterion == 'random':  # Split on idxs, and get corresponding user-ids
         shuffled_idxs = np.random.permutation(np.arange(len(sorted_user_ids)))
         train_idxs, test_idxs = shuffled_idxs[:args.nb_users_train], shuffled_idxs[args.nb_users_train:]
+        train_user_ids, test_user_ids = sorted_user_ids[train_idxs], sorted_user_ids[test_idxs]
 
-    elif args.usersplit_criterion == 'paper':
-        train_idxs, test_idxs = ORIG_TRAIN_USERS, ORIG_TEST_USERS
+    elif args.usersplit_criterion == 'paper':  # Get idxs from predefined user-ids
+        train_user_ids, test_user_ids = ORIG_TRAIN_USERS, ORIG_TEST_USERS
+        train_idxs, test_idxs = [], []
+        for idx, user_id in enumerate(sorted_user_ids):
+            if user_id in train_user_ids:
+                train_idxs.append(idx)
+            elif user_id in test_user_ids:
+                test_idxs.append(idx)
+            else:
+                raise ValueError("")
     else:
         raise ValueError()
 
-    sorted_user_ids, user_sort_values = np.array(sorted_user_ids), np.array(user_sort_values)
-    train_user_ids, test_user_ids = sorted_user_ids[train_idxs], sorted_user_ids[test_idxs]
+    # Checks
+    assert len(set(train_user_ids).intersection(set(test_user_ids))) == 0, f"Overlap in train and test users"
+
+    # The corresponding sorting values
     train_sort_values, test_sort_values = user_sort_values[train_idxs], user_sort_values[test_idxs]
 
     # Print summary
