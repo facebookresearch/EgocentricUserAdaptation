@@ -491,7 +491,7 @@ _C.DATA.RETURN_VIDEO = True
 # Enables shuffling the dataset on creation, without changing loader idxs.
 _C.DATA.SHUFFLE_DS_ORDER = False
 
-# User data splits
+# User data splits for continual Ego4d
 _C.DATA.USER_SUBSET = 'train'  # train or test split for users.
 _C.DATA.PATH_TO_DATA_SPLIT_JSON = CfgNode()
 _C.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT = '../../data/EgoAdapt/usersplits/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
@@ -502,17 +502,15 @@ _C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = '../../data/EgoAdapt/usersplits/ego
 #  If batch size > STRIDE, then next step will contain seen samples (Although shifted)
 _C.DATA.SEQ_OBSERVED_FRAME_STRIDE = None  # BY DEFAULT specified as None: a full new batch is observed
 
-# Custom data path names for Ego4d
+# Default ego4d pretraining path, using default names for json files (overwrite by PATH_TO_DATA_FILE)
+_C.DATA.PATH_PREFIX = "../../data/Ego4D/v1/clips"  # Video path prefix: parent path of the .mp4 videos.
+_C.DATA.PATH_TO_DATA_DIR = "../../data/Ego4D/v1/annotations"
+
+# Custom data JSON path names for pretraining Ego4d (Train on pretrain data, and validate on U_train users)
 _C.DATA.PATH_TO_DATA_FILE = CfgNode()
-_C.DATA.PATH_TO_DATA_FILE.TRAIN = None
-_C.DATA.PATH_TO_DATA_FILE.VAL = None
+_C.DATA.PATH_TO_DATA_FILE.TRAIN = '../../data/EgoAdapt/usersplits/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
+_C.DATA.PATH_TO_DATA_FILE.VAL = '../../data/EgoAdapt/usersplits/ego4d_LTA_train_usersplit_10users.json'
 _C.DATA.PATH_TO_DATA_FILE.TEST = None
-
-# Default ego4d path, using default names for json files (overwrite by PATH_TO_DATA_FILE)
-_C.DATA.PATH_TO_DATA_DIR = ""
-
-# Video path prefix if any.
-_C.DATA.PATH_PREFIX = ""
 
 # Model head path if any
 _C.DATA.CHECKPOINT_MODULE_FILE_PATH = ""  # ego4d/models/
