@@ -1,4 +1,3 @@
-
 import copy
 import multiprocessing as mp
 import os
@@ -24,6 +23,7 @@ from ego4d.config.defaults import set_cfg_by_name, convert_cfg_to_flat_dict
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
 from ego4d.utils.slurm import copy_and_run_with_config
+from continual_ego4d.processing.run_adhoc_metric_processing_wandb import avg_user_streams
 
 logger = logging.get_logger(__name__)
 
@@ -41,7 +41,7 @@ def main(cfg: CfgNode):
     logger.info(pprint.pformat(cfg))
 
     # Dataset lists from json / users to process
-    user_datasets = load_datasets_from_jsons(cfg)
+    user_datasets, _ = load_datasets_from_jsons(cfg)
     processed_user_ids, all_user_ids = get_user_ids(cfg, user_datasets, path_handler)
 
     # Sequential/parallel execution user jobs
@@ -66,20 +66,38 @@ def main(cfg: CfgNode):
         max_runs_per_device=cfg.NUM_USERS_PER_DEVICE,
     )
 
+    skip_processing = False
     if scheduler_cfg.is_all_runs_processed():
         logger.info("All users already processed, skipping execution. "
                     f"All users={scheduler_cfg.all_run_ids}, "
                     f"processed={scheduler_cfg.processed_run_ids}")
-        return
+        skip_processing = True
 
-    assert cfg.TRAIN.ENABLE, "Enable training mode for this script in cfg.TRAIN.ENABLE"
-    scheduler_cfg.schedule()
+    if not skip_processing:
+        assert cfg.TRAIN.ENABLE, "Enable training mode for this script in cfg.TRAIN.ENABLE"
+        scheduler_cfg.schedule()
 
-    logger.info("Finished processing all users")
-    logger.info(f"All results over users can be found in OUTPUT-DIR={path_handler.main_output_dir}")
+        logger.info("Finished processing all users")
+        logger.info(f"All results over users can be found in OUTPUT-DIR={path_handler.main_output_dir}")
+
+    # Postprocessing
+    if cfg.DATA.USER_SUBSET == 'train':
+        pretrain_group_name = cfg.TRANSFER_EVAL.PRETRAIN_TRAIN_USERS_GROUP_WANDB
+    elif cfg.DATA.USER_SUBSET == 'test':
+        pretrain_group_name = cfg.TRANSFER_EVAL.PRETRAIN_TEST_USERS_GROUP_WANDB
+    else:
+        raise ValueError()
+
+    # meta-evaluation metrics: aggregate results of all user-streams
+    avg_user_streams(
+        project_name=cfg.TRANSFER_EVAL.WANDB_PROJECT_NAME,
+        group_name=path_handler.get_wandb_group_name(),
+        expected_user_ids=all_user_ids,
+        pretrain_group_name=pretrain_group_name,
+    )
 
 
-def load_datasets_from_jsons(cfg, return_pretrain=False):
+def load_datasets_from_jsons(cfg) -> (dict, dict):
     """
     Load the train OR test json.
     The Pretrain action sets are always loaded.
@@ -103,14 +121,10 @@ def load_datasets_from_jsons(cfg, return_pretrain=False):
     pretrain_dataset_holder = extract_json(data_paths['pretrain'])
     cfg.COMPUTED_PRETRAIN_ACTION_SETS = copy.deepcopy(pretrain_dataset_holder['user_action_sets']['user_agnostic'])
 
-    if return_pretrain:
-        return user_datasets, pretrain_dataset_holder
-    else:
-        del pretrain_dataset_holder
-        return user_datasets
+    return user_datasets, pretrain_dataset_holder
 
 
-def get_user_ids(cfg, user_datasets, path_handler):
+def get_user_ids(cfg, user_datasets, path_handler) -> (list[str], list[str]):
     """
     Get all user_ids and the subset that is processed.
     """
@@ -121,7 +135,7 @@ def get_user_ids(cfg, user_datasets, path_handler):
     )
     all_user_ids = [str(x[0]) for x in user_to_ds_len]
 
-    # Load Meta-loop state checkpoint (Only 1 checkpoint per user, after user-stream finished)
+    # Load meta user-state checkpoint (Only 1 checkpoint per user, after user-stream finished)
     processed_user_ids = []
     if path_handler.is_resuming_run:
         logger.info(f"Resuming run from {path_handler.main_output_dir}")
@@ -151,9 +165,6 @@ def overwrite_config_continual_learning(cfg):
     overwrite_dict = {
         "SOLVER.ACCELERATOR": "gpu",
         "NUM_SHARDS": 1,  # no DDP supported
-        # "SOLVER.MAX_EPOCH": 1, # Allow IID
-        # "SOLVER.LR_POLICY": "constant",
-        # "CHECKPOINT_LOAD_MODEL_HEAD": True,  # From pretrain we also load model head
     }
 
     for hierarchy_k, v in overwrite_dict.items():
@@ -247,11 +258,9 @@ def online_adaptation_single_user(
     )
     trainer_callbacks = [
         checkpoint_callback,
-        # DeviceStatsMonitor(), # Way too detailed
         GPUStatsMonitor(),
         Timer(duration=None, interval='epoch'),
         Timer(duration=None, interval='step'),
-        # LearningRateMonitor(), # Cst LR by default
     ]
 
     # Choose task type based on config.
@@ -273,7 +282,7 @@ def online_adaptation_single_user(
     try:
         load_slowfast_model_weights(ckp_path, task, cfg.CHECKPOINT_LOAD_MODEL_HEAD)
     except:
-        # Wrap head with masker, enables resuming checkpoints after learning streams
+        # Wrap head with class-masker module, enables resuming checkpoints after learning streams
         ContinualMultiTaskClassificationTask.configure_head(task.model, task.stream_state)
         load_slowfast_model_weights(ckp_path, task, cfg.CHECKPOINT_LOAD_MODEL_HEAD)
 
@@ -293,7 +302,6 @@ def online_adaptation_single_user(
     # There are no validation/testing phases!
     logger.info("Initializing Trainer")
     trainer = Trainer(
-        # default_root_dir=main_output_dir,  # Default path for logs and weights when no logger/ckpt_callback passed
         accelerator=cfg.SOLVER.ACCELERATOR,  # cfg.SOLVER.ACCELERATOR, only single device for now
         max_epochs=cfg.SOLVER.MAX_EPOCH,
         num_sanity_val_steps=0,  # Sanity check before starting actual training to make sure validation works
@@ -304,8 +312,6 @@ def online_adaptation_single_user(
         # Devices/distributed
         devices=[device_id],
         gpus=None,  # Determined by devices
-        # auto_select_gpus=True,
-        # plugins=DDPPlugin(find_unused_parameters=False), # DDP specific
         num_nodes=cfg.NUM_SHARDS,  # DDP specific
 
         callbacks=trainer_callbacks,

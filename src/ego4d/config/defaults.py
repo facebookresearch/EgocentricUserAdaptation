@@ -38,7 +38,7 @@ _C.CONTEXT_ADAPT.GRU_HIDDEN_SIZE = 64
 # TRANSFER EVAL options
 # ---------------------------------------------------------------------------- #
 _C.TRANSFER_EVAL = CfgNode()
-_C.TRANSFER_EVAL.WANDB_PROJECT_NAME = ""
+_C.TRANSFER_EVAL.WANDB_PROJECT_NAME = "ContinualUserAdaptation"
 _C.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL = ""
 _C.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB = 'train'  # or test
 _C.TRANSFER_EVAL.PRETRAIN_TRAIN_USERS_GROUP_WANDB = None
@@ -485,11 +485,8 @@ _C.MVIT.POOL_FIRST = False
 # -----------------------------------------------------------------------------
 _C.DATA = CfgNode()
 
-# Disable to only load labels (e.g. for stream analysis)
-_C.DATA.RETURN_VIDEO = True
-
-# Enables shuffling the dataset on creation, without changing loader idxs.
-_C.DATA.SHUFFLE_DS_ORDER = False
+###############################################################################
+# CONTINUAL EgoAdapt SPECIFIC
 
 # User data splits for continual Ego4d
 _C.DATA.USER_SUBSET = 'train'  # train or test split for users.
@@ -498,12 +495,20 @@ _C.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT = '../../data/EgoAdapt/usersplits
 _C.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT = '../../data/EgoAdapt/usersplits/ego4d_LTA_train_usersplit_10users.json'
 _C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = '../../data/EgoAdapt/usersplits/ego4d_LTA_test_usersplit_40users.json'
 
+# Disable to only load labels (e.g. for stream analysis)
+_C.DATA.RETURN_VIDEO = True
+
+# Enables shuffling the dataset on creation, without changing loader idxs.
+_C.DATA.SHUFFLE_DS_ORDER = False
+
 # CL: Stride for next observed frame in sequential data stream (in a single sequential clip-video)
 #  If batch size > STRIDE, then next step will contain seen samples (Although shifted)
 _C.DATA.SEQ_OBSERVED_FRAME_STRIDE = None  # BY DEFAULT specified as None: a full new batch is observed
 
+#####################################################################
+# PRETRAIN SPECIFIC
+
 # Default ego4d pretraining path, using default names for json files (overwrite by PATH_TO_DATA_FILE)
-_C.DATA.PATH_PREFIX = "../../data/Ego4D/v1/clips"  # Video path prefix: parent path of the .mp4 videos.
 _C.DATA.PATH_TO_DATA_DIR = "../../data/Ego4D/v1/annotations"
 
 # Custom data JSON path names for pretraining Ego4d (Train on pretrain data, and validate on U_train users)
@@ -511,6 +516,12 @@ _C.DATA.PATH_TO_DATA_FILE = CfgNode()
 _C.DATA.PATH_TO_DATA_FILE.TRAIN = '../../data/EgoAdapt/usersplits/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
 _C.DATA.PATH_TO_DATA_FILE.VAL = '../../data/EgoAdapt/usersplits/ego4d_LTA_train_usersplit_10users.json'
 _C.DATA.PATH_TO_DATA_FILE.TEST = None
+
+#####################################################################
+# COMMON
+
+# Video path prefix: parent path of the .mp4 videos.
+_C.DATA.PATH_PREFIX = "../../data/Ego4D/v1/clips"
 
 # Model head path if any
 _C.DATA.CHECKPOINT_MODULE_FILE_PATH = ""  # ego4d/models/
@@ -633,6 +644,10 @@ _C.SOLVER.ACCELERATOR = "ddp"
 # Misc options
 # ---------------------------------------------------------------------------- #
 
+# Path to the checkpoint to load the initial weight.
+_C.CHECKPOINT_FILE_PATH = ""  # set pretrain model here to start EgoAdapt learning of user-streams
+_C.CHECKPOINT_PATH_FORMAT_FOR_USER = False  # if ckpt file path is fmt for user_id to fill in, e.g. "{}".format(user_id)
+
 # Number of GPUs to use (applies to both training and testing).
 _C.NUM_GPUS = 1
 
@@ -672,10 +687,6 @@ _C.FAST_DEV_RUN = False
 
 # How much data to consider max per user for debugging
 _C.FAST_DEV_DATA_CUTOFF = 30
-
-# Path to the checkpoint to load the initial weight.
-_C.CHECKPOINT_FILE_PATH = ""
-_C.CHECKPOINT_PATH_FORMAT_FOR_USER = False  # if ckpt file path is fmt for user_id to fill in, e.g. "{}".format(user_id)
 
 # Whether the checkpoint follows the caffe2 format
 _C.CHECKPOINT_VERSION = ""
