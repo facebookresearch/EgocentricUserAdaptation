@@ -4,11 +4,22 @@
 
 - <del> Instructions for requirements.
 - <del> Data preprocessing: Take same users as we used
-- Path-linking jsons (set PATH_TO_DATA_FILE in json with the generated ones, TODO check if works in run flow)
-- Design exps dir: which ones certainly keep? -> Gather configs in parent figure/exp dir, with per-method subdirs, have
+- <del> Path-linking jsons (set PATH_TO_DATA_FILE in json with the generated ones, TODO check if works in run flow)
+- <del> Design exps dir: which ones certainly keep? -> Gather configs in parent figure/exp dir, with per-method subdirs, have
   general script.
     - Put configs with comments on which ones to replace
-- Step 2.2, check automatically if all users are processed, and do post-processing after.
+- Step 2.2, check automatically if all users are processed
+  in [this script](/media/mattdl/dualshared/PycharmProjects/EgocentricUserAdaptation/src/continual_ego4d/run_train_user_streams.py)
+  , and do post-processing (avg over users) after.
+    - TODO: Set WandB group-names in config (For delta results in postprocessing)
+    - TODO: implement user-result aggregation in script. This uses the pretrain groupnames (optionally if provided) for
+      the deltas, calculates the average results over users (all possibel: Online acc/loss), and uploads this to wandb.
+      Also prints a summary of these group results in stdout.
+    - TODO: keep csv postprocessing in separate file (provide, but just as standalone script). (Can even let out, but
+      need decor/cor ACC metrics then). -> TODO: parseargs
+- Test-runs!
+    - Download from AWS the pretrained kinetics400 model. (Or get it from Meta)
+    - Try each exp at least once and check
 - Keep hindsight in separate step
 - Clean-up notebooks + only keep those that are useful.
 
@@ -50,7 +61,7 @@ the [WandB](https://wandb.ai/site) logging platform to manage all runs.
 ## Results workflow
 
 **Context:** The paper defines 2 phases (1) the pretraining phase of the population model, (2) the user-adaptation
-phase. Additionally we introduce a third phase (3) that aggregates all user results into single metric results.
+phase. Additionally, this codebase performs a third phase (3) that aggregates all user results from phase (2) into single metric results.
 
 ### Data preprocessing
 
@@ -58,8 +69,8 @@ phase. Additionally we introduce a third phase (3) that aggregates all user resu
   JSONS to create the user splits for train/test/pretrain. In the forecasting LTA benchmark, download the meta-data,
   annotations, videos, and the SlowFast Resnet101 model pretrained on Kinetics-400.
 - Run script [run_split_ego4d_on_users.py](src/continual_ego4d/processing/run_split_ego4d_on_users.py) to generate JSON
-  files for our user splits. Link in the [default config](src/ego4d/config/defaults.py) to the generated json paths by
-  setting properties *PATH_TO_DATA_SPLIT_JSON.{TRAIN,VAL,TEST}*.
+  files for our user splits. The [default config](src/ego4d/config/defaults.py) automatically refers to the generated
+  json paths with properties *PATH_TO_DATA_SPLIT_JSON.{TRAIN,VAL,TEST}*.
 
 ### (1) Pretraining a population model
 
@@ -75,12 +86,14 @@ To obtain a pretrained population model.
 - Then, run evaluation of the pretrain model
   in [reproduce/pretrain/eval_user_stream_performance](reproduce/pretrain/eval_user_stream_performance), both for the
   train and test users. This allows later metrics to be calculated as relative improvement over the pretrain model.
+    - Set the properties **TRANSFER_EVAL.PRETRAIN_{TRAIN,TEST}_USERS_GROUP_WANDB** with the WandB groupname. Later runs
+      will use this to get delta results (OAG/HAG).
 
 ### (2) Reproduce Online User-adaptation
 
 All users start from the same pretrained model obtained from (1). To reproduce results from the paper, run the scripts
 in [reproduce](reproduce), containing the config files
-[cfg.yaml]() per experiment in the subdirectories.
+[cfg.yaml]() per experiment in the subdirectories. See the [README](reproduce/README.md) for more details.
 
 - [reproduce/pretrain](reproduce/pretrain): Train population model in pretraining phase
 - Empirical study on train user-split:
@@ -131,6 +144,7 @@ Can be found in [notebooks](notebooks).
   number of overlapping actions betwee train-users in a heatmap.
 
 # Important Configs
+We describe some of the important config parameters below.
 
 General config:
 
@@ -146,3 +160,7 @@ Ego4d Pretrain:
 EgoAdapt:
 
 - **DATA.PATH_TO_DATA_SPLIT_JSON.{TRAIN/TEST/PRETRAIN}_SPLIT**: The user split paths used for the EgoAdapt streams.
+- **CONTINUAL_EVAL.ONLINE_OAG**: Runs prediction phase on pretrained network before starting training in order to
+  calculate the OAG/HAG.
+    - Another option is to set this to False, calculate the pretraining results for all streams once, and calculate
+      deltas in ad-hoc fashion.
