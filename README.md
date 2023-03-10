@@ -26,7 +26,11 @@
 Final checks
 
 - check if all internal paths gone everywhere
--
+  - Search on:
+    - mattdl
+    - delangem
+    - 
+- 
 
 ## Installation
 
@@ -41,8 +45,7 @@ download run:
       Default region name [None]: us-east-2 # Or leave blank
       Default output format [None]:         # Leave blank
 
-To proceed to the actual download, the following commands (1) download the ego4d fho (forecasting) subset in the "*
-EGO4D_ROOT*" output directory, and (2) create a symbolic link from the project root:
+To proceed to the actual download, the following commands (1) download the ego4d FHO (forecasting) subset in the "*EGO4D_ROOT*" output directory, and (2) create a symbolic link from the project root:
 
     export EGO4D_ROOT='/path/to/your/download/Ego4D'
 
@@ -81,8 +84,15 @@ To obtain a pretrained population model.
   the Kinetics-400 pretrained model (downloaded from Ego4d) and trains further on our pretrain user-split. Make sure to
   adapt the *PATH_TO_DATA_FILE.{TRAIN,VAL}* in the [cfg.yaml](reproduce/pretrain/learn_user_pretrain_subset/cfg.yaml),
   with TRAIN being our pretraining JSON user-split and VAL our train JSON user-split.
-    - **Config:** Once you obtained the pretrained model, use it by setting the *CHECKPOINT_FILE_PATH* in the config
-      files.
+  - To obtain the pretrained Kinetics-400 model to start our pretraining with:
+  
+        # Unzip downloaded Ego4d models (execute from project root)
+        unzip ./data/v1/lta_models/lta_pretrained_models.zip 
+        # Set in the config the Kinetics-400 pretrained model to start from:
+        DATA.CHECKPOINT_MODULE_FILE_PATH=./data/v1/lta_models/pretrained_models/long_term_anticipation/kinetics_slowfast8x8.ckpt
+
+  - Once EgoAdapt pretraining is completed (initialized with Kinetics400 pretraining), use the model for subsequent experiments by setting the *CHECKPOINT_FILE_PATH* in the config
+        files.
 - Then, run evaluation of the pretrain model
   in [reproduce/pretrain/eval_user_stream_performance](reproduce/pretrain/eval_user_stream_performance), both for the
   train and test users. This allows later metrics to be calculated as relative improvement over the pretrain model.
