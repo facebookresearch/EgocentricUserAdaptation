@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 this_script_dirpath="$(dirname -- "${BASH_SOURCE[0]}")"
-source ${this_script_dirpath}/parse_args.sh
+source ${this_script_dirpath}/init_run.sh
 
 # Start in screen detached mode (-dm), and give indicative name via (-S)
 #screenname="${run_id}"
