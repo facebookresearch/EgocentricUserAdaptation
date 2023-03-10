@@ -13,10 +13,8 @@ from ego4d.optimizers import lr_scheduler
 from ego4d.models import build_model
 from continual_ego4d.datasets.continual_dataloader import construct_trainstream_loader, construct_predictstream_loader
 import random
-# import wandb
 from pytorch_lightning.loggers import WandbLogger
-from continual_ego4d.metrics.offline_metrics import get_micro_macro_avg_acc, per_sample_metric_to_macro_avg, \
-    loss_CE_to_class_confidence
+from continual_ego4d.metrics.offline_metrics import get_micro_macro_avg_acc, per_sample_metric_to_macro_avg
 
 from continual_ego4d.methods.build import build_method
 from continual_ego4d.methods.method_callbacks import Method
@@ -1084,21 +1082,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         balanced_loss_verb = per_sample_metric_to_macro_avg(loss_verb_unred, verb_label_list)
         balanced_loss_noun = per_sample_metric_to_macro_avg(loss_noun_unred, noun_label_list)
 
-        # Likelihood (Confidence percentage of correct class)
-        LL_action_unred: torch.Tensor = loss_CE_to_class_confidence(loss_action_unred)  # convert to likelihood
-        LL_verb_unred: torch.Tensor = loss_CE_to_class_confidence(loss_verb_unred)  # convert to likelihood
-        LL_noun_unred: torch.Tensor = loss_CE_to_class_confidence(loss_noun_unred)  # convert to likelihood
-
-        # MICRO-likelihood
-        LL_action = LL_action_unred.mean()
-        LL_verb = LL_verb_unred.mean()
-        LL_noun = LL_noun_unred.mean()
-
-        # MACRO-likelihood
-        balanced_LL_action = per_sample_metric_to_macro_avg(LL_action_unred, action_label_list)
-        balanced_LL_verb = per_sample_metric_to_macro_avg(LL_verb_unred, verb_label_list)
-        balanced_LL_noun = per_sample_metric_to_macro_avg(LL_noun_unred, noun_label_list)
-
         # Micro-ACCs
         top1_acc_action: torch.FloatTensor = metrics.distributed_twodistr_top1_errors(
             preds_t[0], preds_t[1], labels_t[:, 0], labels_t[:, 1], return_mode='acc'
@@ -1133,22 +1116,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
                 balanced_loss_verb.item(),
             get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='balanced_loss'):
                 balanced_loss_noun.item(),
-
-            # Avg MICRO Likelihoods (confidence)
-            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='LL'):
-                LL_action.item(),
-            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='verb', base_metric_name='LL'):
-                LL_verb.item(),
-            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='LL'):
-                LL_noun.item(),
-
-            # Avg MACRO Likelihoods (confidence)
-            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='balanced_LL'):
-                balanced_LL_action.item(),
-            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='verb', base_metric_name='balanced_LL'):
-                balanced_LL_verb.item(),
-            get_metric_tag(TAG_BATCH, train_mode='test', action_mode='noun', base_metric_name='balanced_LL'):
-                balanced_LL_noun.item(),
 
             # Avg MICRO acc's
             get_metric_tag(TAG_BATCH, train_mode='test', action_mode='action', base_metric_name='top1_acc'):

@@ -31,7 +31,7 @@ from fvcore.common.config import CfgNode
 from pytorch_lightning import Trainer, seed_everything
 
 from continual_ego4d.processing.run_adhoc_metric_processing_wandb import upload_metric_dict_to_wandb, \
-    _collect_wandb_group_user_results_for_metrics
+    collect_wandb_group_user_results_for_metrics
 from continual_ego4d.processing.utils import get_group_run_iterator, get_group_names_from_csv, get_delta, \
     get_delta_mappings
 from continual_ego4d.run_train_user_streams import load_datasets_from_jsons, get_user_ids, get_device_ids
@@ -170,7 +170,7 @@ def process_group(eval_cfg, group_name, project_name):
     if eval_cfg.USER_SELECTION is not None:
         train_cfg.USER_SELECTION = eval_cfg.USER_SELECTION
 
-    user_datasets, pretrain_dataset = load_datasets_from_jsons(train_cfg, return_pretrain=True)
+    user_datasets, pretrain_dataset = load_datasets_from_jsons(train_cfg)
     processed_trained_user_ids, all_trained_user_ids = get_user_ids(train_cfg, user_datasets, train_path_handler)
     user_datasets['pretrain'] = pretrain_dataset  # Add (AFTER CHECKING USER IDS)
 
@@ -308,16 +308,6 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         'test_verb_batch/balanced_loss': 'adhoc_users_aggregate/train_verb_batch/balanced_loss/mean',
         'test_noun_batch/balanced_loss': 'adhoc_users_aggregate/train_noun_batch/balanced_loss/mean',
 
-        # Micro-avg LL
-        'test_action_batch/LL': 'adhoc_users_aggregate/train_action_batch/LL/mean',
-        'test_verb_batch/LL': 'adhoc_users_aggregate/train_verb_batch/LL/mean',
-        'test_noun_batch/LL': 'adhoc_users_aggregate/train_noun_batch/LL/mean',
-
-        # Macro-avg LL
-        'test_action_batch/balanced_LL': 'adhoc_users_aggregate/train_action_batch/balanced_LL/mean',
-        'test_verb_batch/balanced_LL': 'adhoc_users_aggregate/train_verb_batch/balanced_LL/mean',
-        'test_noun_batch/balanced_LL': 'adhoc_users_aggregate/train_noun_batch/balanced_LL/mean',
-
         # Micro-avg ACC
         'test_action_batch/top1_acc': 'train_action_batch/top1_acc_running_avg',
         'test_verb_batch/top1_acc': 'train_verb_batch/top1_acc_running_avg',
@@ -360,8 +350,13 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         raise ValueError()
 
     pretrain_metric_names = list(metric_name_to_pretrain_name_mapping.values())
-    pretrain_user_ids, pretrain_final_stream_metric_userlists = _collect_wandb_group_user_results_for_metrics(
-        pretrain_group, metric_names=pretrain_metric_names, run_filter=None, user_ids=streamusers)
+    pretrain_user_ids, pretrain_final_stream_metric_userlists = collect_wandb_group_user_results_for_metrics(
+        eval_cfg.TRANSFER_EVAL.WANDB_PROJECT_NAME,
+        pretrain_group,
+        metric_names=pretrain_metric_names,
+        run_filter=None,
+        user_ids=streamusers
+    )
     assert len(pretrain_user_ids) == eval_cfg.TRANSFER_EVAL.NUM_EXPECTED_USERS
     assert pretrain_user_ids == streamusers, "Order of users should be same"
     pretrainuser_to_idx = {user: idx for idx, user in enumerate(pretrain_user_ids)}
