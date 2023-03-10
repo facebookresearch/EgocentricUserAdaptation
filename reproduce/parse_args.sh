@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# This script adds modules to path for execution and adds run-specific arguments:
+# e.g. output dir of experiment, and run-specific WandB tags.
 
 #-----------------------------------------------------------------------------------------------#
 # Add ego4d code modules to pythonpath
@@ -21,10 +23,6 @@ p_dirname="$(basename "${run_script_dirpath}")"
 pp_dirname="$(basename "$(dirname -- "${run_script_dirpath}")")"
 OUTPUT_DIR="$root_path/results/${pp_dirname}/${p_dirname}/logs/${RUN_ID}"
 
-# Data paths
-EGO4D_ANNOTS=$ego4d_code_root/data/long_term_anticipation/annotations_local/
-EGO4D_VIDEOS=$ego4d_code_root/data/long_term_anticipation/clips_root_local/clips
-
 #-----------------------------------------------------------------------------------------------#
 # CONFIG (Overwrite with args)
 #-----------------------------------------------------------------------------------------------#
@@ -43,8 +41,6 @@ OVERWRITE_CFG_ARGS="$@"
 OVERWRITE_CFG_ARGS+=" WANDB.TAGS '${p_dirname}','${pp_dirname}'"
 
 # Paths
-OVERWRITE_CFG_ARGS+=" DATA.PATH_TO_DATA_DIR ${EGO4D_ANNOTS}"
-OVERWRITE_CFG_ARGS+=" DATA.PATH_PREFIX ${EGO4D_VIDEOS}"
 OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 

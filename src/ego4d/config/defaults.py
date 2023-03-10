@@ -6,6 +6,9 @@ import copy
 
 from continual_ego4d.utils.misc import SoftCfgNode as CfgNode  # Wrapper
 
+# Relative path to reproduce scripts
+PROJECT_ROOT = "../../.."  # TODO add your absolute project path
+
 # -----------------------------------------------------------------------------
 # Config definition
 # -----------------------------------------------------------------------------
@@ -491,9 +494,9 @@ _C.DATA = CfgNode()
 # User data splits for continual Ego4d
 _C.DATA.USER_SUBSET = 'train'  # train or test split for users.
 _C.DATA.PATH_TO_DATA_SPLIT_JSON = CfgNode()
-_C.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT = '../../data/EgoAdapt/usersplits/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
-_C.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT = '../../data/EgoAdapt/usersplits/ego4d_LTA_train_usersplit_10users.json'
-_C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = '../../data/EgoAdapt/usersplits/ego4d_LTA_test_usersplit_40users.json'
+_C.DATA.PATH_TO_DATA_SPLIT_JSON.PRETRAIN_SPLIT = f'{PROJECT_ROOT}/data/EgoAdapt/usersplits/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
+_C.DATA.PATH_TO_DATA_SPLIT_JSON.TRAIN_SPLIT = f'{PROJECT_ROOT}/data/EgoAdapt/usersplits/ego4d_LTA_train_usersplit_10users.json'
+_C.DATA.PATH_TO_DATA_SPLIT_JSON.TEST_SPLIT = f'{PROJECT_ROOT}/data/EgoAdapt/usersplits/ego4d_LTA_test_usersplit_40users.json'
 
 # Disable to only load labels (e.g. for stream analysis)
 _C.DATA.RETURN_VIDEO = True
@@ -509,19 +512,19 @@ _C.DATA.SEQ_OBSERVED_FRAME_STRIDE = None  # BY DEFAULT specified as None: a full
 # PRETRAIN SPECIFIC
 
 # Default ego4d pretraining path, using default names for json files (overwrite by PATH_TO_DATA_FILE)
-_C.DATA.PATH_TO_DATA_DIR = "../../data/Ego4D/v1/annotations"
+_C.DATA.PATH_TO_DATA_DIR = f'{PROJECT_ROOT}/data/Ego4D/v1/annotations'
 
 # Custom data JSON path names for pretraining Ego4d (Train on pretrain data, and validate on U_train users)
 _C.DATA.PATH_TO_DATA_FILE = CfgNode()
-_C.DATA.PATH_TO_DATA_FILE.TRAIN = '../../data/EgoAdapt/usersplits/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
-_C.DATA.PATH_TO_DATA_FILE.VAL = '../../data/EgoAdapt/usersplits/ego4d_LTA_train_usersplit_10users.json'
+_C.DATA.PATH_TO_DATA_FILE.TRAIN = f'{PROJECT_ROOT}/data/EgoAdapt/usersplits/ego4d_LTA_pretrain_incl_nanusers_usersplit_148users.json'
+_C.DATA.PATH_TO_DATA_FILE.VAL = f'{PROJECT_ROOT}/data/EgoAdapt/usersplits/ego4d_LTA_train_usersplit_10users.json'
 _C.DATA.PATH_TO_DATA_FILE.TEST = None
 
 #####################################################################
 # COMMON
 
 # Video path prefix: parent path of the .mp4 videos.
-_C.DATA.PATH_PREFIX = "../../data/Ego4D/v1/clips"
+_C.DATA.PATH_PREFIX = f'{PROJECT_ROOT}/data/Ego4D/v1/clips'
 
 # Model head path if any
 _C.DATA.CHECKPOINT_MODULE_FILE_PATH = ""  # ego4d/models/
