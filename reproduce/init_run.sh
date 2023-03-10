@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # This script adds modules to path for execution and adds run-specific arguments:
-# e.g. output dir of experiment, and run-specific WandB tags.
+# e.g. run-specific unique output dir of experiment, and run-specific WandB tags based on parent directory names.
 
 #-----------------------------------------------------------------------------------------------#
 # Add ego4d code modules to pythonpath
@@ -42,7 +42,6 @@ OVERWRITE_CFG_ARGS+=" WANDB.TAGS '${p_dirname}','${pp_dirname}'"
 
 # Paths
 OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
-
 
 export OVERWRITE_CFG_ARGS
 export RUN_ID
