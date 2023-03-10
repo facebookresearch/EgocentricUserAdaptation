@@ -309,9 +309,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         self.inner_loop_iters = cfg.TRAIN.INNER_LOOP_ITERS
         assert isinstance(self.inner_loop_iters, int) and self.inner_loop_iters >= 1
 
-        # Sanity modes/debugging
-        self.enable_prepost_comparing = cfg.CHECK_POST_VS_PRE_LOSS_DELTA  # Compare loss before/after update
-
         # Pretrain state
         self.pretrain_state = PretrainState(cfg.COMPUTED_PRETRAIN_ACTION_SETS)
         self.cfg.COMPUTED_PRETRAIN_STATE = self.pretrain_state  # Set for dataset creation
@@ -630,10 +627,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         Past samples should always be evaluated AFTER update step. The model is otherwise just
         updated on the latest batch in history it was just updated on (=pre-update model of the current batch).
         """
-        # Measure difference of pre-update results of current batch (e.g. forward second time)
-        if self.enable_prepost_comparing:
-            self.eval_current_stream_batch_postupdate_(self.batch_metric_results, batch)
-
         # Do post-update evaluation of the past
         if self.stream_state.eval_this_step:
             logger.debug(f"Starting POST-UPDATE evaluation on batch_idx={batch_idx}/{len(self.train_loader)}")
@@ -727,49 +720,6 @@ class ContinualMultiTaskClassificationTask(LightningModule):
         # Gather results from metrics
         results = {}
         for metric in self.current_batch_metrics:
-            results = {**results, **metric.result(self.stream_state.batch_idx)}
-
-        self.add_to_dict_(step_result, results)
-
-    @torch.no_grad()
-    @_eval_in_train_decorator
-    def eval_current_stream_batch_postupdate_(self, step_result, current_batch):
-        """
-        Measure difference of pre-update results of current batch (e.g. forward second time)
-        Again we only measure on stream data, not potential replay_strategies data.
-        """
-        if len(self.current_batch_metrics) == 0:
-            logger.debug(f"Skipping post-update eval current batch.")
-            return
-
-        full_slowfast_inputs, full_labels, _, _ = current_batch
-        assert isinstance(full_slowfast_inputs, list) and len(full_slowfast_inputs) == 2, \
-            "Only implemented for slowfast model"
-
-        # Make sure no replay_strategies data is considered
-        stream_inputs = [full_slowfast_inputs[i][:self.stream_state.stream_batch_size]
-                         for i in range(len(full_slowfast_inputs))]
-        stream_labels = full_labels[:self.stream_state.stream_batch_size]
-
-        logger.debug(f"Forwarding POST UPDATE")
-        post_update_preds = self.forward(stream_inputs)
-
-        logger.debug(f"Gathering POST UPDATE metrics")
-        assert post_update_preds[0].shape[0] == post_update_preds[1].shape[0], \
-            "Verbs and nouns output dims should be equal"
-        assert post_update_preds[0].shape[0] == stream_labels.shape[0], \
-            "Batch dim for input and label should be equal"
-        assert post_update_preds[0].shape[0] == self.stream_state.stream_batch_size, \
-            "Eval on current batch should only contain new stream samples. Not samples from altered batch"
-
-        # Update metrics
-        for metric in self.current_batch_after_update_metrics:
-            metric.update(post_update_preds, stream_labels, self.stream_state.stream_batch_sample_idxs,
-                          stream_state=self.stream_state)
-
-        # Gather results from metrics
-        results = {}
-        for metric in self.current_batch_after_update_metrics:
             results = {**results, **metric.result(self.stream_state.batch_idx)}
 
         self.add_to_dict_(step_result, results)

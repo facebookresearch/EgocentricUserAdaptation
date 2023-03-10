@@ -174,3 +174,4 @@ EgoAdapt:
   calculate the OAG/HAG.
     - Another option is to set this to False, calculate the pretraining results for all streams once, and calculate
       deltas in ad-hoc fashion.
+- **RESUME_OUTPUT_DIR**: Resume processing of user streams and skip already processed user streams in the given output dir.For example, the output directory of a run would look like: *"PROJECT_ROOT"/results/momentum/SGD/logs/GRID_SOLVER-BASE_LR=0-1_SOLVER-MOMENTUM=0-0_SOLVER-NESTEROV=True/2023-03-10_17-24-39_UIDf3d2c6ca-6422-4fd0-a9bd-92185be24ab0*

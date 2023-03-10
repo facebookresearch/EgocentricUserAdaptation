@@ -64,7 +64,12 @@ _C.ANALYZE_STREAM.PARENT_DIR_FEAT_DUMP = ""  # Dir to take dumped feats from
 # ---------------------------------------------------------------------------- #
 # DEBUG options
 # ---------------------------------------------------------------------------- #
-_C.CHECK_POST_VS_PRE_LOSS_DELTA = False
+
+# Run 1 train, val and test batch for debugging
+_C.FAST_DEV_RUN = False
+
+# For debugging on user-streams: How much data to consider max per user
+_C.FAST_DEV_DATA_CUTOFF = 5
 
 # ---------------------------------------------------------------------------- #
 # GRIDSEARCH options
@@ -684,12 +689,6 @@ _C.ENABLE_LOGGING = True
 
 # Log gradient distributions at period. Don't log if None.
 _C.LOG_GRADIENT_PERIOD = -1
-
-# Run 1 train, val and test batch for debuggin
-_C.FAST_DEV_RUN = False
-
-# How much data to consider max per user for debugging
-_C.FAST_DEV_DATA_CUTOFF = 30
 
 # Whether the checkpoint follows the caffe2 format
 _C.CHECKPOINT_VERSION = ""
