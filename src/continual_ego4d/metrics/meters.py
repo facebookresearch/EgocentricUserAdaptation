@@ -1,4 +1,3 @@
-# From: https://github.com/pytorch/examples/blob/main/imagenet/main.py
 from collections import defaultdict
 from typing import Union
 
@@ -7,7 +6,10 @@ import torch.distributed as dist
 
 
 class AverageMeter(object):
-    """Computes and stores the average and current value"""
+    """
+    Computes and stores the average and current value.
+    Adapted from: https://github.com/pytorch/examples/blob/main/imagenet/main.py
+    """
 
     def __init__(self):
         self.reset()

@@ -68,13 +68,3 @@ def per_sample_metric_to_macro_avg(sample_values, sample_cond_list: list[Union[i
     cond_meter = ConditionalAverageMeterDict(action_balanced=True)  # Return micro or macro avg result
     cond_meter.update(sample_values, cond_list=sample_cond_list)
     return cond_meter.result()
-
-
-def loss_CE_to_class_confidence(loss_t: torch.Tensor):
-    """
-    Percentage of confidence in correct class, transformed from Loss.
-
-    :param loss_t: tensor of shape (B,1) with B=batch size.
-    :return:
-    """
-    return loss_t.mul(-1).exp().mul(100)
