@@ -1,4 +1,4 @@
-# Online Egocentric User-Adaptation
+# EgoAdapt: Online Egocentric User-Adaptation
 
 # TODOs for cleanup
 
@@ -46,8 +46,8 @@ download run:
       Default region name [None]: us-east-2 # Or leave blank
       Default output format [None]:         # Leave blank
 
-To proceed to the actual download, the following commands (1) download the ego4d FHO (forecasting) subset in the "*
-EGO4D_ROOT*" output directory, and (2) create a symbolic link from the project root:
+To proceed to the actual download, the following commands (1) download the ego4d FHO (forecasting) subset in the 
+"*EGO4D_ROOT*" output directory, and (2) create a symbolic link from the project root:
 
     export EGO4D_ROOT='/path/to/your/download/Ego4D'
 
@@ -100,10 +100,10 @@ To obtain a pretrained population model.
       the [default config](src/ego4d/config/defaults.py).
 - Then, run evaluation of the pretrain model
   in [reproduce/pretrain/eval_user_stream_performance](reproduce/pretrain/eval_user_stream_performance), both for the
-  train and test users. This allows later metrics to be calculated as relative improvement over the pretrain model.
-    - **How to use in later experiments?** Set in the [default config](src/ego4d/config/defaults.py) the properties *
-      TRANSFER_EVAL.PRETRAIN_{TRAIN,TEST}_USERS_GROUP_WANDB* with the corresponding WandB groupname. Later runs will use
-      this to get delta results (OAG/HAG).
+  train and test users. Do this by setting the *DATA.USER_SUBSET* in the [cfg.yaml](reproduce/pretrain/eval_user_stream_performance/cfg.yaml) to 'test' or 'train'. This allows later metrics to be calculated as relative improvement over the pretrain model.
+    - **How to use in later experiments?** Set in the [default config](src/ego4d/config/defaults.py) the properties 
+      *TRANSFER_EVAL.PRETRAIN_{TRAIN,TEST}_USERS_GROUP_WANDB* with the corresponding WandB groupname. Later runs will use
+      this to get delta results. (e.g. for OAG automatically, and for HAG in a separate run in [reproduce/hindsight_performance/user_transfer_matrix](/media/mattdl/dualshared/PycharmProjects/EgocentricUserAdaptation/reproduce/hindsight_performance/user_transfer_matrix/run.sh)).
 
 ### Phase (2): Reproduce Online User-adaptation
 
@@ -124,6 +124,17 @@ run the scripts in [reproduce](reproduce), containing per experiment a subdirect
 - [reproduce/hindsight_performance](reproduce/hindsight_performance): Get hindsight results (HAG) after learning
   user-streams
 
+
+An example of an experiment to get both the OAG and HAG results:
+
+    # Get online Finetuning results over 10 user streams in U_train
+    # Postprocessing automatically aggregates the user stream results (OAG) and uploads to WandB
+    cd ./reproduce/momentum/SGD && ./run.sh 
+
+    # To get hindsight performance results on final models (HAG metrics)
+    # First, set the previous experiment's group name as WANDB_GROUP_TO_EVAL in 'reproduce/hindsight_performance/cfg.yaml'
+    cd ./reproduce/hindsight_performance && ./run.sh 
+
 ### (postprocess) Parsing final WandB results
 
 **In WandB**: All results are saved in the WandB run entries and in local CSV dumps with per-update predictions. To get
@@ -133,28 +144,11 @@ the results in WandB, group runs (1 run is 1 user-stream) on the *Group* propert
 out [the table parser script](src/continual_ego4d/processing/csv_to_latex_table_parser.py) for examples. The script
 parses downloaded (grouped) runs from WandB that are exported to a CSV, and parses the CSV to Latex-formatted tables.
 
-### Example
 
-An example of a full experiment flow:
-
-    # Phase 1: 
-    # Get pretrained model on U_pretrain 
-    cd ./reproduce/pretrain/learn_user_pretrain_subset && ./run.sh 
-
-    # Get per-stream metric results from the pretrained model (See phase (1) to set config paths)
-    cd ./reproduce/pretrain/learn_user_pretrain_subset && ./run.sh
-
-    # Phase 2:
-    # Get online Finetuning results over 10 user streams in U_train
-    # Postprocessing automatically aggregates the user stream results (OAG) and uploads to WandB
-    cd ./reproduce/momentum/SGD && ./run.sh 
-
-    # To get hindsight performance results on final models (HAG metrics)
-    cd ./reproduce/hindsight_performance
-
-## Notebooks
-
-Can be found in [notebooks](notebooks).
+# Guide
+## Tools and plots
+We provide a range of tools to explore the dataset and notebooks for the analysis plots reported in the paper.
+All can be found in the [notebooks](notebooks) folder.
 
 - [Video Player](notebooks/ego4d_OnlineActionRecog_video_player.ipynb) to display our actual user streams per
   user-split. Displays meta-data such as action (verb,noun) and user-id over time.
@@ -179,7 +173,22 @@ Can be found in [notebooks](notebooks).
 - [plot_heatmap_transfer_user_action_overlap.ipynb](notebooks/plot_heatmap_transfer_user_action_overlap.ipynb): Plot the
   number of overlapping actions betwee train-users in a heatmap.
 
-# Important Configs
+## Resources
+**Resources**: The original experiments were mainly executed using 8 A100 GPU's (40G), but the code is adapted to require only around 17G GPU-memory per user stream and supports both sequential and parallel processing of the user-streams.
+To further reduce the memory requirements, the batch size can be reduced from 4 (our setting) to 1.
+
+**Parallelism**: 
+To speed up experiments, a high level of multi-processing is used. In dataloaders, each process (called worker) loads all images of an entire mini-batch. Multiple workers allow to quickly iterate subsequent batches that are loaded concurrently.
+
+Be aware that the NUM_WORKERS are defined per user-process.
+If your job processes get killed because of too many processes, try to lower the NUM_WORKERS.
+The NUM_WORKERS are defined for different stages in the pipeline:
+- *DATA_LOADER.NUM_WORKERS*: Workers during the pretraining step.
+- *CONTINUAL_EVAL.NUM_WORKERS*: Workers for loading the samples in a user stream.
+- *PREDICT_PHASE.NUM_WORKERS*: Workers for hindsight performance (in [reproduce/hindsight_performance](reproduce/hindsight_performance)), or to collect pretraining results before user runs (only if *CONTINUAL_EVAL.ONLINE_OAG* is True).
+- *METHOD.REPLAY.NUM_WORKERS*: Workers for the loader to load the additional Experience Replay (ER) samples
+
+## Important Configs
 
 We describe some of the important config parameters below.
 
