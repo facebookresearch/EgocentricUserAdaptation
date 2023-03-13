@@ -121,8 +121,8 @@ def process_group(eval_cfg, group_name, project_name):
     # Should all have same outputdir in same group
     outputdirs = [os.path.abspath(user_config['OUTPUT_DIR']) for user_config in user_to_flat_cfg.values()]
     assert len(set(outputdirs)) == 1, f"Users not same group dir: {set(outputdirs)}"
-
     train_group_outputdir = outputdirs[0]
+
     user_to_train_runuid = {user: config['RUN_UID'] for user, config in user_to_flat_cfg.items()}
 
     # Get checkpoint paths
@@ -303,11 +303,6 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         'test_verb_batch/loss': 'train_verb_batch/loss_running_avg',
         'test_noun_batch/loss': 'train_noun_batch/loss_running_avg',
 
-        # Macro-avg loss
-        'test_action_batch/balanced_loss': 'adhoc_users_aggregate/train_action_batch/balanced_loss/mean',
-        'test_verb_batch/balanced_loss': 'adhoc_users_aggregate/train_verb_batch/balanced_loss/mean',
-        'test_noun_batch/balanced_loss': 'adhoc_users_aggregate/train_noun_batch/balanced_loss/mean',
-
         # Micro-avg ACC
         'test_action_batch/top1_acc': 'train_action_batch/top1_acc_running_avg',
         'test_verb_batch/top1_acc': 'train_verb_batch/top1_acc_running_avg',
@@ -316,10 +311,10 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         'test_verb_batch/top5_acc': 'train_verb_batch/top5_acc_running_avg',
         'test_noun_batch/top5_acc': 'train_noun_batch/top5_acc_running_avg',
 
-        # Macro-avg ACC
-        'test_action_batch/balanced_top1_acc': 'adhoc_users_aggregate/train_action_batch/balanced_top1_acc/mean',
-        'test_verb_batch/balanced_top1_acc': 'adhoc_users_aggregate/train_verb_batch/balanced_top1_acc/mean',
-        'test_noun_batch/balanced_top1_acc': 'adhoc_users_aggregate/train_noun_batch/balanced_top1_acc/mean',
+        # Macro-avg ACC (class-balanced)
+        'test_action_batch/balanced_top1_acc': 'adhoc_users_aggregate/train_action_batch/top1_acc_balanced_running_avg/mean',
+        'test_verb_batch/balanced_top1_acc': 'adhoc_users_aggregate/train_verb_batch/top1_acc_balanced_running_avg/mean',
+        'test_noun_batch/balanced_top1_acc': 'adhoc_users_aggregate/train_noun_batch/top1_acc_balanced_running_avg/mean',
     }
 
     #####################################
@@ -420,7 +415,12 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
         **metric_to_avg_AG_per_user
     }
     logger.info(f"Collected DIAGONAL results for users {streamusers}:\n {diagonal_dict}")
-    upload_metric_dict_to_wandb(diagonal_dict, group_name=group_name, mean=True)
+    upload_metric_dict_to_wandb(
+        diagonal_dict,
+        project_name=eval_cfg.TRANSFER_EVAL.WANDB_PROJECT_NAME,
+        group_name=group_name,
+        mean=True
+    )
 
     # Upload matrix (Based on diagonal mode, for eval is 40x40 users = 1.6k entries)
     if not eval_cfg.TRANSFER_EVAL.DIAGONAL_ONLY:
@@ -430,8 +430,12 @@ def postprocess_absolute_stream_results(eval_cfg, modeluser_streamuser_pairs, gr
             'TRANSFER_MATRIX/USERS_IN_ORDER': streamusers
         }
         logger.info(f"Collected MATRIX results for users {streamusers}:\n {matrix_dict}")
-        upload_metric_dict_to_wandb(matrix_dict, group_name=group_name,
-                                    mean=False)  # Don't average, but report 2d array
+        upload_metric_dict_to_wandb(
+            matrix_dict,
+            project_name=eval_cfg.TRANSFER_EVAL.WANDB_PROJECT_NAME,
+            group_name=group_name,
+            mean=False
+        )  # Don't average, but report 2d array
 
 
 def postprocess_instance_counts_from_csv_files(eval_cfg, modeluser_streamuser_pairs, pretrain_dataset):
