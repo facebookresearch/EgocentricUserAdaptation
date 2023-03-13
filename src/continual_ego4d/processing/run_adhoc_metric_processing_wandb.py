@@ -210,8 +210,8 @@ def check_user_runs_valid(
         raise Exception(f"Might need to readjust EXPECTED USERS? -> user_ids={user_ids}")
 
     # Check no double users
-    assert len(set(user_ids)) != len(user_ids), \
-        f"[SKIPPING]: Contains duplicate finished users: {user_ids}: Group ={group_name}"
+    assert len(set(user_ids)) == len(user_ids), \
+        f"[SKIPPING]: Contains duplicate finished users. Processed users={user_ids}, Group={group_name}"
 
     for metric_name, user_val_list in results.items():
         assert len(user_val_list) == nb_expected_users, \
@@ -255,7 +255,7 @@ def upload_metric_dict_to_wandb(
     # Update all group entries:
     for user_run in tqdm.tqdm(
             get_group_run_iterator(project_name, group_name, run_filter=run_filter),
-            desc=f"Uploading group results to WandB: {final_update_metrics_dict}"
+            desc=f"Uploading group results to WandB: {pprint.pformat(final_update_metrics_dict)}"
     ):
         for name, new_val in final_update_metrics_dict.items():
             user_run.summary[name] = new_val
@@ -302,9 +302,12 @@ def collect_wandb_group_user_results_for_metrics(
             result_idx = user_ids.index(user_id)
             for metric_name, val_list in final_stream_metrics_per_user.items():
 
-                if not metrics_strict and metric_name not in user_run.summary:
-                    print(f"[NOT STRICT] Skipping metric {metric_name} as not found in user run")
-                    continue
+                if metric_name not in user_run.summary:
+                    if not metrics_strict:
+                        print(f"[NOT STRICT] Skipping metric {metric_name} as not found in user run")
+                        continue
+                    else:
+                        print(f"[STRICT] metric {metric_name} not found in user_id={user_id} in group={group_name}")
 
                 user_metric_val = user_run.summary[metric_name]  # Only takes last value
                 val_list[result_idx] = user_metric_val
@@ -319,6 +322,7 @@ def collect_wandb_group_user_results_for_metrics(
 
         remote_users = []
         get_static_user_results()  # Raises value error if user not found
-        assert len(remote_users) == len(user_ids), "Not all user values have been filled in!"
+        assert len(remote_users) == len(user_ids), \
+            f"Not all users have been found in remote results. Remote users={remote_users}, requested local={user_ids}"
 
     return user_ids, final_stream_metrics_per_user
