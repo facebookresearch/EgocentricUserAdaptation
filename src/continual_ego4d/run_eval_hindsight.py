@@ -119,7 +119,7 @@ def process_group(eval_cfg, group_name, project_name):
 
     # Filter
     # Should all have same outputdir in same group
-    outputdirs = [user_config['OUTPUT_DIR'] for user_config in user_to_flat_cfg.values()]
+    outputdirs = [os.path.abspath(user_config['OUTPUT_DIR']) for user_config in user_to_flat_cfg.values()]
     assert len(set(outputdirs)) == 1, f"Users not same group dir: {set(outputdirs)}"
 
     train_group_outputdir = outputdirs[0]
