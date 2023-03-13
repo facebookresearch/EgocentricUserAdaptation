@@ -4,7 +4,7 @@ OUTPUT_DIR: ""
 
 ENABLE_FEW_SHOT: False
 FAST_DEV_RUN: False
-RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/
+RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_uid/
 NUM_USERS_PER_DEVICE: 1
 METHOD:
   METHOD_NAME: "LabelWindowPredictor"

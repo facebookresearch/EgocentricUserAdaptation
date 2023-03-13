@@ -44,5 +44,5 @@ OVERWRITE_CFG_ARGS+=" WANDB.TAGS '${p_dirname}','${pp_dirname}'"
 OVERWRITE_CFG_ARGS+=" OUTPUT_DIR ${OUTPUT_DIR}"
 
 export OVERWRITE_CFG_ARGS
-export RUN_ID
+export RUN_UID
 export OUTPUT_DIR

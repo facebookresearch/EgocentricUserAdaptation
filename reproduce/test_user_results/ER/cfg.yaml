@@ -1,5 +1,5 @@
 OUTPUT_DIR: "" # OVERWRITTEN IN CALLING-SCRIPT
-RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_id/
+RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/logs/run_uid/
 CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
 
 FAST_DEV_RUN: False
