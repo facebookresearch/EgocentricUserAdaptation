@@ -18,6 +18,7 @@
     - TODO: keep csv postprocessing in separate file (provide, but just as standalone script). (Can even let out, but
       need decor/cor ACC metrics then). -> TODO: parseargs
 - Test-runs!
+    - TODO: Finish momentum run by resuming and check metric aggregation in wandb
     - Download from AWS the pretrained kinetics400 model. (Or get it from Meta)
     - Try each exp at least once and check
 - Keep hindsight in separate step
@@ -26,11 +27,11 @@
 Final checks
 
 - check if all internal paths gone everywhere
-  - Search on:
-    - mattdl
-    - delangem
-    - 
-- 
+    - Search on:
+        - mattdl
+        - delangem
+        -
+-
 
 ## Installation
 
@@ -45,7 +46,8 @@ download run:
       Default region name [None]: us-east-2 # Or leave blank
       Default output format [None]:         # Leave blank
 
-To proceed to the actual download, the following commands (1) download the ego4d FHO (forecasting) subset in the "*EGO4D_ROOT*" output directory, and (2) create a symbolic link from the project root:
+To proceed to the actual download, the following commands (1) download the ego4d FHO (forecasting) subset in the "*
+EGO4D_ROOT*" output directory, and (2) create a symbolic link from the project root:
 
     export EGO4D_ROOT='/path/to/your/download/Ego4D'
 
@@ -64,7 +66,8 @@ the [WandB](https://wandb.ai/site) logging platform to manage all runs.
 ## Results workflow
 
 **Context:** The paper defines 2 phases (1) the pretraining phase of the population model, (2) the user-adaptation
-phase. Additionally, this codebase performs a third phase (3) that aggregates all user results from phase (2) into single metric results.
+phase. Additionally, this codebase performs a third phase (3) that aggregates all user results from phase (2) into
+single metric results.
 
 ### Data preprocessing
 
@@ -75,7 +78,7 @@ phase. Additionally, this codebase performs a third phase (3) that aggregates al
   files for our user splits. The [default config](src/ego4d/config/defaults.py) automatically refers to the generated
   json paths with properties *PATH_TO_DATA_SPLIT_JSON.{TRAIN,VAL,TEST}*.
 
-### (1) Pretraining a population model
+### Phase (1): Pretraining a population model
 
 To obtain a pretrained population model.
 
@@ -84,36 +87,40 @@ To obtain a pretrained population model.
   the Kinetics-400 pretrained model (downloaded from Ego4d) and trains further on our pretrain user-split. Make sure to
   adapt the *PATH_TO_DATA_FILE.{TRAIN,VAL}* in the [cfg.yaml](reproduce/pretrain/learn_user_pretrain_subset/cfg.yaml),
   with TRAIN being our pretraining JSON user-split and VAL our train JSON user-split.
-  - To obtain the pretrained Kinetics-400 model to start our pretraining with:
-  
-        # Unzip downloaded Ego4d models (execute from project root)
-        unzip ./data/v1/lta_models/lta_pretrained_models.zip 
-        # Set in the config the Kinetics-400 pretrained model to start from:
-        DATA.CHECKPOINT_MODULE_FILE_PATH=./data/v1/lta_models/pretrained_models/long_term_anticipation/kinetics_slowfast8x8.ckpt
+    - To obtain the pretrained Kinetics-400 model to start our pretraining with:
 
-  - Once EgoAdapt pretraining is completed (initialized with Kinetics400 pretraining), use the model for subsequent experiments by setting the *CHECKPOINT_FILE_PATH* in the config
-        files.
+          # Unzip downloaded Ego4d models (execute from project root)
+          unzip ./data/v1/lta_models/lta_pretrained_models.zip 
+          # Set in the config the Kinetics-400 pretrained model to start from:
+          DATA.CHECKPOINT_MODULE_FILE_PATH=${PROJECT_ROOT}/data/v1/lta_models/pretrained_models/long_term_anticipation/kinetics_slowfast8x8.ckpt
+
+    - **How to use in later experiments?** Once EgoAdapt pretraining is completed (initialized with Kinetics400
+      pretraining), use the model for subsequent experiments by setting the *CHECKPOINT_FILE_PATH* in the
+      experiment's [cfg.yaml]() config files or set the path as default in
+      the [default config](src/ego4d/config/defaults.py).
 - Then, run evaluation of the pretrain model
   in [reproduce/pretrain/eval_user_stream_performance](reproduce/pretrain/eval_user_stream_performance), both for the
   train and test users. This allows later metrics to be calculated as relative improvement over the pretrain model.
-    - Set the properties **TRANSFER_EVAL.PRETRAIN_{TRAIN,TEST}_USERS_GROUP_WANDB** with the WandB groupname. Later runs
-      will use this to get delta results (OAG/HAG).
+    - **How to use in later experiments?** Set in the [default config](src/ego4d/config/defaults.py) the properties *
+      TRANSFER_EVAL.PRETRAIN_{TRAIN,TEST}_USERS_GROUP_WANDB* with the corresponding WandB groupname. Later runs will use
+      this to get delta results (OAG/HAG).
 
-### (2) Reproduce Online User-adaptation
+### Phase (2): Reproduce Online User-adaptation
 
-All users start from the same pretrained model obtained from (1). To reproduce results from the paper, run the scripts
-in [reproduce](reproduce), containing the config files
-[cfg.yaml]() per experiment in the subdirectories. See the [README](reproduce/README.md) for more details.
+All users start from the same pretrained model by following the steps in phase (1). To reproduce results from the paper,
+run the scripts in [reproduce](reproduce), containing per experiment a subdirectory with config file
+[cfg.yaml]() and script to run the experiment [run.sh](). See the [README](reproduce/README.md) for more details.
 
 - [reproduce/pretrain](reproduce/pretrain): Train population model in pretraining phase
 - Empirical study on train user-split:
-    - [reproduce/momentum](reproduce/momentum): Momentum strengths.
-    - [reproduce/multiple_updates_per_batch](reproduce/multiple_updates_per_batch): More than 1 update per batch.
+    - [reproduce/momentum](reproduce/momentum): Online finetuning and momentum strengths ablation.
+    - [reproduce/multiple_updates_per_batch](reproduce/multiple_updates_per_batch): Online finetuning for more than 1
+      update per batch.
     - [reproduce/non_stationarity_analysis](reproduce/non_stationarity_analysis): Label window predictor
     - [reproduce/replay_strategies](reproduce/replay_strategies): Replay with storage strategies
       FIFO/Hybrid-CBRS/Reservoir.
     - [reproduce/user_feature_adaptation](reproduce/user_feature_adaptation): Fixing the feature extractor/classifier.
-- [reproduce/test_user_results](reproduce/test_user_results): Final test user-split results
+- [reproduce/test_user_results](reproduce/test_user_results): Final results on test user-split
 - [reproduce/hindsight_performance](reproduce/hindsight_performance): Get hindsight results (HAG) after learning
   user-streams
 
@@ -125,6 +132,25 @@ the results in WandB, group runs (1 run is 1 user-stream) on the *Group* propert
 **Parse to Latex**: Additionally, to see which metrics are used in the paper, you can check
 out [the table parser script](src/continual_ego4d/processing/csv_to_latex_table_parser.py) for examples. The script
 parses downloaded (grouped) runs from WandB that are exported to a CSV, and parses the CSV to Latex-formatted tables.
+
+### Example
+
+An example of a full experiment flow:
+
+    # Phase 1: 
+    # Get pretrained model on U_pretrain 
+    cd ./reproduce/pretrain/learn_user_pretrain_subset && ./run.sh 
+
+    # Get per-stream metric results from the pretrained model (See phase (1) to set config paths)
+    cd ./reproduce/pretrain/learn_user_pretrain_subset && ./run.sh
+
+    # Phase 2:
+    # Get online Finetuning results over 10 user streams in U_train
+    # Postprocessing automatically aggregates the user stream results (OAG) and uploads to WandB
+    cd ./reproduce/momentum/SGD && ./run.sh 
+
+    # To get hindsight performance results on final models (HAG metrics)
+    cd ./reproduce/hindsight_performance
 
 ## Notebooks
 
@@ -154,6 +180,7 @@ Can be found in [notebooks](notebooks).
   number of overlapping actions betwee train-users in a heatmap.
 
 # Important Configs
+
 We describe some of the important config parameters below.
 
 General config:
@@ -174,4 +201,6 @@ EgoAdapt:
   calculate the OAG/HAG.
     - Another option is to set this to False, calculate the pretraining results for all streams once, and calculate
       deltas in ad-hoc fashion.
-- **RESUME_OUTPUT_DIR**: Resume processing of user streams and skip already processed user streams in the given output dir.For example, the output directory of a run would look like: *"PROJECT_ROOT"/results/momentum/SGD/logs/GRID_SOLVER-BASE_LR=0-1_SOLVER-MOMENTUM=0-0_SOLVER-NESTEROV=True/2023-03-10_17-24-39_UIDf3d2c6ca-6422-4fd0-a9bd-92185be24ab0*
+- **RESUME_OUTPUT_DIR**: Resume processing of user streams and skip already processed user streams in the given output
+  dir.For example, the output directory of a run would look like: *"PROJECT_ROOT"
+  /results/momentum/SGD/logs/GRID_SOLVER-BASE_LR=0-1_SOLVER-MOMENTUM=0-0_SOLVER-NESTEROV=True/2023-03-10_17-24-39_UIDf3d2c6ca-6422-4fd0-a9bd-92185be24ab0*
