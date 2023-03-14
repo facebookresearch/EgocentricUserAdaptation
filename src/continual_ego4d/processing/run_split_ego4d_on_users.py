@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser(description="User split for ego4d LTA task.")
 parser.add_argument(
     "--p_ego4d",
     help="Original ego4d dataset path (on download contains 'v1' subdir and 'ego4d.json').",
-    default=f"/media/mattdl/backup prim/datasets/Ego4D",  # TODO tmp path
+    default=f"./data/Ego4D",
     type=str,
 )
 parser.add_argument(

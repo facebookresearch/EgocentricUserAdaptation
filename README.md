@@ -1,38 +1,5 @@
 # EgoAdapt: Online Egocentric User-Adaptation
 
-# TODOs for cleanup
-
-- <del> Instructions for requirements.
-- <del> Data preprocessing: Take same users as we used
-- <del> Path-linking jsons (set PATH_TO_DATA_FILE in json with the generated ones, TODO check if works in run flow)
-- <del> Design exps dir: which ones certainly keep? -> Gather configs in parent figure/exp dir, with per-method subdirs, have
-  general script.
-    - Put configs with comments on which ones to replace
-- Step 2.2, check automatically if all users are processed
-  in [this script](/media/mattdl/dualshared/PycharmProjects/EgocentricUserAdaptation/src/continual_ego4d/run_train_user_streams.py)
-  , and do post-processing (avg over users) after.
-    - TODO: Set WandB group-names in config (For delta results in postprocessing)
-    - TODO: implement user-result aggregation in script. This uses the pretrain groupnames (optionally if provided) for
-      the deltas, calculates the average results over users (all possibel: Online acc/loss), and uploads this to wandb.
-      Also prints a summary of these group results in stdout.
-    - TODO: keep csv postprocessing in separate file (provide, but just as standalone script). (Can even let out, but
-      need decor/cor ACC metrics then). -> TODO: parseargs
-- Test-runs!
-    - TODO: Finish momentum run by resuming and check metric aggregation in wandb
-    - Download from AWS the pretrained kinetics400 model. (Or get it from Meta)
-    - Try each exp at least once and check
-- Keep hindsight in separate step
-- Clean-up notebooks + only keep those that are useful.
-
-Final checks
-
-- check if all internal paths gone everywhere
-    - Search on:
-        - mattdl
-        - delangem
-        - fb-agios
--
-
 ## Installation
 
 The repository is based on the original Ego4d codebase (see [original README](src/ego4d/README.md)). First request
@@ -103,7 +70,7 @@ To obtain a pretrained population model.
   train and test users. Do this by setting the *DATA.USER_SUBSET* in the [cfg.yaml](reproduce/pretrain/eval_user_stream_performance/cfg.yaml) to 'test' or 'train'. This allows later metrics to be calculated as relative improvement over the pretrain model.
     - **How to use in later experiments?** Set in the [default config](src/ego4d/config/defaults.py) the properties 
       *TRANSFER_EVAL.PRETRAIN_{TRAIN,TEST}_USERS_GROUP_WANDB* with the corresponding WandB groupname. Later runs will use
-      this to get delta results. (e.g. for OAG automatically, and for HAG in a separate run in [reproduce/hindsight_performance/user_transfer_matrix](/media/mattdl/dualshared/PycharmProjects/EgocentricUserAdaptation/reproduce/hindsight_performance/user_transfer_matrix/run.sh)).
+      this to get delta results. (e.g. for OAG automatically, and for HAG in a separate run in [reproduce/hindsight_performance/user_transfer_matrix](reproduce/hindsight_performance/user_transfer_matrix/run.sh)).
 
 ### Phase (2): Reproduce Online User-adaptation
 
