@@ -10,7 +10,7 @@ import wandb
 
 from continual_ego4d.metrics.offline_metrics import get_micro_macro_avg_acc
 from continual_ego4d.metrics.offline_metrics import per_sample_metric_to_macro_avg
-from continual_ego4d.processing.run_adhoc_metric_processing_wandb import avg_user_streams
+from continual_ego4d.processing.adhoc_metric_processing_wandb import avg_user_streams
 from continual_ego4d.processing.utils import get_group_names_from_csv, get_group_run_iterator
 
 api = wandb.Api()

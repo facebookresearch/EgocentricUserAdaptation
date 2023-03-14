@@ -23,7 +23,7 @@ from ego4d.config.defaults import set_cfg_by_name, convert_cfg_to_flat_dict
 from ego4d.utils import logging
 from ego4d.utils.parser import load_config, parse_args
 from ego4d.utils.slurm import copy_and_run_with_config
-from continual_ego4d.processing.run_adhoc_metric_processing_wandb import avg_user_streams
+from continual_ego4d.processing.adhoc_metric_processing_wandb import avg_user_streams
 
 logger = logging.get_logger(__name__)
 

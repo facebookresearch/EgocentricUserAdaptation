@@ -141,7 +141,7 @@ An example of an experiment to get both the OAG and HAG results:
 the results in WandB, group runs (1 run is 1 user-stream) on the *Group* property, and select the relevant metrics.
 
 **Parse to Latex**: Additionally, to see which metrics are used in the paper, you can check
-out [the table parser script](src/continual_ego4d/processing/csv_to_latex_table_parser.py) for examples. The script
+out [the table parser script](src/continual_ego4d/processing/run_csv_to_latex_table_parser.py) for examples. The script
 parses downloaded (grouped) runs from WandB that are exported to a CSV, and parses the CSV to Latex-formatted tables.
 
 
@@ -153,8 +153,8 @@ All can be found in the [notebooks](notebooks) folder.
 Tools:
 - [Video Player](notebooks/EgoAdapt_video_player.ipynb) to display our actual user streams per
   user-split. Displays meta-data such as action (verb,noun) and user-id over time.
-- [Postprocess to get decorrelated/correlated AG](src/continual_ego4d/processing/postprocess_metrics_dump.py) takes the CSV dumps and calculates the correlated/decorrelated AG metrics.
-- [Patch WandB runs](src/continual_ego4d/processing/patch_wandb_finished_runs.py) by iterating the local CSV dumps and marking those runs with `finished_run=True` in WandB. This may be caused by syncing errors with WandB.
+- [Postprocess to get decorrelated/correlated AG](src/continual_ego4d/processing/run_postprocess_metrics_dump.py) takes the CSV dumps and calculates the correlated/decorrelated AG metrics.
+- [Patch WandB runs](src/continual_ego4d/processing/run_patch_wandb_finished_runs.py) by iterating the local CSV dumps and marking those runs with `finished_run=True` in WandB. This may be caused by syncing errors with WandB.
 
 Plots:
 - [plot_classifier_weights_biases.ipynb](notebooks/): Analysis for verbs/noun on classifier weight and bias norms.

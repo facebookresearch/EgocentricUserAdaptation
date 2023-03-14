@@ -30,7 +30,7 @@ import torch
 from fvcore.common.config import CfgNode
 from pytorch_lightning import Trainer, seed_everything
 
-from continual_ego4d.processing.run_adhoc_metric_processing_wandb import upload_metric_dict_to_wandb, \
+from continual_ego4d.processing.adhoc_metric_processing_wandb import upload_metric_dict_to_wandb, \
     collect_wandb_group_user_results_for_metrics
 from continual_ego4d.processing.utils import get_group_run_iterator, get_group_names_from_csv, get_delta, \
     get_delta_mappings
