@@ -1,86 +1,13 @@
-"""
-Given the metrics we stored per-user. Aggregate metrics over users into a single number.
-This script specifically aggregates the online-AG over users into a single metric.
-
-Because run-selection can be cumbersome. We enable downloading a csv from wandb, and extracting for all groups the
-user-results.
-
-You can pull results directly from wandb with their API: https://docs.wandb.ai/guides/track/public-api-guide
-
-1) Go to the table overview. Group runs based on 'Group'. Click download button and 'export as CSV'.
-Additional filters: finished_run=True (fully crashed groups excluded), TAG (specific experiment),
-<some_adhoc_metric>=null (Don't ad-hoc reprocess runs).
-2) This script will read the csv and extract the group names.
-3) It will receive for each group, all the user-runs.
-4) The run.history for AG is retrieved (the last measured one = full stream AG) and we calculate the avg over all users.
-5) We update the wandb entry and upload update remotely.
-
-
---------------------------------------------
-Note, the train_iters is ok to normalize as first step is included, but last one is not:
-
-user_run.history()[[metric_name,'trainer/global_step']]
-Out[6]:
-    train_action_batch/AG_cumul  trainer/global_step
-0                           NaN                    0
-1                           NaN                    0
-2                     -3.403297                    0
-3                           NaN                    1
-4                           NaN                    1
-..                          ...                  ...
-72                          NaN                   24
-73                          NaN                   24
-74                   -34.459484                   24
-75                          NaN                   25
-76                          NaN                   25
-"""
-
-import pandas as pd
-import wandb
 import pprint
 from typing import Union
-from continual_ego4d.processing.utils import get_group_run_iterator, get_delta, get_delta_mappings
+
+import pandas as pd
 import tqdm
+import wandb
+
+from continual_ego4d.processing.utils import get_group_run_iterator, get_delta, get_delta_mappings
 
 api = wandb.Api()
-
-# MODES = [
-#     'adhoc_metrics_from_csv_dump_to_wandb',
-#     'avg_and_delta_avg_results_over_user_streams',
-#     'aggregate_test_results_over_user_streams',
-#     'running_avg_to_avg_and_delta',
-#     'running_avg_to_avg',
-#     'stream_result_list_to_user_avg_and_aggregated_avg'
-# ]
-# # Adapt settings
-# MODE = MODES[0]
-# train = True
-# csv_filename = 'wandb_export_2022-10-26T15_24_20.237-07_00.csv'  # TODO copy file here and past name here
-# single_group_name = None
-# # single_group_name = "BatchedLabelWindowPredictor_2022-10-26_20-24-45_UIDb586b449-7300-411b-baf4-9eba4300543f"
-# remote = True
-#
-# if train:
-#     train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
-#     USER_LIST = train_users
-#     NB_EXPECTED_USERS = len(train_users)
-#     PRETRAIN_GROUP = "FixedNetwork_2022-10-07_21-50-23_UID80e71950-cea4-44ba-ba16-7dddfe95be26"
-#
-# else:
-#     test_users = [
-#         "59", "23", "17", "37", "97", "22", "31", "10", "346", "359", "120", "19", "16", "283", "28", "20", "44", "38",
-#         "262", "25", "51", "278", "55", "39", "45", "33", "331", "452", "453", "21", "431", "116", "35", "105", "378",
-#         "74", "11", "126", "123", "436"]
-#     USER_LIST = test_users
-#     NB_EXPECTED_USERS = len(test_users)
-#     PRETRAIN_GROUP = "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4"
-#
-# # Fixed Settings
-# if remote:
-#     csv_dirname = '/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/adhoc_results'
-# else:
-#     csv_dirname = '/home/mattdl/projects/ContextualOracle_Matthias/adhoc_results'  # Move file in this dir
-# PROJECT_NAME = "matthiasdelange/ContinualUserAdaptation"
 
 # New uploaded keys
 NEW_METRIC_PREFIX = 'adhoc_users_aggregate'
