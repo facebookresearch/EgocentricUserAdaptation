@@ -151,32 +151,37 @@ We provide a range of tools to explore the dataset and notebooks for the analysi
 All can be found in the [notebooks](notebooks) folder.
 
 Tools:
+- [Stream meta-data collector](src/continual_ego4d/processing/run_summarize_user_streams.py) processes the user-streams action labels from the JSONS and extracts per user the actual stream samples. This is required for later use in plots and the video player.
 - [Video Player](notebooks/EgoAdapt_video_player.ipynb) to display our actual user streams per
   user-split. Displays meta-data such as action (verb,noun) and user-id over time.
 - [Postprocess to get decorrelated/correlated AG](src/continual_ego4d/processing/run_postprocess_metrics_dump.py) takes the CSV dumps and calculates the correlated/decorrelated AG metrics.
 - [Patch WandB runs](src/continual_ego4d/processing/run_patch_wandb_finished_runs.py) by iterating the local CSV dumps and marking those runs with `finished_run=True` in WandB. This may be caused by syncing errors with WandB.
 
 Plots:
-- [plot_classifier_weights_biases.ipynb](notebooks/): Analysis for verbs/noun on classifier weight and bias norms.
-  Compares SGD on head only vs SGD on full model.
-- [plot_ego4d_stats.ipynb](notebooks/): Video length in minutes (y-axis) per user (x-axis). Color codes the user splits.
+- Experiments:
+  - [plot_classifier_weights_biases.ipynb](notebooks/plot_classifier_weights_biases.ipynb): Analysis for verbs/noun on classifier weight and bias norms.
+    Compares SGD on head only vs SGD on full model.
+  - [plot_heatmap_transfer.ipynb](notebooks/plot_heatmap_transfer.ipynb): Heatmap that visualizes the user transfer matrix, plotting the  results of user models vs user streams.
+  - [plot_heatmap_transfer_user_action_overlap.ipynb](notebooks/plot_heatmap_transfer_user_action_overlap.ipynb): Plot the
+  number of overlapping actions between train-users in a heatmap.
+- Dataset stats:
+  - [plot_ego4d_user_split_stats.ipynb](notebooks/plot_ego4d_user_split_stats.ipynb): Video length in minutes (y-axis) per user (x-axis). Color codes the user splits.
+  - [plot_user_vs_pretrain_distribution.ipynb](notebooks/plot_user_vs_pretrain_distribution.ipynb): Plots the pretrain distribution ordered on frequency, and then
+  overlays the test (or train) action distribution on top.
+  - [plot_user_action_distribution.ipynb](notebooks/plot_user_action_distribution.ipynb): Plots the CDF of the action-histograms in the test user subset.
+
 - [plot_forgetting_comparison_SGD_replay.ipynb](notebooks/): Re-exposure Forgetting (RF) analysis comparing Replay and
   SGD (2 lines) for RF (y-axis) on log-binned re-exposure count (x-axis).
-- [plot_heatmap_transfer.ipynb](notebooks/): Heatmap of HAG-action (of instance-based micro-loss).
+- 
 - [plot_SGD_gradient_analysis.ipynb](notebooks/): Grouped-barplot comparing gradient cosine-similarity of current batch
   with previous points k steps in history of the learning trajectory.
 - [plot_SGD_per_user_OAG.ipynb](notebooks/): Plots a single line per user for the instance-based micro-loss. These are
   the learning curves for the users over time.
-- [plot_user_action_distribution.ipynb](notebooks/): Plots the CDF of the action-histograms in the test userset.
-- [plot_user_vs_pretrain_distribution.ipynb](notebooks/): Plots the pretrain distribution ordered on frequency, and then
-  overlays the test action distribution on top.
-- [plot_likelihood_loss_analysis_conditional.ipynb](notebooks/): Comparison in Appendix of why we get different trends
-  for loss and accuracy on multiple iterations.
+
 - [plot_multi_iter_grouped_barplot.ipynb](notebooks/plot_multi_iter_grouped_barplot.ipynb): Lines for different
   metrics (OAG, HAG, and OAG disentangled in OAG-correlated and OAG-decorrelated) on y-axis, and number of updates on
   same batch on x-axis.
-- [plot_heatmap_transfer_user_action_overlap.ipynb](notebooks/plot_heatmap_transfer_user_action_overlap.ipynb): Plot the
-  number of overlapping actions betwee train-users in a heatmap.
+
 ## Resources
 **Resources**: The original experiments were mainly executed using 8 A100 GPU's (40G), but the code is adapted to require only around 17G GPU-memory per user stream and supports both sequential and parallel processing of the user-streams.
 To further reduce the memory requirements, the batch size can be reduced from 4 (our setting) to 1.
