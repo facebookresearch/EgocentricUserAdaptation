@@ -158,6 +158,12 @@ Tools:
 - [Patch WandB runs](src/continual_ego4d/processing/run_patch_wandb_finished_runs.py) by iterating the local CSV dumps and marking those runs with `finished_run=True` in WandB. This may be caused by syncing errors with WandB.
 
 Plots:
+- Dataset stats:
+  - [plot_ego4d_user_split_stats.ipynb](notebooks/plot_Ego4D_user_split_stats.ipynb): Video length in minutes (y-axis) per user (x-axis). Color codes the user splits.
+  - [plot_user_vs_pretrain_distribution.ipynb](notebooks/plot_EgoAdapt_user_vs_pretrain_distribution.ipynb): Plots the pretrain distribution ordered on frequency, and then
+  overlays the test (or train) action distribution on top.
+  - [plot_user_action_distribution.ipynb](notebooks/plot_EgoAdapt_user_action_distribution.ipynb): Plots the CDF of the action-histograms in the test user subset.
+
 - Experiments:
   - [plot_classifier_weights_biases.ipynb](notebooks/plot_classifier_weights_biases.ipynb): Analysis for verbs/noun on classifier weight and bias norms.
     Compares SGD on head only vs SGD on full model.
@@ -167,21 +173,10 @@ Plots:
   - [plot_forgetting_comparison_SGD_replay.ipynb](notebooks/plot_forgetting_comparison_SGD_replay.ipynb): Re-exposure Forgetting (RF) analysis comparing Replay and
   SGD (2 lines) for RF (y-axis) on log-binned re-exposure count (x-axis).
   - [plot_SGD_per_user_OAG.ipynb](notebooks/plot_SGD_per_user_OAG.ipynb): Plots the cumulative Adaptation Gain (y-axis) over iterations (x-axis), for all train users (10 lines).
-- Dataset stats:
-  - [plot_ego4d_user_split_stats.ipynb](notebooks/plot_Ego4D_user_split_stats.ipynb): Video length in minutes (y-axis) per user (x-axis). Color codes the user splits.
-  - [plot_user_vs_pretrain_distribution.ipynb](notebooks/plot_EgoAdapt_user_vs_pretrain_distribution.ipynb): Plots the pretrain distribution ordered on frequency, and then
-  overlays the test (or train) action distribution on top.
-  - [plot_user_action_distribution.ipynb](notebooks/plot_EgoAdapt_user_action_distribution.ipynb): Plots the CDF of the action-histograms in the test user subset.
-
-- 
-- 
-- [plot_SGD_gradient_analysis.ipynb](notebooks/): Grouped-barplot comparing gradient cosine-similarity of current batch
-  with previous points k steps in history of the learning trajectory.
-- 
-
-- [plot_multi_iter_grouped_barplot.ipynb](notebooks/plot_multi_iter_grouped_barplot.ipynb): Lines for different
-  metrics (OAG, HAG, and OAG disentangled in OAG-correlated and OAG-decorrelated) on y-axis, and number of updates on
+  - [plot_multiple_iterations_SGD.ipynb](notebooks/plot_multiple_iterations_SGD.ipynb): Lines for OAG-correlated and OAG-decorrelated metrics on y-axis, and number of updates on
   same batch on x-axis.
+  - [plot_SGD_gradient_analysis.ipynb](notebooks/plot_SGD_gradient_analysis.ipynb): Grouped-barplot comparing gradient cosine-similarity of current batch
+  with previous points k steps in history of the learning trajectory.
 
 ## Resources
 **Resources**: The original experiments were mainly executed using 8 A100 GPU's (40G), but the code is adapted to require only around 17G GPU-memory per user stream and supports both sequential and parallel processing of the user-streams.
