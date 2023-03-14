@@ -1,19 +1,7 @@
 """
 After training user-streams, evaluate on the final models with the full user-streams.
-
-1) From a WandB group you are interested in copy the OUTPUT_DIR as input to this script:
-/home/matthiasdelange/sftp_remote_projects/ContextualOracle_Matthias/exps/ego4d_action_recog/exp04_01_momentum_video_reset/../../../results/ego4d_action_recog/exp04_01_momentum_video_reset/logs/GRID_SOLVER-BASE_LR=0-01_SOLVER-MOMENTUM=0-9_SOLVER-NESTEROV=True/2022-09-16_17-34-18_UID8cae3077-fb05-4368-b3d6-95cb2813e823
-
-2) Given the parent outputdir of the run over users, this script gets for each user:
-- the checkpoint: in PARENT_DIR/checkpoints/<USER>/last.ckpt
-- the final dump: in PARENT_DIR/user_logs/<USER>/dumpfile.pth
-
-3) Iterate one datastream, 1 model for simplicity. But we can run multiple of these processes concurrently.
-- Init a new ContinualMultiTaskClassificationTask for each new model-stream pair:
-- Run predict-stream
-- Flatten results, make DataFrame and save as csv file
-
-4) POSTPROCESSING: When all csv's are collected: Aggregate results into the 2d-Matrix and upload as heatmap to WandB runs in group.
+This can be the full transfer matrix, or only the diagonal where user model and stream match.
+The results over the diagonal are always aggregated and uploaded to WandB results.
 """
 import copy
 import multiprocessing as mp
