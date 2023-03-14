@@ -271,8 +271,7 @@ def generate_usersplit_from_trainval(user_id_col="fb_participant_id"):
 
 
 def save_json(trainval_joined_df, user_id_col, user_ids, json_col_names, json_filepath, split_name,
-              flatten=False, include_nan_user=False,
-              include_action_sets=True):
+              flatten=False, include_nan_user=False, include_action_sets=True):
     """
     Filter json dataframe, parse to json-compatible object. Dump to json file.
 

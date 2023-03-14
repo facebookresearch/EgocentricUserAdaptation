@@ -125,8 +125,6 @@ class StreamStateTracker:
             setattr(self, name, val)
         """Add all pretraining states as attributes of the stream to save for dump."""
 
-        # TODO for replay_strategies also track losses for new/mem?
-
     def init_transient_attrs(self):
         # Transient (not included in dump)
         # Current iteration State vars (single batch)
