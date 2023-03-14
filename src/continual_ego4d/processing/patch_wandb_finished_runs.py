@@ -15,14 +15,19 @@ api = wandb.Api()
 PROJECT_NAME = "ContinualUserAdaptation"
 
 # Adapt settings
-UPDATE_ALL_WANDB_RUNS = False
-REMOTE = False
-csv_path = '/your/path/to/wandb_export_2022-09-19T12_08_04.153-07_00.csv'  # TODO copy file here and past name here
+UPDATE_ALL_WANDB_RUNS = False # Iterate all WandB runs in project
+csv_path = '/your/path/to/wandb_export_2022-09-19T12_08_04.153-07_00.csv'  # Iterate all WandB runs of the groupnames in this csv
 single_group_name = None  # Or set to Groupname, e.g. "Finetuning_2022-10-14_13-11-14_UIDac6a2798-7fb0-4e9c-9896-c6c54de5237c"
 
 
 def main():
-    if not UPDATE_ALL_WANDB_RUNS:
+    if UPDATE_ALL_WANDB_RUNS:
+        print("Updating all runs")
+        # Update all group entries:
+        for idx, user_run in enumerate(api.runs(PROJECT_NAME)):
+            update_finished_run_entry(idx, user_run)
+
+    else:
         if single_group_name is not None:
             selected_group_names: list[str] = [single_group_name]
         else:
@@ -39,11 +44,6 @@ def main():
                 finished_user_id = update_finished_run_entry(idx, user_run)
                 if finished_user_id is not None:
                     finished_user_ids.append(finished_user_id)
-    else:
-        print("Updating all runs")
-        # Update all group entries:
-        for idx, user_run in enumerate(api.runs(PROJECT_NAME)):
-            update_finished_run_entry(idx, user_run)
 
     print(f"finished_user_ids={finished_user_ids}")
 
