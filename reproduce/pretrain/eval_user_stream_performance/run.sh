@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Set DATA.USER_SUBSET to 'train' once, for U_train results on pretrain model and
+# to 'test' for U_test results on the pretrain model.
+
 
 # Change dir to current script
 this_script_dirpath=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)

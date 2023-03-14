@@ -5,6 +5,9 @@ RESUME_OUTPUT_DIR: "" # Specify with outputdir if want to resume, e.g. /path/to/
 CHECKPOINT_FILE_PATH: "" # For pretrained model to start from
 CHECKPOINT_LOAD_MODEL_HEAD: True # Load population classifier
 NUM_USERS_PER_DEVICE: 1
+TRANSFER_EVAL: # Make sure both are set to None. You will set the following two group-names to the Group-name of the resulting runs in this experiment for subsequent experiments.
+  PRETRAIN_TRAIN_USERS_GROUP_WANDB: None
+  PRETRAIN_TEST_USERS_GROUP_WANDB: None
 METHOD:
   METHOD_NAME: "FixedNetwork"
 TEST:
@@ -16,7 +19,7 @@ TRAIN:
   DATASET: Ego4dContinualRecognition
   BATCH_SIZE: 4 # Process 1 new video-subsequence a time (Online)
 DATA:
-  USER_SUBSET: 'test' # train or test usersplit
+  USER_SUBSET: 'train' # TODO run both for 'train' or 'test' usersplit
   TARGET_FPS: 30
   NUM_FRAMES: 32
   SAMPLING_RATE: 2
