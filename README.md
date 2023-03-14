@@ -164,14 +164,15 @@ Plots:
   - [plot_heatmap_transfer.ipynb](notebooks/plot_heatmap_transfer.ipynb): Heatmap that visualizes the user transfer matrix, plotting the  results of user models vs user streams.
   - [plot_heatmap_transfer_user_action_overlap.ipynb](notebooks/plot_heatmap_transfer_user_action_overlap.ipynb): Plot the
   number of overlapping actions between train-users in a heatmap.
+  - [plot_forgetting_comparison_SGD_replay.ipynb](notebooks/plot_forgetting_comparison_SGD_replay.ipynb): Re-exposure Forgetting (RF) analysis comparing Replay and
+  SGD (2 lines) for RF (y-axis) on log-binned re-exposure count (x-axis).
 - Dataset stats:
   - [plot_ego4d_user_split_stats.ipynb](notebooks/plot_ego4d_user_split_stats.ipynb): Video length in minutes (y-axis) per user (x-axis). Color codes the user splits.
   - [plot_user_vs_pretrain_distribution.ipynb](notebooks/plot_user_vs_pretrain_distribution.ipynb): Plots the pretrain distribution ordered on frequency, and then
   overlays the test (or train) action distribution on top.
   - [plot_user_action_distribution.ipynb](notebooks/plot_user_action_distribution.ipynb): Plots the CDF of the action-histograms in the test user subset.
 
-- [plot_forgetting_comparison_SGD_replay.ipynb](notebooks/): Re-exposure Forgetting (RF) analysis comparing Replay and
-  SGD (2 lines) for RF (y-axis) on log-binned re-exposure count (x-axis).
+- 
 - 
 - [plot_SGD_gradient_analysis.ipynb](notebooks/): Grouped-barplot comparing gradient cosine-similarity of current batch
   with previous points k steps in history of the learning trajectory.
