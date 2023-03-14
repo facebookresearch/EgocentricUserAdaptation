@@ -168,10 +168,10 @@ Plots:
   SGD (2 lines) for RF (y-axis) on log-binned re-exposure count (x-axis).
   - [plot_SGD_per_user_OAG.ipynb](notebooks/plot_SGD_per_user_OAG.ipynb): Plots the cumulative Adaptation Gain (y-axis) over iterations (x-axis), for all train users (10 lines).
 - Dataset stats:
-  - [plot_ego4d_user_split_stats.ipynb](notebooks/plot_ego4d_user_split_stats.ipynb): Video length in minutes (y-axis) per user (x-axis). Color codes the user splits.
-  - [plot_user_vs_pretrain_distribution.ipynb](notebooks/plot_user_vs_pretrain_distribution.ipynb): Plots the pretrain distribution ordered on frequency, and then
+  - [plot_ego4d_user_split_stats.ipynb](notebooks/plot_Ego4D_user_split_stats.ipynb): Video length in minutes (y-axis) per user (x-axis). Color codes the user splits.
+  - [plot_user_vs_pretrain_distribution.ipynb](notebooks/plot_EgoAdapt_user_vs_pretrain_distribution.ipynb): Plots the pretrain distribution ordered on frequency, and then
   overlays the test (or train) action distribution on top.
-  - [plot_user_action_distribution.ipynb](notebooks/plot_user_action_distribution.ipynb): Plots the CDF of the action-histograms in the test user subset.
+  - [plot_user_action_distribution.ipynb](notebooks/plot_EgoAdapt_user_action_distribution.ipynb): Plots the CDF of the action-histograms in the test user subset.
 
 - 
 - 
