@@ -42,10 +42,13 @@ _C.CONTEXT_ADAPT.GRU_HIDDEN_SIZE = 64
 # ---------------------------------------------------------------------------- #
 _C.TRANSFER_EVAL = CfgNode()
 _C.TRANSFER_EVAL.WANDB_PROJECT_NAME = "ContinualUserAdaptation"
-_C.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL = ""
-_C.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB = 'train'  # or test
+
+# TODO set below your resulting WandB group-names for train/test in 'reproduce/pretrain/eval_user_stream_performance', e.g. FixedNetwork_2023-03-13_15-28-42_UIDb2b1f8a3-ee28-4589-9dee-2747cf8f750a
 _C.TRANSFER_EVAL.PRETRAIN_TRAIN_USERS_GROUP_WANDB = None
 _C.TRANSFER_EVAL.PRETRAIN_TEST_USERS_GROUP_WANDB = None
+_C.TRANSFER_EVAL.PRETRAIN_REFERENCE_GROUP_WANDB = 'train'  # or 'test'. Choose the train or test pretrain group for the reference performance (OAG/HAG).
+
+_C.TRANSFER_EVAL.WANDB_GROUP_TO_EVAL = ""
 _C.TRANSFER_EVAL.DIAGONAL_ONLY = True
 _C.TRANSFER_EVAL.INCLUDE_PRETRAIN_STREAM = False
 _C.TRANSFER_EVAL.INCLUDE_PRETRAIN_MODEL = True
