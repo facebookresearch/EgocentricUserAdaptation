@@ -11,17 +11,26 @@ import wandb
 from continual_ego4d.metrics.offline_metrics import get_micro_macro_avg_acc
 from continual_ego4d.metrics.offline_metrics import per_sample_metric_to_macro_avg
 from continual_ego4d.processing.run_adhoc_metric_processing_wandb import avg_user_streams
-from continual_ego4d.processing.utils import get_group_run_iterator
+from continual_ego4d.processing.utils import get_group_names_from_csv, get_group_run_iterator
 
 api = wandb.Api()
 
 # Adapt settings
+csv_path = '/your/path/to/wandb_export_2022-09-19T12_08_04.153-07_00.csv'  # Iterate all WandB runs of the groupnames in this csv
+single_group_name = None  # Or set to Groupname, e.g. "Finetuning_2022-10-14_13-11-14_UIDac6a2798-7fb0-4e9c-9896-c6c54de5237c"
+
 train = True
+pretrain_group_train = "FixedNetwork_2022-10-07_21-50-23_UID80e71950-cea4-44ba-ba16-7dddfe95be26"  # TODO set your pretrain groupname for training
+pretrain_group_test = "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4"  # TODO set your pretrain groupname for testing
+
+# Fixed Settings
+PROJECT_NAME = "ContinualUserAdaptation"  # FIXME might have to pre-pend your wandb username followed by slash '/'
+
 if train:
     train_users = ['68', '265', '324', '30', '24', '421', '104', '108', '27', '29']
     USER_LIST = train_users
     NB_EXPECTED_USERS = len(train_users)
-    PRETRAIN_GROUP = "FixedNetwork_2022-10-07_21-50-23_UID80e71950-cea4-44ba-ba16-7dddfe95be26"
+    PRETRAIN_GROUP = pretrain_group_train
 
 else:
     test_users = [
@@ -30,16 +39,27 @@ else:
         "74", "11", "126", "123", "436"]
     USER_LIST = test_users
     NB_EXPECTED_USERS = len(test_users)
-    PRETRAIN_GROUP = "FixedNetwork_2022-10-07_15-23-09_UID6e87e600-a447-438f-9a31-f5cae6dc9ed4"
-
-# Fixed Settings
-PROJECT_NAME = "ContinualUserAdaptation"  # FIXME might have to pre-pend your wandb username, followed by slash '/'
+    PRETRAIN_GROUP = pretrain_group_test
 
 # New uploaded keys
 NEW_METRIC_PREFIX = 'adhoc_users_aggregate'
 NEW_METRIC_PREFIX_MEAN = 'mean'
 NEW_METRIC_PREFIX_SE = 'SE'  # Unbiased standard error
 USER_AGGREGATE_COUNT = f"{NEW_METRIC_PREFIX}/user_aggregate_count"  # Over how many users added, also used to check if processed
+
+
+def main():
+    # From WandB csv from overview, grouped by Group. Get all the names in the csv (these are the run group names).
+    if single_group_name is None:
+        assert os.path.isfile(csv_path), f"Non-existing: {csv_path}"
+        selected_group_names: list[str] = get_group_names_from_csv(csv_path)
+
+    # Process for single group
+    else:
+        selected_group_names = [single_group_name]
+    print(f"Group names={pprint.pformat(selected_group_names)}")
+
+    adhoc_metrics_from_csv_dump_to_wandb(selected_group_names)
 
 
 def adhoc_metrics_from_csv_dump_to_wandb(selected_group_names, overwrite=True, skip_loss_metrics=True):
@@ -295,3 +315,7 @@ def dump_to_decorrelated_ACC(user_dump_dict, action_mode, macro_avg=True, k=1, r
     }
 
     return dict_for_AG, dict_not_for_AG
+
+
+if __name__ == "__main__":
+    main()
