@@ -17,7 +17,7 @@ class OnlineAdaptationGainMetric(AvgMeterMetric):
     reset_before_batch = True
 
     def __init__(self, metric_tag: str, unreduced_loss_fun, sample_idx_to_pretrain_loss: dict, loss_mode="action",
-                 main_metric_name="AG_online"):
+                 main_metric_name="OAG_loss_online"):
         """
         :param unreduced_loss_fun:
         :param sample_idx_to_pretrain_loss:
@@ -66,14 +66,14 @@ class RunningAvgOnlineAdaptationGainMetric(OnlineAdaptationGainMetric):
     reset_before_batch = False
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs, main_metric_name="AG_running_avg")
+        super().__init__(*args, **kwargs, main_metric_name="OAG_loss_running_avg")
 
 
 class CumulativeOnlineAdaptationGainMetric(OnlineAdaptationGainMetric):
     reset_before_batch = False
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs, main_metric_name="AG_cumul")
+        super().__init__(*args, **kwargs, main_metric_name="OAG_loss_cumul")
 
     @torch.no_grad()
     def result(self, current_batch_idx: int, **kwargs) -> Dict:
