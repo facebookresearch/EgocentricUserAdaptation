@@ -166,6 +166,7 @@ Plots:
   number of overlapping actions between train-users in a heatmap.
   - [plot_forgetting_comparison_SGD_replay.ipynb](notebooks/plot_forgetting_comparison_SGD_replay.ipynb): Re-exposure Forgetting (RF) analysis comparing Replay and
   SGD (2 lines) for RF (y-axis) on log-binned re-exposure count (x-axis).
+  - [plot_SGD_per_user_OAG.ipynb](notebooks/plot_SGD_per_user_OAG.ipynb): Plots the cumulative Adaptation Gain (y-axis) over iterations (x-axis), for all train users (10 lines).
 - Dataset stats:
   - [plot_ego4d_user_split_stats.ipynb](notebooks/plot_ego4d_user_split_stats.ipynb): Video length in minutes (y-axis) per user (x-axis). Color codes the user splits.
   - [plot_user_vs_pretrain_distribution.ipynb](notebooks/plot_user_vs_pretrain_distribution.ipynb): Plots the pretrain distribution ordered on frequency, and then
@@ -176,8 +177,7 @@ Plots:
 - 
 - [plot_SGD_gradient_analysis.ipynb](notebooks/): Grouped-barplot comparing gradient cosine-similarity of current batch
   with previous points k steps in history of the learning trajectory.
-- [plot_SGD_per_user_OAG.ipynb](notebooks/): Plots a single line per user for the instance-based micro-loss. These are
-  the learning curves for the users over time.
+- 
 
 - [plot_multi_iter_grouped_barplot.ipynb](notebooks/plot_multi_iter_grouped_barplot.ipynb): Lines for different
   metrics (OAG, HAG, and OAG disentangled in OAG-correlated and OAG-decorrelated) on y-axis, and number of updates on
