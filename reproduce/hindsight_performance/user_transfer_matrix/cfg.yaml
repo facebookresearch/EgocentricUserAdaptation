@@ -3,14 +3,16 @@ TRANSFER_EVAL:
 
   #####################################
   # MATRIX CONFIG
-  DIAGONAL_ONLY: False # False: full transfer matrix, True: Only get the per-user results (matching stream and model)
+  # The matrix of user-models vs user-streams. Using only the diagonal allows to aggregate over the user results.
+  # The full matrix is used to get the transfer matrix results (matching user-expert models with different user streams).
+  DIAGONAL_ONLY: True # False: full transfer matrix, True: Only get the per-user results (matching stream and model)
   INCLUDE_PRETRAIN_STREAM: False
   INCLUDE_PRETRAIN_MODEL: False
 
   #####################################
   # STREAMS TO EVALUATE (i.e. Groups)
   # You can select a single WandB group to perform hindsight evaluation on:
-  WANDB_GROUP_TO_EVAL: "Finetuning_2023-03-10_17-24-39_UIDf3d2c6ca-6422-4fd0-a9bd-92185be24ab0" # TODO Give group name
+  WANDB_GROUP_TO_EVAL: "Finetuning_2023-03-13_23-27-05_UID63caaa3f-5479-441f-a030-19425e42facc" # TODO Give group name
 
   # Or you can select a csv containing multiple groups that are processed sequentially:
 #  WANDB_GROUPS_TO_EVAL_CSV_PATH: "local_path_to/wandb_export_2022-09-21T15_36_21.953-07_00.csv" # TODO Give csv name
