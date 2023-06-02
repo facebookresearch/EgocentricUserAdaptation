@@ -1,3 +1,7 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 from . import optimizer as optim
 from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 import math 
