@@ -1,3 +1,7 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 import torch
 from continual_ego4d.metrics.meters import AverageMeter
 from continual_ego4d.metrics.offline_metrics import get_micro_macro_avg_acc
