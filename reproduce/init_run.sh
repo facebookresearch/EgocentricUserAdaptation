@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 # This script adds modules to path for execution and adds run-specific arguments:
 # e.g. run-specific unique output dir of experiment, and run-specific WandB tags based on parent directory names.
 
