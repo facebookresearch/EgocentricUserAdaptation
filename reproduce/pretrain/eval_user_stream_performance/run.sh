@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+#
 # Set DATA.USER_SUBSET to 'train' once, for U_train results on pretrain model and
 # to 'test' for U_test results on the pretrain model.
 
