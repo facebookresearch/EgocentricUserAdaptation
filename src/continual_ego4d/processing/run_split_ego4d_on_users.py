@@ -1,3 +1,7 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 """
 Split the original Ego4d dataset based on user meta-data in user-specific streams.
 The original train/val splits are merged, then with the user meta-data new user-based
