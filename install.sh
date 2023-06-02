@@ -1,3 +1,4 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 # Example code for requirements installation, run manually
 
 # Create and activate conda env
