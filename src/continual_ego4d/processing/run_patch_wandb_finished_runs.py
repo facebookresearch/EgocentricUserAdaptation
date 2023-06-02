@@ -1,3 +1,7 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 """
 Patch for runs that have a csv dump that marks the end of a stream training, but no WandB finished_run=True.
 This script iterates runs and if csv dump exists, the run is finished, add this to the wandb entry.
