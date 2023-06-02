@@ -1,3 +1,7 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 """
 After training user-streams, evaluate on the final models with the full user-streams.
 This can be the full transfer matrix, or only the diagonal where user model and stream match.
