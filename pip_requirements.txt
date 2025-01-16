@@ -12,6 +12,6 @@ submitit==1.3.3
 pandas==1.3.5
 plotly
 tensorboard
-setuptools==59.5.0
+setuptools==70.0.0
 wandb
 matplotlib==3.6.2
